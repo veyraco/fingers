@@ -247,6 +247,8 @@ export interface AutocompleteItem {
 	value: string;
 	label: string;
 	description?: string;
+	/** Short marker shown after the description, such as `ee` for a feature that needs a sign-in. */
+	tag?: string;
 }
 
 type Awaitable<T> = T | Promise<T>;
@@ -255,6 +257,8 @@ export interface SlashCommand {
 	name: string;
 	description?: string;
 	argumentHint?: string;
+	/** Short marker shown after the description in the slash menu (see AutocompleteItem.tag). */
+	tag?: string;
 	// Function to get argument completions for this command
 	// Returns null if no argument completion is available
 	getArgumentCompletions?(argumentPrefix: string): Awaitable<AutocompleteItem[] | null>;
@@ -343,10 +347,12 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 					const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
 					const desc = cmd.description ?? "";
 					const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
+					const tag = "tag" in cmd && cmd.tag ? cmd.tag : undefined;
 					return {
 						name,
 						label: name,
 						description: fullDesc || undefined,
+						tag,
 					};
 				});
 
@@ -363,6 +369,7 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 					value: item.name,
 					label: item.label,
 					...(item.description && { description: item.description }),
+					...(item.tag && { tag: item.tag }),
 				}));
 
 				if (filtered.length === 0) return null;

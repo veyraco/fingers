@@ -23,7 +23,7 @@ import {
 	visibleWidth,
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
-import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
+import { SelectList, type SelectListFrame, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
 
 const graphemeSegmenter = getGraphemeSegmenter();
 const wordSegmenter = getWordSegmenter();
@@ -243,6 +243,8 @@ export interface EditorTheme {
 export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
+	/** Draw the slash-command menu in a titled box, with tag legends and key hints. */
+	slashMenu?: SelectListFrame & { selectedMarker?: string; labelPrefix?: string };
 }
 
 const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
@@ -333,6 +335,7 @@ export class Editor implements Component, Focusable {
 	private autocompleteState: "regular" | "force" | null = null;
 	private autocompletePrefix: string = "";
 	private autocompleteMaxVisible: number = 5;
+	private slashMenuLayout: SelectListLayoutOptions = SLASH_COMMAND_SELECT_LIST_LAYOUT;
 	private autocompleteAbort?: AbortController;
 	private autocompleteDebounceTimer?: ReturnType<typeof setTimeout>;
 	private autocompleteRequestTask: Promise<void> = Promise.resolve();
@@ -384,6 +387,10 @@ export class Editor implements Component, Focusable {
 		this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
 		const maxVisible = options.autocompleteMaxVisible ?? 5;
 		this.autocompleteMaxVisible = Number.isFinite(maxVisible) ? Math.max(3, Math.min(20, Math.floor(maxVisible))) : 5;
+		if (options.slashMenu) {
+			const { selectedMarker, labelPrefix, ...frame } = options.slashMenu;
+			this.slashMenuLayout = { ...SLASH_COMMAND_SELECT_LIST_LAYOUT, frame, selectedMarker, labelPrefix };
+		}
 	}
 
 	/** Set of currently valid paste IDs, for marker-aware segmentation. */
@@ -2258,7 +2265,7 @@ export class Editor implements Component, Focusable {
 		prefix: string,
 		items: Array<{ value: string; label: string; description?: string }>,
 	): SelectList {
-		const layout = prefix.startsWith("/") ? SLASH_COMMAND_SELECT_LIST_LAYOUT : undefined;
+		const layout = prefix.startsWith("/") ? this.slashMenuLayout : undefined;
 		const list = new SelectList(items, this.autocompleteMaxVisible, this.theme.selectList, layout);
 		list.onSelect = (selected) => {
 			if (!this.autocompleteProvider) return;

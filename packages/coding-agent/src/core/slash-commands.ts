@@ -14,7 +14,18 @@ export interface BuiltinSlashCommand {
 	name: string;
 	description: string;
 	argumentHint?: string;
+	/** `ee`: the command needs `fingers login` and a Veyra tier that includes it (tagged in the slash menu). */
+	edition?: "ee";
 }
+
+/** The slash menu frame (canvas FingersTuiSlash): title, the `ee` legend, and the key hints below it. */
+export const SLASH_MENU = {
+	title: "Commands",
+	tagLegends: { ee: "= needs fingers login and a Veyra tier that includes it" },
+	hint: "↑↓ move · tab complete · enter run · esc close",
+	selectedMarker: "❯ ",
+	labelPrefix: "/",
+} as const;
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },

@@ -140,6 +140,8 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are requir
 |---|---|---|---|
 | `shellPath` | string | Platform default | Custom shell executable path. Supports a leading `~`. |
 | `shellCommandPrefix` | string | None | Prefix prepended to every shell command. |
+| `approvals.commands` | `"ask"` \| `"never"` | `"ask"` | In the interactive terminal, `"ask"` shows the approval box before a shell command that the allow list does not cover: **Yes**, **Yes, always allow** the command's first two words for the rest of the process, or **No, tell Fingers what to do instead** (the call is blocked and your words reach the model). `"never"` runs every command without asking. Print, JSON and RPC modes never ask; managed RPC mode has its own approvals ([rpc-managed.md](rpc-managed.md)). |
+| `approvals.allow` | `string[]` | None | Command prefixes that run without asking, such as `"pnpm vitest"`. Built in: `ls`, `pwd`, `cat`, `head`, `tail`, `wc`, `echo`, `which`, `rg`, `grep`, `fd`, `tree`, `file`, `stat`, `du`, `df`, `date`, and `git status`/`diff`/`log`/`show`/`branch`/`rev-parse`. A chained, piped, substituted or redirected command always asks. |
 | `npmCommand` | `string[]` | `npm` | Command and arguments used for npm package lookup and installation. |
 | `selfUpdateCommand` | `string[]` | None | Command and arguments `fingers update` runs to update Fingers itself, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. `FINGERS_SELF_UPDATE_COMMAND` takes precedence. **Can only be set in agent-directory settings.** See [Custom update command](cli.md#custom-update-command). |
 

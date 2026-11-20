@@ -170,7 +170,7 @@ describe("FooterComponent width handling", () => {
 			usage: { input: 1000, output: 10, cacheRead: 0, cacheWrite: 4000, cost: { total: 0.1 } },
 			moreUsage: [{ input: 200, output: 10, cacheRead: 4000, cacheWrite: 800, cost: { total: 0.02 } }],
 		});
-		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[1]);
+		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[2]);
 		expect(statsLine).toContain("cache 40%");
 		expect(statsLine).not.toContain("CH");
 	});
@@ -180,7 +180,7 @@ describe("FooterComponent width handling", () => {
 			sessionName: "",
 			usage: { input: 1000, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0.1 } },
 		});
-		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[1]);
+		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[2]);
 		expect(statsLine).not.toContain("cache");
 	});
 
@@ -194,9 +194,9 @@ describe("FooterComponent width handling", () => {
 		});
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		const statsLine = stripAnsi(footer.render(120)[1]);
+		const statsLine = stripAnsi(footer.render(120)[2]);
 
-		expect(statsLine).toContain("auto \u2022 high \u2192 gpt-5.6-luna \u2022 medium");
+		expect(statsLine).toContain("auto · high → gpt-5.6-luna · medium");
 	});
 
 	it("includes summary and tool result usage in the total cost", () => {
@@ -233,18 +233,18 @@ describe("FooterComponent width handling", () => {
 		});
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		const statsLine = stripAnsi(footer.render(120)[1]);
-		expect(statsLine).toContain("$1.250");
+		const statsLine = stripAnsi(footer.render(120)[2]);
+		expect(statsLine).toContain("$1.25 ");
 	});
 
 	it("updates cached usage totals after an entry is appended", () => {
 		const usage = { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } };
 		const session = createSession({ sessionName: "", usage });
 		const footer = new FooterComponent(session, createFooterData(1));
-		expect(stripAnsi(footer.render(120)[1])).toContain("$0.500");
+		expect(stripAnsi(footer.render(120)[2])).toContain("$0.50 ");
 
 		session.sessionManager.getEntries().push({ type: "message", message: { role: "assistant", usage } } as never);
-		expect(stripAnsi(footer.render(120)[1])).toContain("$1.000");
+		expect(stripAnsi(footer.render(120)[2])).toContain("$1.00 ");
 	});
 
 	it("shows the cache hit rate in the canvas form when cache usage is present", () => {
@@ -260,7 +260,7 @@ describe("FooterComponent width handling", () => {
 		});
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		const statsLine = stripAnsi(footer.render(120)[1]);
+		const statsLine = stripAnsi(footer.render(120)[2]);
 		expect(statsLine).toContain("cache 25%");
 	});
 
@@ -278,14 +278,14 @@ describe("FooterComponent width handling", () => {
 		});
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		expect(stripAnsi(footer.render(120)[1])).toContain("$1.234 (sub)");
+		expect(stripAnsi(footer.render(120)[2])).toContain("$1.23 (sub)");
 	});
 
 	it("marks explicitly identified subscription auth", () => {
 		const session = createSession({ sessionName: "", provider: "anthropic", usingSubscription: true });
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		expect(stripAnsi(footer.render(120)[1])).toContain("$0.000 (sub)");
+		expect(stripAnsi(footer.render(120)[2])).toContain("$0.00 (sub)");
 	});
 
 	it("does not mark generic OAuth sign-in as a subscription", () => {
@@ -301,9 +301,9 @@ describe("FooterComponent width handling", () => {
 			},
 		});
 		const footer = new FooterComponent(session, createFooterData(1));
-		const stats = stripAnsi(footer.render(120)[1]);
+		const stats = stripAnsi(footer.render(120)[2]);
 
-		expect(stats).toContain("$1.234");
+		expect(stats).toContain("$1.23");
 		expect(stats).not.toContain("(sub)");
 	});
 });

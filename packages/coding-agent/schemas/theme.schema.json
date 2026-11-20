@@ -191,6 +191,10 @@
           "$ref": "#/$defs/ColorValue",
           "description": "Tool execution box (error state)"
         },
+        "statusBarBg": {
+          "$ref": "#/$defs/ColorValue",
+          "description": "Status line background under the editor (falls back to toolPendingBg when omitted)"
+        },
         "toolTitle": {
           "$ref": "#/$defs/ColorValue",
           "description": "Tool execution box title color"

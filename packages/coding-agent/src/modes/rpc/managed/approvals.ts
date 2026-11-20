@@ -3,6 +3,7 @@
  * `approval`), the `approval_request` sent to the host, and the host's `approval_response`.
  */
 import { randomBytes } from "node:crypto";
+import { commandAllowPattern, commandMatchesPattern } from "../../../core/command-allow-list.ts";
 
 export type ApprovalMode = "never" | "write_tools" | "always";
 export type ApprovalKind = "command" | "file_write" | "mcp_tool" | "network" | "other";
@@ -57,10 +58,8 @@ export function approvalNeed(tool: ManagedToolDescriptor, mode: ApprovalMode): {
 	}
 }
 
-const SHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
-
-function commandTokens(args: Record<string, unknown>): string[] {
-	return typeof args.command === "string" ? args.command.trim().split(/\s+/).filter(Boolean) : [];
+function commandOf(args: Record<string, unknown>): string {
+	return typeof args.command === "string" ? args.command : "";
 }
 
 function firstLabel(args: Record<string, unknown>): string | undefined {
@@ -93,7 +92,7 @@ export function approvalSummary(tool: ManagedToolDescriptor, args: Record<string
 export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<string, unknown>): string {
 	switch (tool.kind) {
 		case "command":
-			return commandTokens(args).slice(0, 2).join(" ") || tool.name;
+			return commandAllowPattern(commandOf(args)) || tool.name;
 		case "file_write":
 			return `${tool.name}:${typeof args.path === "string" ? args.path : ""}`;
 		case "mcp_tool":
@@ -105,12 +104,8 @@ export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<str
 
 function patternMatches(pattern: string, tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
 	if (tool.kind !== "command") return pattern === allowAlwaysPattern(tool, args);
-	const command = typeof args.command === "string" ? args.command : "";
 	// A chained or redirected command could run anything after an allowed prefix: always ask.
-	if (SHELL_CHAINING.test(command)) return false;
-	const wanted = pattern.split(" ");
-	const tokens = commandTokens(args);
-	return wanted.length > 0 && wanted.every((token, index) => tokens[index] === token);
+	return commandMatchesPattern(pattern, commandOf(args));
 }
 
 interface PendingApproval {

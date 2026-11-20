@@ -255,6 +255,26 @@ export const SettingsSchema = Type.Object(
 				description: "Custom shell path, for example for Cygwin on Windows, with support for leading ~ expansion.",
 			}),
 		),
+		approvals: Type.Optional(
+			Type.Object(
+				{
+					commands: Type.Optional(
+						Type.Union([Type.Literal("ask"), Type.Literal("never")], {
+							description:
+								'"ask" shows the approval box before a shell command the allow list does not cover (interactive mode only); "never" runs every command without asking.',
+							default: SETTINGS_DEFAULTS.approvals.commands,
+						}),
+					),
+					allow: Type.Optional(
+						Type.Array(Type.String(), {
+							description:
+								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only list (ls, cat, rg, git status, ...). Chained or redirected commands always ask.',
+						}),
+					),
+				},
+				{ description: "Approvals for shell commands in the interactive terminal." },
+			),
+		),
 		quietStartup: Type.Optional(
 			Type.Union([Type.Boolean(), Type.Literal("header")], {
 				description: 'When true, hide all startup output. When "header", keep only the startup header.',

@@ -49,8 +49,6 @@ import {
 	type TUI,
 	TuiAltScreen,
 	TuiMainScreen,
-	type TuiMouseEvent,
-	type TuiMouseEventResult,
 	visibleWidth,
 } from "@veyraco/fingers-tui";
 import chalk from "chalk";
@@ -70,6 +68,7 @@ import {
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type { AgentSessionRuntimeDiagnostic } from "../../core/agent-session-services.ts";
+import { formatNoModelsAvailableMessage } from "../../core/auth-guidance.ts";
 import {
 	CACHE_TTL_MS,
 	type CacheMiss,
@@ -94,6 +93,7 @@ import type {
 	UserBashEventResult,
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
+import { detectLocalCredentials } from "../../core/first-run-providers.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
@@ -121,7 +121,7 @@ import {
 	type UsageEntry,
 } from "../../core/session-manager.ts";
 import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.ts";
-import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+import { BUILTIN_SLASH_COMMANDS, SLASH_MENU } from "../../core/slash-commands.ts";
 import { getSourcePackageKey, type SourceInfo } from "../../core/source-info.ts";
 import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -141,7 +141,6 @@ import { ensureTool, type ToolStatus } from "../../utils/tools-manager.ts";
 import { checkForNewFingersVersion, type LatestFingersRelease } from "../../utils/version-check.ts";
 import { reportBug } from "./bug-report.ts";
 import { createChatViewport } from "./chat-viewport.ts";
-import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
@@ -150,11 +149,11 @@ import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
-import { playArmin3d, playFingersLogo3d } from "./components/easter-egg-3d.lazy.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
-import { fingersLogoLines, fingersWordmark, supportsFingersLogo } from "./components/fingers-logo.ts";
+import { fingersBannerLines } from "./components/fingers-logo.ts";
+import { FirstRunChooserComponent } from "./components/first-run-chooser.ts";
 import { FooterComponent, formatTokens } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
@@ -257,16 +256,8 @@ class ExpandableText extends ThemedText implements Expandable {
 	}
 }
 
-/** The built-in header. Clicking its logo (the first two lines, after one column of padding) plays an easter egg. */
-class BuiltInHeader extends ExpandableText {
-	onLogoClick: ((column: number, row: number) => void) | undefined;
-
-	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (event.type !== "click" || event.y > 1 || event.x < 1 || event.x > 4 || !this.onLogoClick) return undefined;
-		this.onLogoClick(event.screenX - event.x + 1, event.screenY - event.y);
-		return { handled: true };
-	}
-}
+/** The built-in header: the Fingers banner and key hints. */
+class BuiltInHeader extends ExpandableText {}
 
 type ExtensionDialogComponent = Component & { dispose?(): void };
 
@@ -720,6 +711,7 @@ export class InteractiveMode {
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
 			embedWorkingStatus: true,
+			slashMenu: SLASH_MENU,
 		});
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
@@ -799,6 +791,7 @@ export class InteractiveMode {
 			name: command.name,
 			description: command.description,
 			...(command.argumentHint && { argumentHint: command.argumentHint }),
+			...(command.edition && { tag: command.edition }),
 		}));
 
 		const modelCommand = slashCommands.find((command) => command.name === "model");
@@ -1094,15 +1087,10 @@ export class InteractiveMode {
 		// Add header with keybindings from config (unless silenced)
 		if (this.shouldShowStartupHeader()) {
 			const showDetails = this.shouldShowStartupDetails();
-			// Built on demand so the header follows theme changes. The logo's first line carries the version,
-			// its second line the first line of key hints. Terminals that cannot render the logo get a
-			// "Fingers vX" line instead, with the key hints below it.
-			const showLogo = supportsFingersLogo();
-			const withLogo = (hints: string) => {
-				if (!showLogo) return `${fingersWordmark()} ${theme.fg("dim", `v${this.version}`)}\n${hints}`;
-				const [top, bottom] = fingersLogoLines();
-				return `${top} ${theme.fg("dim", `v${this.version}`)}\n${bottom} ${hints}`;
-			};
+			// Built on demand so the header follows theme changes. The banner (canvas FingersTui): the mark,
+			// "Veyra Fingers", the version line, and the first line of key hints. Terminals that cannot render
+			// the half-block mark get the text lines only.
+			const banner = (hints?: string) => fingersBannerLines({ version: this.version, hints }).join("\n");
 
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
@@ -1151,13 +1139,12 @@ export class InteractiveMode {
 					`Fingers can explain its own features and look up its docs. Ask it how to use or extend Fingers.`,
 				);
 			const header = new BuiltInHeader(
-				() => `${withLogo(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`,
-				() => `${withLogo(expandedInstructions())}\n\n${onboarding()}`,
+				() => `${banner(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`,
+				() => `${banner()}\n${expandedInstructions()}\n\n${onboarding()}`,
 				this.getStartupExpansionState(),
 				1,
 				0,
 			);
-			if (showLogo) header.onLogoClick = (column, row) => playFingersLogo3d(this.renderer, column, row);
 			this.builtInHeader = header;
 
 			// Setup UI layout
@@ -1284,7 +1271,14 @@ export class InteractiveMode {
 			initialMessages,
 		} = this.options;
 
-		this.showRuntimeDiagnostics(startupDiagnostics ?? []);
+		// No model configured yet: the first-run screen replaces the "No models available" warning.
+		const showFirstRun =
+			this.session.modelRuntime.getAvailableSnapshot().length === 0 && !initialMessage && !initialMessages?.length;
+		this.showRuntimeDiagnostics(
+			(startupDiagnostics ?? []).filter(
+				(diagnostic) => !(showFirstRun && diagnostic.message === formatNoModelsAvailableMessage()),
+			),
+		);
 
 		if (migratedProviders && migratedProviders.length > 0) {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
@@ -1302,7 +1296,9 @@ export class InteractiveMode {
 			this.showError(`models.json error: ${modelsJsonError}`);
 		}
 
-		if (modelFallbackMessage) {
+		if (showFirstRun) {
+			this.showFirstRunChooser(modelFallbackMessage ?? formatNoModelsAvailableMessage());
+		} else if (modelFallbackMessage) {
 			this.showWarning(modelFallbackMessage);
 		}
 
@@ -3490,11 +3486,6 @@ export class InteractiveMode {
 			}
 			if (text === "/debug") {
 				this.handleDebugCommand();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/arminsayshi") {
-				this.handleArminSaysHi();
 				this.editor.setText("");
 				return;
 			}
@@ -6366,6 +6357,55 @@ export class InteractiveMode {
 			.finally(() => clearTimeout(timeout));
 	}
 
+	/**
+	 * The first-run screen (canvas FingersTuiFirstRun) in place of the editor, shown when no model is
+	 * configured. Option 2 continues with the provider's /login flow; the key goes to the credential store.
+	 */
+	private showFirstRunChooser(fallbackMessage: string | undefined): void {
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+		const chooser = new FirstRunChooserComponent({
+			version: this.version,
+			detected: detectLocalCredentials(),
+			onCancel: () => {
+				restoreEditor();
+				if (fallbackMessage) this.showWarning(fallbackMessage);
+			},
+			onChoose: (choice) => {
+				if (choice.kind === "veyra") {
+					chooser.setNotice([
+						"Signing in to Veyra needs `fingers login`, which this build does not have yet. Choose 2 or 3.",
+					]);
+				} else if (choice.kind === "env") {
+					const profile = choice.detected.find((found) => found.providerId === "amazon-bedrock");
+					const awsProfile = profile?.source.match(/profile "([^"]+)"/)?.[1];
+					chooser.setNotice([
+						"No provider key is set in this shell. Export one and start Fingers again, for example:",
+						awsProfile ? `  export AWS_PROFILE=${awsProfile}` : "  export ANTHROPIC_API_KEY=…",
+						"or choose 2 to store a key in your OS keychain.",
+					]);
+				} else if (choice.provider.setup === "custom_endpoint") {
+					chooser.setNotice([
+						`Add the endpoint to models.json (${path.join(getDocsPath(), "models.md")}), then run /login <provider id>.`,
+					]);
+				} else {
+					restoreEditor();
+					void this.handleLoginCommand(choice.provider.providerIds[0]);
+					return;
+				}
+				this.ui.requestRender();
+			},
+		});
+		this.editorContainer.clear();
+		this.editorContainer.addChild(chooser);
+		this.ui.setFocus(chooser);
+		this.ui.requestRender();
+	}
+
 	private showAmbientAuthDialog(providerOption: AuthSelectorProvider, onBack?: () => void): void {
 		const restoreEditor = () => {
 			this.editorContainer.clear();
@@ -7122,13 +7162,6 @@ export class InteractiveMode {
 		this.chatContainer.addChild(
 			new ThemedText(() => `${theme.fg("accent", "✓ Debug log written")}\n${theme.fg("muted", debugLogPath)}`, 1, 1),
 		);
-		this.ui.requestRender();
-	}
-
-	private handleArminSaysHi(): void {
-		if (playArmin3d(this.renderer)) return;
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new ArminComponent(this.ui));
 		this.ui.requestRender();
 	}
 

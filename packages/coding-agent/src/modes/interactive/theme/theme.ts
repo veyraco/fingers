@@ -1088,6 +1088,10 @@ export function getSelectListTheme(): SelectListTheme {
 		description: (text: string) => theme.fg("muted", text),
 		scrollInfo: (text: string) => theme.fg("muted", text),
 		noMatch: (text: string) => theme.fg("muted", text),
+		tag: (text: string) => theme.fg("warning", text),
+		frameBorder: (text: string) => theme.fg("border", text),
+		frameTitle: (text: string) => theme.bold(theme.fg("border", text)),
+		frameHint: (text: string) => theme.fg("dim", text),
 	};
 }
 

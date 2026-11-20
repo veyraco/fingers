@@ -207,6 +207,33 @@
       "type": "string",
       "description": "Custom shell path, for example for Cygwin on Windows, with support for leading ~ expansion."
     },
+    "approvals": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "ask"
+            },
+            {
+              "type": "string",
+              "const": "never"
+            }
+          ],
+          "description": "\"ask\" shows the approval box before a shell command the allow list does not cover (interactive mode only); \"never\" runs every command without asking.",
+          "default": "ask"
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Command prefixes that run without asking, such as \"pnpm vitest\", besides the built-in read-only list (ls, cat, rg, git status, ...). Chained or redirected commands always ask."
+        }
+      },
+      "description": "Approvals for shell commands in the interactive terminal."
+    },
     "quietStartup": {
       "anyOf": [
         {
