@@ -193,6 +193,10 @@
           "path": "rpc-extension-ui.md"
         },
         {
+          "title": "Managed RPC Mode",
+          "path": "rpc-managed.md"
+        },
+        {
           "title": "Message Types",
           "path": "message-types.md"
         }

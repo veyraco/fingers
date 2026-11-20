@@ -72,6 +72,7 @@ import { writeDiagnosticsToStderr } from "./modes/diagnostics-stderr.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, setThemeJsonValidator, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { validateThemeJson } from "./modes/interactive/theme/theme-schema.ts";
+import { runManagedRpcMode } from "./modes/rpc/managed/index.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -701,6 +702,15 @@ export async function main(args: string[], options?: MainOptions) {
 	if (parsed.mode === "rpc" && parsed.fileArgs.length > 0) {
 		console.error(chalk.red("Error: @file arguments are not supported in RPC mode"));
 		process.exit(1);
+	}
+
+	if (parsed.managed) {
+		if (parsed.mode !== "rpc") {
+			console.error(chalk.red("Error: --managed requires --mode rpc"));
+			process.exit(1);
+		}
+		// Managed mode builds its runtime after the host's configure command, under the managed policy.
+		await runManagedRpcMode({ sessionDir: parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined });
 	}
 
 	validateForkFlags(parsed);
