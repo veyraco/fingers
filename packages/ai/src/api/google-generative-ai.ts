@@ -9,8 +9,10 @@ import { calculateCost, clampThinkingLevel } from "../models.ts";
 import type {
 	Api,
 	AssistantMessage,
+	CacheRetention,
 	FetchFunction,
 	Model,
+	ProviderEnv,
 	ProviderHeaders,
 	SimpleStreamOptions,
 	StreamFunction,
@@ -21,13 +23,16 @@ import type {
 	ToolCall,
 	TranscriptContext,
 } from "../types.ts";
+import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
 import { type ClientIdentity, getIdentityHeaders } from "../utils/identity.ts";
+import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { getSystemMessageText } from "../utils/text.ts";
 import { collapseSystemMessages, getCurrentTools, getInitialSystemMessage } from "../utils/transcript.ts";
+import { applyGeminiContextCache, forgetGeminiContextCache, isCachedContentError } from "./google-context-cache.ts";
 import type { GoogleApiThinkingLevel, ResolvedGoogleThinkingLevel } from "./google-shared.ts";
 import {
 	convertMessages,
@@ -91,12 +96,42 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 				throw new Error(`No API key for provider: ${model.provider}`);
 			}
 			const client = createClient(model, apiKey, options?.headers, options?.identity, options?.fetch);
-			let params = buildParams(model, normalizedContext, options);
-			const nextParams = await options?.onPayload?.(params, model);
-			if (nextParams !== undefined) {
-				params = nextParams as GenerateContentParameters;
+			const params = buildParams(model, normalizedContext, options);
+			const send = async (request: GenerateContentParameters) => {
+				let payload = request;
+				const nextParams = await options?.onPayload?.(payload, model);
+				if (nextParams !== undefined) {
+					payload = nextParams as GenerateContentParameters;
+				}
+				return retryGoogleRequest(() => client.models.generateContentStream(payload), options);
+			};
+			const contextCache = await applyGeminiContextCache(client, model, params, {
+				apiKey,
+				cacheRetention: resolveCacheRetention(options?.cacheRetention, options?.env),
+				signal: options?.signal,
+				onRefused: (error) =>
+					appendAssistantMessageDiagnostic(
+						output,
+						createAssistantMessageDiagnostic("gemini_context_cache_refused", error, { model: model.id }),
+					),
+			});
+			let googleStream: Awaited<ReturnType<typeof send>>;
+			if (contextCache) {
+				try {
+					googleStream = await send(contextCache.params);
+				} catch (error) {
+					// The cache expired early or was deleted: send the request with its own prompt and tools.
+					if (!isCachedContentError(error)) throw error;
+					forgetGeminiContextCache(contextCache.key);
+					appendAssistantMessageDiagnostic(
+						output,
+						createAssistantMessageDiagnostic("gemini_context_cache_fallback", error, { model: model.id }),
+					);
+					googleStream = await send(params);
+				}
+			} else {
+				googleStream = await send(params);
 			}
-			const googleStream = await retryGoogleRequest(() => client.models.generateContentStream(params), options);
 
 			stream.push({ type: "start", partial: output });
 			let currentBlock: TextContent | ThinkingContent | null = null;
@@ -337,6 +372,20 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		},
 	} satisfies GoogleOptions);
 };
+
+/**
+ * Resolve cache retention preference. Defaults to "short" (Gemini's implicit caching only);
+ * FINGERS_CACHE_RETENTION=long turns on explicit context caching.
+ */
+function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
+	if (cacheRetention) {
+		return cacheRetention;
+	}
+	if (getProviderEnvValue("FINGERS_CACHE_RETENTION", env) === "long") {
+		return "long";
+	}
+	return "short";
+}
 
 function createClient(
 	model: Model<"google-generative-ai">,

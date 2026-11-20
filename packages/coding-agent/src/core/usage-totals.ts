@@ -27,6 +27,23 @@ export function addUsageToTotals(totals: UsageTotals, usage: Usage): void {
 	totals.cost += usage.cost.total;
 }
 
+/**
+ * Share of all prompt tokens (new input, cache reads and cache writes) that the provider read from its
+ * prompt cache, 0 to 100. Undefined until a provider reports any cache activity, so providers without
+ * prompt caching show nothing rather than 0%.
+ */
+export function cacheHitPercent(totals: UsageTotals): number | undefined {
+	if (totals.cacheRead <= 0 && totals.cacheWrite <= 0) return undefined;
+	const promptTokens = totals.input + totals.cacheRead + totals.cacheWrite;
+	return promptTokens > 0 ? (totals.cacheRead / promptTokens) * 100 : undefined;
+}
+
+/** Status line form of {@link cacheHitPercent}: `cache 82%`, rounded down. */
+export function formatCacheHit(totals: UsageTotals): string | undefined {
+	const percent = cacheHitPercent(totals);
+	return percent === undefined ? undefined : `cache ${Math.floor(percent)}%`;
+}
+
 /** Sum of two usages, keeping the optional token splits when either side reports them. */
 export function combineUsage(first: Usage, second: Usage): Usage {
 	return {

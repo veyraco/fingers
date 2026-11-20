@@ -1172,16 +1172,36 @@ function convertMessages(
 		}
 	}
 
-	// Add cache point to the last user message for supported Claude models when caching is enabled
+	// Add cache points for supported Claude models when caching is enabled: on the last user message, and
+	// on the message the previous request ended with (the last user message before the newest assistant
+	// reply). The previous request wrote its cache entry there; Claude only looks 20 blocks back from a
+	// cache point for an earlier entry, so a turn with many parallel tool calls would otherwise miss.
+	// Together with the system prompt's cache point that is 3 of the 4 allowed.
 	if (cacheRetention !== "none" && supportsPromptCaching(model, env) && result.length > 0) {
+		const cachePoint = (): ContentBlock => ({
+			cachePoint: {
+				type: CachePointType.DEFAULT,
+				...(cacheRetention === "long" ? { ttl: CacheTTL.ONE_HOUR } : {}),
+			},
+		});
 		const lastMessage = result[result.length - 1];
 		if (lastMessage.role === ConversationRole.USER && lastMessage.content) {
-			(lastMessage.content as ContentBlock[]).push({
-				cachePoint: {
-					type: CachePointType.DEFAULT,
-					...(cacheRetention === "long" ? { ttl: CacheTTL.ONE_HOUR } : {}),
-				},
-			});
+			(lastMessage.content as ContentBlock[]).push(cachePoint());
+		}
+		let lastAssistant = -1;
+		for (let i = result.length - 1; i >= 0; i--) {
+			if (result[i].role === ConversationRole.ASSISTANT) {
+				lastAssistant = i;
+				break;
+			}
+		}
+		for (let i = lastAssistant - 1; i >= 0; i--) {
+			if (result[i].role !== ConversationRole.USER) continue;
+			const content = result[i].content as ContentBlock[] | undefined;
+			if (content && content.length > 0 && !("cachePoint" in content[content.length - 1])) {
+				content.push(cachePoint());
+			}
+			break;
 		}
 	}
 

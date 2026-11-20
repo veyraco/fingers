@@ -1592,7 +1592,54 @@ function buildParams(
 		params.fallbacks = allowedFallbackModels.map((fallback) => ({ model: fallback.model }));
 	}
 
+	if (cacheControl) addPreviousTurnBreakpoint(params, cacheControl);
+
 	return { params, hasPreferredStrictTools, providerThinkingLevel: effortMessages ? activeEffort : undefined };
+}
+
+/** Anthropic accepts at most this many `cache_control` breakpoints per request. */
+const MAX_CACHE_BREAKPOINTS = 4;
+
+const CACHEABLE_MESSAGE_BLOCKS = new Set(["text", "image", "tool_result", "tool_addition", "tool_removal"]);
+
+function countCacheBreakpoints(params: MessageCreateParamsStreaming): number {
+	const marked = (block: unknown) => typeof block === "object" && block !== null && "cache_control" in block;
+	let count = 0;
+	if (Array.isArray(params.system)) count += params.system.filter(marked).length;
+	count += (params.tools ?? []).filter(marked).length;
+	for (const message of params.messages) {
+		if (Array.isArray(message.content)) count += message.content.filter(marked).length;
+	}
+	return count;
+}
+
+/**
+ * Keeps a breakpoint on the message the previous request ended with (the last user message before the
+ * newest assistant reply), next to the one on the newest message. The previous request wrote its cache
+ * entry there, and Anthropic only looks 20 blocks back from a breakpoint for an earlier entry: a turn with
+ * many parallel tool calls would otherwise miss the whole conversation and write it again. Only added
+ * while the request stays within Anthropic's 4 breakpoints (system prompt, last tool, newest message).
+ */
+function addPreviousTurnBreakpoint(params: MessageCreateParamsStreaming, cacheControl: CacheControlEphemeral): void {
+	if (countCacheBreakpoints(params) >= MAX_CACHE_BREAKPOINTS) return;
+	const messages = params.messages;
+	let lastAssistant = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === "assistant") {
+			lastAssistant = i;
+			break;
+		}
+	}
+	for (let i = lastAssistant - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== "user") continue;
+		if (!Array.isArray(message.content)) return;
+		const lastBlock = message.content[message.content.length - 1];
+		if (lastBlock && CACHEABLE_MESSAGE_BLOCKS.has(lastBlock.type) && !("cache_control" in lastBlock)) {
+			(lastBlock as { cache_control?: CacheControlEphemeral }).cache_control = cacheControl;
+		}
+		return;
+	}
 }
 
 // Normalize tool call IDs to match Anthropic's required pattern and length
@@ -1666,9 +1713,14 @@ function convertMessages(
 		} else if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				if (msg.content.trim().length > 0) {
+					// With caching on, a prompt is always one text block: the cache breakpoint lands on it
+					// while it is the newest (or the previous turn's) message, and its wire form must not
+					// change when the breakpoint moves on.
 					params.push({
 						role: "user",
-						content: sanitizeSurrogates(msg.content),
+						content: cacheControl
+							? [{ type: "text", text: sanitizeSurrogates(msg.content) }]
+							: sanitizeSurrogates(msg.content),
 					});
 				}
 			} else {

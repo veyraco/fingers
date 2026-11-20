@@ -1437,6 +1437,19 @@ Importing an implementation module loads its SDK. The `./api/<id>.lazy` wrappers
 
 **Anthropic message threads:** with `sessionId` set and `cacheRetention` not `"none"`, Anthropic requests continue from the previous reply on the server (`message-threads-2026-08-12` beta) and send only the new messages. When anything earlier in the request changed, or the server can't continue, the full request is sent. Token counts and prompt caching are unchanged. On by default only for the `anthropic` provider on `api.anthropic.com`; set `compat.supportsMessageThreads` to change that, for example for gateways that forward the `thread` field. Set `disableContinuation: true` on requests that repeat an earlier one, such as cache warming. Call `cleanupSessionResources(sessionId)` when a session ends.
 
+**Prompt caching:** on by default (`cacheRetention: "short"`; `"long"` or `FINGERS_CACHE_RETENTION=long` for the longer TTLs; `"none"` turns it off). Each provider gets what its own cache needs, and the cached prefix (system prompt, tools, earlier messages) is sent byte-identical from turn to turn:
+
+| Provider | What is sent |
+|----------|--------------|
+| Anthropic API, Claude on Vertex AI, OpenRouter's Claude | `cache_control` on the system prompt, the last tool, the newest message and the message the previous request ended with (4 breakpoints at most). The previous turn's breakpoint lets the request read the entry the previous request wrote even when a turn with many parallel tool calls puts it beyond Anthropic's 20-block lookback. Prompts are sent as text blocks, so a message's wire form does not change when a breakpoint moves on. |
+| Amazon Bedrock (Claude) | `cachePoint` after the system prompt, the newest message and the previous turn's message. |
+| OpenAI, xAI (Responses) | `prompt_cache_key` = `sessionId`. |
+| Google Gemini | Short retention: Gemini's implicit caching. Long retention: an explicit context cache (`cachedContents`, TTL 1 h) holding the system instruction and tools, created once and named in `cachedContent` on every request; a prefix too small to cache, a refused cache or an expired one falls back to the uncached request. Google bills cache storage per hour, hence opt-in. |
+| OpenRouter (other models) | `x-session-id` keeps a session on one upstream, whose own prefix cache applies; Chat Completions models with `compat.cacheControlFormat: "anthropic"` get the Anthropic breakpoints above. |
+| DeepSeek, Kimi, Qwen | Automatic prefix caching on the provider; nothing to send. |
+
+Cache reads and writes are reported in `usage.cacheRead` / `usage.cacheWrite` and priced from the model's list prices.
+
 ### OpenAI Compatibility Settings
 
 The `openai-completions` API is implemented by many providers with minor differences. By default, the library auto-detects compatibility settings based on `baseUrl` for a small set of known OpenAI-compatible providers (Cerebras, xAI, Chutes, DeepSeek, NVIDIA NIM, Together AI, zAi, OpenCode, Cloudflare Workers AI, etc.). For custom proxies or unknown endpoints, you can override these settings via the `compat` field. For `openai-responses` models, the compat field supports Responses-specific flags.

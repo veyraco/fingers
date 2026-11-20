@@ -4,7 +4,7 @@ import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
+import { addUsageToTotals, createUsageTotals, formatCacheHit, type UsageTotals } from "../../../core/usage-totals.ts";
 import { theme } from "../theme/theme.ts";
 
 /**
@@ -51,7 +51,6 @@ interface SessionStats {
 	entryCount: number;
 	limitsModel: unknown;
 	usageTotals: UsageTotals;
-	latestCacheHitRate: number | undefined;
 	contextUsage: ContextUsage | undefined;
 }
 
@@ -119,18 +118,12 @@ export class FooterComponent implements Component {
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
 		const usageTotals = createUsageTotals();
-		let latestCacheHitRate: number | undefined;
 
 		for (const entry of sessionManager.getEntries()) {
 			if (entry.type === "usage") {
 				addUsageToTotals(usageTotals, entry.usage);
 			} else if (entry.type === "message" && entry.message.role === "assistant") {
 				addUsageToTotals(usageTotals, entry.message.usage);
-
-				const latestPromptTokens =
-					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
-				latestCacheHitRate =
-					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
 				addUsageToTotals(usageTotals, entry.message.usage);
 			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
@@ -148,7 +141,6 @@ export class FooterComponent implements Component {
 			entryCount,
 			limitsModel,
 			usageTotals,
-			latestCacheHitRate,
 			contextUsage,
 		};
 		return this.sessionStats;
@@ -156,7 +148,7 @@ export class FooterComponent implements Component {
 
 	render(width: number): string[] {
 		const state = this.session.state;
-		const { usageTotals, latestCacheHitRate, contextUsage } = this.getSessionStats();
+		const { usageTotals, contextUsage } = this.getSessionStats();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const contextPercentValue = contextUsage?.percent ?? 0;
 		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
@@ -182,9 +174,8 @@ export class FooterComponent implements Component {
 		if (usageTotals.output) statsParts.push(`↓${formatTokens(usageTotals.output)}`);
 		if (usageTotals.cacheRead) statsParts.push(`R${formatTokens(usageTotals.cacheRead)}`);
 		if (usageTotals.cacheWrite) statsParts.push(`W${formatTokens(usageTotals.cacheWrite)}`);
-		if ((usageTotals.cacheRead > 0 || usageTotals.cacheWrite > 0) && latestCacheHitRate !== undefined) {
-			statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
-		}
+		const cacheHit = formatCacheHit(usageTotals);
+		if (cacheHit) statsParts.push(cacheHit);
 
 		// Kimi Coding is subscription-backed despite using API-key authentication.
 		const usingSubscription = state.model

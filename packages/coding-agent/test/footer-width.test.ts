@@ -21,6 +21,8 @@ function createSession(options: {
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	usage?: AssistantUsage;
+	/** More assistant replies after `usage`, in order. */
+	moreUsage?: AssistantUsage[];
 	branchUsage?: AssistantUsage;
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
@@ -38,6 +40,10 @@ function createSession(options: {
 				usage,
 			},
 		});
+	}
+
+	for (const more of options.moreUsage ?? []) {
+		entries.push({ type: "message", message: { role: "assistant", usage: more } });
 	}
 
 	if (options.branchUsage !== undefined) {
@@ -157,6 +163,27 @@ describe("FooterComponent width handling", () => {
 		}
 	});
 
+	it("shows the session's prompt-cache hit ratio as cache NN%", () => {
+		const session = createSession({
+			sessionName: "",
+			// First turn writes the prefix, the second reads it back: 4000 of 10000 prompt tokens were cache reads.
+			usage: { input: 1000, output: 10, cacheRead: 0, cacheWrite: 4000, cost: { total: 0.1 } },
+			moreUsage: [{ input: 200, output: 10, cacheRead: 4000, cacheWrite: 800, cost: { total: 0.02 } }],
+		});
+		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[1]);
+		expect(statsLine).toContain("cache 40%");
+		expect(statsLine).not.toContain("CH");
+	});
+
+	it("shows no cache ratio before the provider reports any cache activity", () => {
+		const session = createSession({
+			sessionName: "",
+			usage: { input: 1000, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0.1 } },
+		});
+		const statsLine = stripAnsi(new FooterComponent(session, createFooterData(1)).render(120)[1]);
+		expect(statsLine).not.toContain("cache");
+	});
+
 	it("shows the physical model a virtual model routed to", () => {
 		const session = createSession({
 			sessionName: "",
@@ -220,7 +247,7 @@ describe("FooterComponent width handling", () => {
 		expect(stripAnsi(footer.render(120)[1])).toContain("$1.000");
 	});
 
-	it("shows the latest cache hit rate when cache usage is present", () => {
+	it("shows the cache hit rate in the canvas form when cache usage is present", () => {
 		const session = createSession({
 			sessionName: "",
 			usage: {
@@ -234,7 +261,7 @@ describe("FooterComponent width handling", () => {
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		const statsLine = stripAnsi(footer.render(120)[1]);
-		expect(statsLine).toContain("CH25.0%");
+		expect(statsLine).toContain("cache 25%");
 	});
 
 	it("marks Kimi Coding costs as subscription estimates", () => {
