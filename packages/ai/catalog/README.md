@@ -4,7 +4,7 @@
 
 - `src/providers/data/<provider>.json`: model values, grouped by API (gitignored)
 - `src/providers/<provider>.models.ts` and `src/models.generated.ts`: typed wrappers (committed)
-- with `--json-output <dir>`: the public catalog JSON served by fingers.veyra.so
+- with `--json-output <dir>`: the catalog JSON a model catalog service can serve (see `scripts/model-catalog-protocol.ts`)
 
 ## Layout
 
@@ -44,11 +44,7 @@ export default defineProvider({
 
 ## Released clients
 
-fingers.veyra.so serves each published catalog to every released fingers at or above `MINIMUM_FINGERS_VERSION` (`scripts/model-catalog-minimum-version.mjs` in the repository root). Released clients use it within hours, without updating fingers, and combine it with their own code's defaults, such as `detectCompat()` in `src/api/openai-completions.ts`.
-
-A catalog change must therefore work with the latest release's code, not only with the code in the same commit. Example: a new code default makes `supportsDeveloperRole: false` redundant for a provider, so the line is removed from the catalog. Released clients still default to `true` and start sending the `developer` role, which the provider rejects.
-
-If a catalog change needs new code, either keep the catalog working with old code (add explicit values; remove nothing old clients rely on), or set `MINIMUM_FINGERS_VERSION` to the next release in the same commit. Clients below the minimum keep the last catalog published for them and receive no further catalog updates. `npm run check:model-catalog-compat` only catches type errors against the latest release, not changed behavior.
+Fingers ships the catalog with each release and hosts no catalog service. A client refreshes its built-in models from a service only when `FINGERS_MODEL_CATALOG_URL` names one, and that service must follow `scripts/model-catalog-protocol.ts`. A catalog served that way reaches released clients without an update, so it must work with their code, not only with the code in the same commit.
 
 ## Checking changes
 

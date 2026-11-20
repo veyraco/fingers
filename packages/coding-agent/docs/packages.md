@@ -75,7 +75,7 @@ Use an explicit manifest when resources live elsewhere or need filtering:
 
 Paths are relative to the package root. Arrays accept glob patterns and exclusions. List dot-prefixed or symlinked resource roots directly when traversal through a glob would not discover them.
 
-The `fingers-package` keyword makes an npm package eligible for discovery in the [Fingers package gallery](https://fingers.veyra.so/packages). Optional `fingers.image` and `fingers.video` fields add gallery previews.
+The `fingers-package` keyword marks an npm package as a Fingers package, so people can find it with an npm search for `keywords:fingers-package`. Optional `fingers.image` and `fingers.video` fields describe previews for package listings.
 
 ## Show a changelog
 

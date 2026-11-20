@@ -91,26 +91,26 @@ describe("fingers mcp", () => {
 	it("sends the token of the provider named by auth.provider", async () => {
 		const server = await startOAuthMcpServer();
 		try {
-			const radius = { radius: { url: server.url, auth: { provider: "radius" } } };
+			const acme = { acme: { url: server.url, auth: { provider: "acme" } } };
 			const token = server.issueAccessToken();
 			const requested: string[] = [];
-			const signedIn = await run(["list"], radius, undefined, async (provider) => {
+			const signedIn = await run(["list"], acme, undefined, async (provider) => {
 				requested.push(provider);
 				return token;
 			});
-			expect(signedIn).toMatchObject({ exitCode: 0, output: expect.stringContaining("radius: connected, 1 tool") });
-			expect(requested).toContain("radius");
+			expect(signedIn).toMatchObject({ exitCode: 0, output: expect.stringContaining("acme: connected, 1 tool") });
+			expect(requested).toContain("acme");
 
 			// Without the provider's credentials the hint names the provider's /login, not `fingers mcp login`.
-			const signedOut = await run(["list"], radius, undefined, async () => undefined);
+			const signedOut = await run(["list"], acme, undefined, async () => undefined);
 			expect(signedOut.exitCode).toBe(1);
-			expect(signedOut.output).toContain("radius: needs sign-in (codemode, global)");
-			expect(signedOut.output).toContain("  sign in with: /login radius in fingers");
+			expect(signedOut.output).toContain("acme: needs sign-in (codemode, global)");
+			expect(signedOut.output).toContain("  sign in with: /login acme in fingers");
 
 			for (const command of ["login", "logout"]) {
-				expect(await run([command, "radius"], radius)).toMatchObject({
+				expect(await run([command, "acme"], acme)).toMatchObject({
 					exitCode: 1,
-					output: `MCP server "radius" uses the credentials of provider "radius". Run "fingers auth ${command} radius".`,
+					output: `MCP server "acme" uses the credentials of provider "acme". Run "fingers auth ${command} acme".`,
 				});
 			}
 		} finally {

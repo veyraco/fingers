@@ -6,31 +6,13 @@ For native Windows setup, read [Windows Setup](windows.md). For Android, read [T
 
 ## 1. Install Fingers
 
-Install Fingers with the installer on macOS, Linux, or Windows:
-
-```bash tab="macOS / Linux"
-curl -fsSL https://fingers.veyra.so/install.sh | sh
-```
-
-```powershell tab="Windows"
-powershell -c "irm https://fingers.veyra.so/install.ps1 | iex"
-```
-
-Both installers pin all dependencies and update Fingers with `fingers update`. Alternatively, install Fingers from npm, which does not pin transitive dependencies. This requires Node.js 22.19 or newer:
+Install Fingers from npm on macOS, Linux, or Windows. This requires Node.js 22.19 or newer:
 
 ```bash
 npm install -g --ignore-scripts @veyraco/fingers
 ```
 
-Fingers does not require dependency lifecycle scripts for a normal npm installation.
-
-With Nix on macOS or Linux, install the latest release from Fingers' flake. Nix builds Fingers from source:
-
-```bash
-nix profile add github:veyraco/fingers/stable
-```
-
-Older Nix versions use `nix profile install` instead. Update with `nix profile upgrade fingers`; `fingers update` cannot update a Nix installation. To pin a release, use a tag such as `github:veyraco/fingers/v1.0.0`.
+Fingers does not require dependency lifecycle scripts for a normal npm installation. `fingers update` updates it to the npm registry's latest release.
 
 Verify the installation:
 
@@ -124,16 +106,4 @@ If you installed Fingers with npm, run:
 npm uninstall -g @veyraco/fingers
 ```
 
-If you used the installer, run it again and choose **Uninstall Fingers**:
-
-```bash
-curl -fsSL https://fingers.veyra.so/install.sh | sh
-```
-
-If you installed Fingers with Nix, run:
-
-```bash
-nix profile remove fingers
-```
-
-None of these methods removes configuration, credentials, sessions, or installed Fingers packages from `~/.fingers/agent/`.
+This does not remove configuration, credentials, sessions, or installed Fingers packages from `~/.fingers/agent/`.

@@ -12,7 +12,7 @@ For a built-in provider, start with `/login`, then choose a model with `/model`.
 | An OpenAI-, Anthropic-, or Google-compatible endpoint | Add it to `models.json` |
 | A provider with a custom protocol or authentication flow | Build or install a provider extension |
 
-Browse the [model catalog](https://fingers.veyra.so/models) for current providers, model IDs, capabilities, context limits, and pricing. Fingers starts with its bundled catalog and can overlay newer catalog data from fingers.veyra.so. Cached catalog data remains available offline; run `fingers update --models` to force a refresh.
+Fingers ships a model catalog with each release: providers, model IDs, capabilities, context limits, and pricing. Run `fingers --list-models` to see the models you can use. When `FINGERS_MODEL_CATALOG_URL` names a model catalog service, Fingers overlays newer catalog data from it; cached data remains available offline, and `fingers update --models` forces a refresh. OpenRouter's list is narrowed to the models your key may use.
 
 ## Authenticate
 
@@ -48,7 +48,7 @@ Use [`models.json`](configuration.md#agent-directory) when an endpoint speaks an
 
 ```json
 {
-  "$schema": "https://fingers.veyra.so/schemas/models.schema.json",
+  "$schema": "https://raw.githubusercontent.com/veyraco/fingers/main/packages/coding-agent/schemas/models.schema.json",
   "providers": {
     "ollama": {
       "baseUrl": "http://localhost:11434/v1",

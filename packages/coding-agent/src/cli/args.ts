@@ -466,8 +466,9 @@ ${chalk.bold("Environment Variables:")}
   FINGERS_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
   FINGERS_OFFLINE                       - Disable startup network operations when set to 1/true/yes
   FINGERS_SELF_UPDATE_COMMAND           - Command fingers update runs to update fingers itself ({packageName}, {version}, {installSpec})
-  FINGERS_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no
-  FINGERS_SHARE_VIEWER_URL              - Base URL for /share command (default: https://fingers.veyra.so/session/)
+  FINGERS_TELEMETRY                     - Override provider attribution when set to 1/true/yes or 0/false/no
+  FINGERS_SHARE_VIEWER_URL              - Base URL of a viewer for /share gists (default: none, /share prints the gist URL)
+  FINGERS_MODEL_CATALOG_URL             - Base URL of a model catalog service to refresh built-in models from (default: none)
 
 ${chalk.bold("Built-in Tool Names:")}
   read       - Read file contents

@@ -20,10 +20,10 @@ export interface ClientAttribution {
 	categories?: string[];
 }
 
-/** fingers' attribution, used by fingers-agent-core, fingers-durable, and the coding agent. */
+/** fingers' attribution, used by fingers-agent and the coding agent. */
 export const FINGERS_ATTRIBUTION: ClientAttribution = {
 	name: "fingers",
-	url: "https://fingers.veyra.so",
+	url: "https://veyra.so/fingers",
 	categories: ["cli-agent"],
 };
 

@@ -120,13 +120,13 @@ describe("fuzzyFilter", () => {
 		assert.ok(result.map((r) => r.name).includes("foobar"));
 	});
 
-	// #11220: "radius radius/gpt" contains a, s, t, r, a in order, so every radius model matched there
+	// #11220: "aster aster/gpt" contains a, s, t, r, a in order, so every aster model matched there
 	it("ranks a model containing the query above models matching a shared provider prefix", () => {
 		const items = [
-			"radius radius/gpt-5.4 radius gpt-5.4 GPT 5.4",
-			"radius radius/agentic radius agentic Agentic",
-			"radius radius/gpt-6-sol radius gpt-6-sol GPT 6 Sol",
-			"radius radius/gpt-6-astra radius gpt-6-astra GPT 6 Astra",
+			"aster aster/gpt-5.4 aster gpt-5.4 GPT 5.4",
+			"aster aster/agentic aster agentic Agentic",
+			"aster aster/gpt-6-sol aster gpt-6-sol GPT 6 Sol",
+			"aster aster/gpt-6-astra aster gpt-6-astra GPT 6 Astra",
 		];
 		const result = fuzzyFilter(items, "astra", (x: string) => x);
 

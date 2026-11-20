@@ -82,7 +82,7 @@ import {
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
-import { withPersonalizedCatalog, withRemoteCatalog } from "./remote-catalog-provider.ts";
+import { getModelCatalogBaseUrl, withPersonalizedCatalog, withRemoteCatalog } from "./remote-catalog-provider.ts";
 import { RuntimeCredentials } from "./runtime-credentials.ts";
 import {
 	createVirtualModel,
@@ -118,6 +118,7 @@ export interface CreateModelRuntimeOptions {
 	allowModelNetwork?: boolean;
 	/** Timeout for the create-time network model refresh. */
 	modelRefreshTimeoutMs?: number;
+	/** Model catalog service to refresh built-in models from. Defaults to FINGERS_MODEL_CATALOG_URL; none: built-in data only. */
 	catalogBaseUrl?: string;
 	/** Optional caller cancellation for initial cache restoration and availability checks. */
 	signal?: AbortSignal;
@@ -226,17 +227,19 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
+		const catalogBaseUrl = options.catalogBaseUrl ?? getModelCatalogBaseUrl();
 		const providers = builtinProviderCatalog.builtinProviders().map((provider) => {
 			// OpenRouter narrows the catalog to the models, limits and prices of the user's key.
 			if (provider.id === "openrouter") {
 				return withPersonalizedCatalog(
 					provider,
 					personalizeOpenRouterCatalog,
-					options.catalogBaseUrl,
+					catalogBaseUrl,
 					builtinModelDataGeneratedAt,
 				);
 			}
-			return withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt);
+			// Without a catalog service the provider keeps the model data Fingers ships with.
+			return catalogBaseUrl ? withRemoteCatalog(provider, catalogBaseUrl, builtinModelDataGeneratedAt) : provider;
 		});
 		const runtime = new ModelRuntime(
 			credentials,

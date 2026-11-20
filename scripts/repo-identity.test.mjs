@@ -46,6 +46,20 @@ const EXPECTED_PACKAGES = {
 // Upstream names that must not appear anywhere but LICENSE.
 const FORBIDDEN = [/@earendil-works\//, /earendil-works\/pi\b/, /\bbadlogic\b/, /\bpi-mono\b/, /\bmariozechner\b/, /Mario Zechner/];
 
+// Hosted services Fingers does not call: upstream's pi.dev (install reports, version checks, model
+// catalogs, installer, share viewer, bug uploads), its placeholder rename fingers.veyra.so, and
+// upstream's Radius gateway.
+const NO_HOME = [
+	/\bpi\.dev\b/,
+	/fingers\.veyra\.so/,
+	/\bRadius\b/,
+	/["'`]radius["'`/]/,
+	/\bradius\.(example|dev|ai)\b/,
+	/\bradius\/gpt/,
+	/\blogin radius\b/,
+	/\bdev[-_]radius\b/,
+];
+
 // LICENSE and this test hold the upstream notice; third-party material keeps its own text.
 const SCAN_SKIP = new Set([
 	".git",
@@ -103,6 +117,17 @@ describe("repository identity", () => {
 			assert.equal(lock.packages[`node_modules/${name}`]?.link, true, `${name} must link to ${dir}`);
 			assert.equal(lock.packages[`node_modules/${name}`]?.resolved, dir);
 		}
+	});
+
+	it("calls no upstream or placeholder home service", () => {
+		const hits = [];
+		for (const file of textFiles(root)) {
+			const text = readFileSync(file, "utf8");
+			for (const pattern of NO_HOME) {
+				if (pattern.test(text)) hits.push(`${relative(root, file)}: ${pattern}`);
+			}
+		}
+		assert.deepEqual(hits, []);
 	});
 
 	it("keeps upstream names out of every file but LICENSE", () => {

@@ -140,7 +140,7 @@ export function createToolSearchDocument(
 	return { name: tool.name, text: parts.filter((part) => part.trim()).join(" "), namespaceText };
 }
 
-/** Lowercase with characters invalid in script identifiers as `_`, so `dev-radius` matches `dev_radius`. */
+/** Lowercase with characters invalid in script identifiers as `_`, so `dev-server` matches `dev_server`. */
 function normalizeName(name: string): string {
 	return name
 		.trim()

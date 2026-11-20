@@ -12,6 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "../src/config.ts";
 import {
+	getModelCatalogBaseUrl,
 	type PersonalizeCatalog,
 	REMOTE_CATALOG_MODEL_TYPES,
 	withPersonalizedCatalog,
@@ -51,8 +52,10 @@ function builtinProvider(): Provider {
 	});
 }
 
+const CATALOG_URL = "https://catalog.example";
+
 function testProvider(localGeneratedAt?: number) {
-	return withRemoteCatalog(builtinProvider(), "https://fingers.veyra.so", localGeneratedAt);
+	return withRemoteCatalog(builtinProvider(), CATALOG_URL, localGeneratedAt);
 }
 
 async function refreshProvider(
@@ -286,7 +289,7 @@ describe("remote catalog provider", () => {
 		expect((await store.read(provider.id))?.models.map((entry) => entry.id)).toEqual(["newer"]);
 	});
 
-	it("fetches the fingers.veyra.so catalog without refreshing a stale OAuth login", async () => {
+	it("fetches the service catalog without refreshing a stale OAuth login", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
 			async () =>
 				new Response(JSON.stringify({ dynamic: model("dynamic") }), {
@@ -296,19 +299,22 @@ describe("remote catalog provider", () => {
 		const oauthRefresh = vi.fn(async (): Promise<never> => {
 			throw new Error("invalid_grant");
 		});
-		const provider = withRemoteCatalog({
-			...builtinProvider(),
-			auth: {
-				oauth: {
-					name: "Test OAuth",
-					login: async () => {
-						throw new Error("not used");
+		const provider = withRemoteCatalog(
+			{
+				...builtinProvider(),
+				auth: {
+					oauth: {
+						name: "Test OAuth",
+						login: async () => {
+							throw new Error("not used");
+						},
+						refresh: oauthRefresh,
+						toAuth: async (credential) => ({ apiKey: credential.access }),
 					},
-					refresh: oauthRefresh,
-					toAuth: async (credential) => ({ apiKey: credential.access }),
 				},
 			},
-		});
+			CATALOG_URL,
+		);
 		const credentials = new InMemoryCredentialStore();
 		await credentials.modify(provider.id, async () => ({
 			type: "oauth",
@@ -325,7 +331,7 @@ describe("remote catalog provider", () => {
 		expect(provider.getModels().map((entry) => entry.id)).toEqual(["static", "dynamic"]);
 	});
 
-	it("treats unimplemented fingers.veyra.so catalog routes as an unavailable overlay", async () => {
+	it("treats unimplemented catalog routes as an unavailable overlay", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not implemented", { status: 501 }));
 		const provider = testProvider();
 		const store = new InMemoryModelsStore();
@@ -358,7 +364,7 @@ describe("personalized catalog provider", () => {
 		const personalize: PersonalizeCatalog = async () => {
 			throw new Error("user models request failed");
 		};
-		const provider = withPersonalizedCatalog(builtinProvider(), personalize);
+		const provider = withPersonalizedCatalog(builtinProvider(), personalize, CATALOG_URL);
 
 		await expect(refreshProvider(provider, store)).rejects.toThrow("user models request failed");
 		expect(provider.getModels().map((entry) => entry.id)).toEqual(["allowed"]);
@@ -370,10 +376,9 @@ describe("personalized catalog provider", () => {
 			throw new Error("not used offline");
 		};
 		const store = new InMemoryModelsStore();
-		const provider = withPersonalizedCatalog(builtinProvider(), personalize);
+		const provider = withPersonalizedCatalog(builtinProvider(), personalize, CATALOG_URL);
 
-		// fingers versions before per-key lists stored the plain fingers.veyra.so catalog here, and saved an empty list
-		// after a missing fingers.veyra.so catalog or a failed first request. Only such an entry can be empty.
+		// An entry saved after a missing service catalog or a failed first request can be empty.
 		await store.write(provider.id, { models: [], checkedAt: 1 });
 		await refreshProvider(provider, store, { allowNetwork: false });
 		expect(provider.getModels().map((entry) => entry.id)).toEqual(["static"]);
@@ -383,5 +388,30 @@ describe("personalized catalog provider", () => {
 		await refreshProvider(provider, store, { allowNetwork: false });
 		expect(provider.getModels()).toEqual([]);
 		expect(provider.getAllModels?.().map((entry) => entry.id)).toEqual(["image"]);
+	});
+
+	it("personalizes the built-in models without a catalog service and sends no catalog request", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		const personalize = vi.fn<PersonalizeCatalog>(async (catalog) =>
+			catalog.filter((entry) => entry.id === "static"),
+		);
+		const store = new InMemoryModelsStore();
+		const provider = withPersonalizedCatalog(builtinProvider(), personalize, undefined);
+
+		await refreshProvider(provider, store);
+
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(personalize.mock.calls[0]?.[0].map((entry) => entry.id)).toEqual(["static"]);
+		expect(provider.getModels().map((entry) => entry.id)).toEqual(["static"]);
+	});
+});
+
+describe("model catalog service", () => {
+	it("is configured only by FINGERS_MODEL_CATALOG_URL", () => {
+		expect(getModelCatalogBaseUrl({})).toBeUndefined();
+		expect(getModelCatalogBaseUrl({ FINGERS_MODEL_CATALOG_URL: "  " })).toBeUndefined();
+		expect(getModelCatalogBaseUrl({ FINGERS_MODEL_CATALOG_URL: "https://catalog.example" })).toBe(
+			"https://catalog.example",
+		);
 	});
 });

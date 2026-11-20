@@ -1,8 +1,15 @@
 import { compare, valid } from "semver";
+import { PACKAGE_NAME } from "../config.ts";
 import { getFingersUserAgent } from "./fingers-user-agent.ts";
 import { fetchWithRetry } from "./management-http.ts";
 
-const LATEST_VERSION_URL = "https://fingers.veyra.so/api/latest-version";
+const NPM_REGISTRY_URL = "https://registry.npmjs.org";
+
+/** The npm registry's `latest` release of a package. Fingers checks for updates here; it has no update service of its own. */
+export function getLatestVersionUrl(packageName: string = PACKAGE_NAME): string {
+	return `${NPM_REGISTRY_URL}/${packageName}/latest`;
+}
+
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
 
 export interface LatestFingersRelease {
@@ -55,7 +62,7 @@ export async function getLatestFingersRelease(
 	if (process.env.FINGERS_OFFLINE) return undefined;
 
 	const response = await fetchWithRetry(
-		LATEST_VERSION_URL,
+		getLatestVersionUrl(),
 		{
 			headers: {
 				"User-Agent": getFingersUserAgent(currentVersion),
@@ -69,22 +76,13 @@ export async function getLatestFingersRelease(
 	);
 	if (!response.ok) return undefined;
 
-	const data = (await response.json()) as {
-		packageName?: unknown;
-		version?: unknown;
-		note?: unknown;
-	};
+	// The registry answers with the release's package.json.
+	const data = (await response.json()) as { name?: unknown; version?: unknown };
 	if (typeof data.version !== "string" || !data.version.trim()) {
 		return undefined;
 	}
-	const packageName =
-		typeof data.packageName === "string" && data.packageName.trim() ? data.packageName.trim() : undefined;
-	const note = typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined;
-	return {
-		version: data.version.trim(),
-		packageName,
-		...(note ? { note } : {}),
-	};
+	const packageName = typeof data.name === "string" && data.name.trim() ? data.name.trim() : undefined;
+	return { version: data.version.trim(), packageName };
 }
 
 export async function getLatestFingersVersion(

@@ -107,9 +107,9 @@ export interface McpOAuthConfig extends McpOAuthFields {
 	 */
 	clientName?: string;
 	/**
-	 * How fingers identifies itself without `clientId`. `auto` (default): fingers' Client ID Metadata Document on
-	 * fingers.veyra.so when the authorization server supports it for public clients, otherwise dynamic client
-	 * registration; with `clientName` or a `callbackUrl` other than `/callback` on localhost or 127.0.0.1,
+	 * How fingers identifies itself without `clientId`. `auto` (default): fingers' Client ID Metadata Document
+	 * under FINGERS_MCP_CLIENT_METADATA_URL when that is set and the authorization server supports documents for
+	 * public clients, otherwise dynamic client registration; with `clientName` or a `callbackUrl` other than `/callback` on localhost or 127.0.0.1,
 	 * always dynamic client registration. `cimd`: always the document, and sign-in fails without support.
 	 * `dcr`: always dynamic client registration.
 	 */

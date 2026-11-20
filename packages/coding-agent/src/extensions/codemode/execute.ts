@@ -653,7 +653,7 @@ export async function executeCodemode(
 
 /**
  * Whether `query` names the namespace: its name or one of its aliases, as written or as the same
- * script identifier (`dev-radius` and `dev_radius` are both `dev_radius`).
+ * script identifier (`dev-server` and `dev_server` are both `dev_server`).
  */
 function isNamespaceName(namespace: ToolNamespace, query: string): boolean {
 	const queryId = toCodemodeIdentifier(query);

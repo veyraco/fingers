@@ -87,7 +87,7 @@ describe("shareSession", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("shares as a private gist", async () => {
+	function gistContext(statuses: string[]) {
 		childProcessMocks.spawn.mockImplementation((_command, args: string[]) => {
 			const child = Object.assign(new EventEmitter(), {
 				stdout: new PassThrough(),
@@ -102,9 +102,7 @@ describe("shareSession", () => {
 			expect(readFileSync(args.at(-1)!, "utf8")).toBe("html");
 			return child;
 		});
-		const statuses: string[] = [];
-
-		await shareSession({
+		return {
 			session: {
 				sessionManager: { getSessionId: () => "gist", getCwd: () => "/tmp", getBranch: () => [] },
 				state: { systemPrompt: "", tools: [] },
@@ -115,7 +113,14 @@ describe("shareSession", () => {
 			editor: {},
 			showStatus: (message: string) => statuses.push(message),
 			showError: vi.fn(),
-		} as never);
+		} as never;
+	}
+
+	it("shares as a private gist and links only the gist without a configured viewer", async () => {
+		vi.stubEnv("FINGERS_SHARE_VIEWER_URL", undefined);
+		const statuses: string[] = [];
+
+		await shareSession(gistContext(statuses));
 
 		expect(childProcessMocks.spawn).toHaveBeenCalledWith("gh", [
 			"gist",
@@ -123,6 +128,19 @@ describe("shareSession", () => {
 			"--public=false",
 			expect.any(String),
 		]);
-		expect(statuses[0]).toContain("https://fingers.veyra.so/session/#forced-gist");
+		expect(statuses[0]).toContain("Gist:");
+		expect(statuses[0]).toContain("https://gist.github.com/test/forced-gist");
+		expect(statuses[0]).not.toContain("Share URL");
+	});
+
+	it("links a configured share viewer", async () => {
+		vi.stubEnv("FINGERS_SHARE_VIEWER_URL", "https://viewer.example/session/");
+		const statuses: string[] = [];
+
+		await shareSession(gistContext(statuses));
+		vi.unstubAllEnvs();
+
+		expect(statuses[0]).toContain("Share URL:");
+		expect(statuses[0]).toContain("https://viewer.example/session/#forced-gist");
 	});
 });
