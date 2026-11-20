@@ -1,0 +1,17 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./dist",
+		"paths": {
+			"@veyraco/fingers-agent": ["../agent/dist/index.d.ts"],
+			"@veyraco/fingers-agent/*": ["../agent/dist/*.d.ts"],
+			"@veyraco/fingers-ai": ["../ai/dist/index.d.ts"],
+			"@veyraco/fingers-ai/*": ["../ai/dist/*.d.ts", "../ai/dist/providers/*.d.ts"],
+			"@veyraco/fingers-tui": ["../tui/dist/index.d.ts"],
+			"@veyraco/fingers-tui/*": ["../tui/dist/*.d.ts", "../tui/dist/components/*.d.ts"]
+		},
+		"rootDir": "./src"
+	},
+	"include": ["src/**/*.ts", "src/**/*.d.ts"],
+	"exclude": ["node_modules", "dist", "src/experimental"]
+}

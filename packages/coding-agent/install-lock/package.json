@@ -1,0 +1,15 @@
+{
+	"name": "@veyraco/fingers-install",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Lockfile root used by the Fingers installer and updater.",
+	"dependencies": {
+		"@veyraco/fingers": "0.1.0"
+	},
+	"overrides": {
+		"protobufjs": "7.6.6"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

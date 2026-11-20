@@ -1,0 +1,16 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"paths": {
+			"@veyraco/fingers": ["./src/index.ts"],
+			"@veyraco/fingers/hooks": ["./src/core/hooks/index.ts"],
+			"@veyraco/fingers-tui": ["../tui/src/index.ts"],
+			"@veyraco/fingers-ai": ["../ai/src/index.ts"],
+			"typebox": ["../../node_modules/typebox"]
+		},
+		"skipLibCheck": true
+	},
+	"include": ["examples/**/*.ts"],
+	"exclude": ["node_modules", "dist"]
+}
