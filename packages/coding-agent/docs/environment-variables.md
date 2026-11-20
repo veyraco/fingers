@@ -82,12 +82,15 @@ These variables are read by Fingers itself:
 | `FINGERS_CODING_AGENT_SESSION_DIR` | Override session storage; overridden by `--session-dir` |
 | `FINGERS_PACKAGE_DIR` | Override the package directory, useful for Nix/Guix store paths |
 | `FINGERS_OFFLINE` | Disable automatic network activity, including model catalog refreshes |
-| `FINGERS_SKIP_VERSION_CHECK` | Disable the `fingers.veyra.so` latest-version request |
+| `FINGERS_CREDENTIAL_STORE` | `keychain` (default) keeps saved credentials in the OS keychain; `file` keeps them in `auth.json` |
+| `FINGERS_SKIP_VERSION_CHECK` | Disable the latest-version request to the npm registry |
 | `FINGERS_SELF_UPDATE_COMMAND` | Command `fingers update` runs to update Fingers itself, split on whitespace, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. Takes precedence over the `selfUpdateCommand` setting. See [Custom update command](cli.md#custom-update-command) |
-| `FINGERS_TELEMETRY` | Override install/update telemetry and provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
+| `FINGERS_TELEMETRY` | Override provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
 | `FINGERS_CODEMODE_MAX_WORKERS` | Maximum codemode workers alive at once across all sessions in the process; default `2`. Each worker's script may use up to 256 MB. Raise it when one process runs several sessions, such as in-process subagents. Further scripts wait for a free worker. See [Codemode](codemode.md) |
 | `FINGERS_CACHE_RETENTION` | Set to `long` for extended provider prompt caching where supported |
-| `FINGERS_SHARE_VIEWER_URL` | Override the base URL used by `/share` |
+| `FINGERS_SHARE_VIEWER_URL` | Base URL of a viewer that `/share` links a gist to; without it `/share` prints only the gist URL |
+| `FINGERS_MODEL_CATALOG_URL` | Base URL of a model catalog service that refreshes the built-in models; without it Fingers uses the models it ships with |
+| `FINGERS_MCP_CLIENT_METADATA_URL` | Base URL of hosted OAuth Client ID Metadata Documents for MCP sign-in; without it Fingers registers with each MCP server dynamically |
 | `FINGERS_CLEAR_ON_SHRINK` | Set to `1` to clear empty rows when rendered content shrinks; the `terminal.clearOnShrink` setting takes precedence. See [Settings](settings.md) |
 | `FINGERS_HARDWARE_CURSOR` | Set to `1` to show the hardware cursor; see [Terminal setup](terminal-setup.md) |
 | `FINGERS_CLIPBOARD_OSC52` | Set to `1` to also send copied text to the terminal with OSC 52 after the local clipboard write, as Fingers does over SSH. Use it when a remote client reaches Fingers without SSH variables, such as a multiplexer attached from another machine or a remote IDE daemon |

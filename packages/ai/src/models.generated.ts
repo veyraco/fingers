@@ -14,6 +14,7 @@ import { FIREWORKS_CLASSIFIER_MODELS, FIREWORKS_IMAGE_MODELS, FIREWORKS_MODELS }
 import { GITHUB_COPILOT_CLASSIFIER_MODELS, GITHUB_COPILOT_IMAGE_MODELS, GITHUB_COPILOT_MODELS } from "./providers/github-copilot.models.ts";
 import { GOOGLE_CLASSIFIER_MODELS, GOOGLE_IMAGE_MODELS, GOOGLE_MODELS } from "./providers/google.models.ts";
 import { GOOGLE_VERTEX_CLASSIFIER_MODELS, GOOGLE_VERTEX_IMAGE_MODELS, GOOGLE_VERTEX_MODELS } from "./providers/google-vertex.models.ts";
+import { GOOGLE_VERTEX_ANTHROPIC_CLASSIFIER_MODELS, GOOGLE_VERTEX_ANTHROPIC_IMAGE_MODELS, GOOGLE_VERTEX_ANTHROPIC_MODELS } from "./providers/google-vertex-anthropic.models.ts";
 import { GROQ_CLASSIFIER_MODELS, GROQ_IMAGE_MODELS, GROQ_MODELS } from "./providers/groq.models.ts";
 import { HUGGINGFACE_CLASSIFIER_MODELS, HUGGINGFACE_IMAGE_MODELS, HUGGINGFACE_MODELS } from "./providers/huggingface.models.ts";
 import { KIMI_CODING_CLASSIFIER_MODELS, KIMI_CODING_IMAGE_MODELS, KIMI_CODING_MODELS } from "./providers/kimi-coding.models.ts";
@@ -29,6 +30,7 @@ import { OPENAI_CODEX_CLASSIFIER_MODELS, OPENAI_CODEX_IMAGE_MODELS, OPENAI_CODEX
 import { OPENCODE_CLASSIFIER_MODELS, OPENCODE_IMAGE_MODELS, OPENCODE_MODELS } from "./providers/opencode.models.ts";
 import { OPENCODE_GO_CLASSIFIER_MODELS, OPENCODE_GO_IMAGE_MODELS, OPENCODE_GO_MODELS } from "./providers/opencode-go.models.ts";
 import { OPENROUTER_CLASSIFIER_MODELS, OPENROUTER_IMAGE_MODELS, OPENROUTER_MODELS } from "./providers/openrouter.models.ts";
+import { QWEN_CLASSIFIER_MODELS, QWEN_IMAGE_MODELS, QWEN_MODELS } from "./providers/qwen.models.ts";
 import { QWEN_TOKEN_PLAN_CLASSIFIER_MODELS, QWEN_TOKEN_PLAN_IMAGE_MODELS, QWEN_TOKEN_PLAN_MODELS } from "./providers/qwen-token-plan.models.ts";
 import { QWEN_TOKEN_PLAN_CN_CLASSIFIER_MODELS, QWEN_TOKEN_PLAN_CN_IMAGE_MODELS, QWEN_TOKEN_PLAN_CN_MODELS } from "./providers/qwen-token-plan-cn.models.ts";
 import { QWEN_TOKEN_PLAN_INDIVIDUAL_CLASSIFIER_MODELS, QWEN_TOKEN_PLAN_INDIVIDUAL_IMAGE_MODELS, QWEN_TOKEN_PLAN_INDIVIDUAL_MODELS } from "./providers/qwen-token-plan-individual.models.ts";
@@ -58,6 +60,7 @@ export const MODELS: {
 	readonly "github-copilot": typeof GITHUB_COPILOT_MODELS;
 	readonly "google": typeof GOOGLE_MODELS;
 	readonly "google-vertex": typeof GOOGLE_VERTEX_MODELS;
+	readonly "google-vertex-anthropic": typeof GOOGLE_VERTEX_ANTHROPIC_MODELS;
 	readonly "groq": typeof GROQ_MODELS;
 	readonly "huggingface": typeof HUGGINGFACE_MODELS;
 	readonly "kimi-coding": typeof KIMI_CODING_MODELS;
@@ -73,6 +76,7 @@ export const MODELS: {
 	readonly "opencode": typeof OPENCODE_MODELS;
 	readonly "opencode-go": typeof OPENCODE_GO_MODELS;
 	readonly "openrouter": typeof OPENROUTER_MODELS;
+	readonly "qwen": typeof QWEN_MODELS;
 	readonly "qwen-token-plan": typeof QWEN_TOKEN_PLAN_MODELS;
 	readonly "qwen-token-plan-cn": typeof QWEN_TOKEN_PLAN_CN_MODELS;
 	readonly "qwen-token-plan-individual": typeof QWEN_TOKEN_PLAN_INDIVIDUAL_MODELS;
@@ -101,6 +105,7 @@ export const MODELS: {
 	"github-copilot": GITHUB_COPILOT_MODELS,
 	"google": GOOGLE_MODELS,
 	"google-vertex": GOOGLE_VERTEX_MODELS,
+	"google-vertex-anthropic": GOOGLE_VERTEX_ANTHROPIC_MODELS,
 	"groq": GROQ_MODELS,
 	"huggingface": HUGGINGFACE_MODELS,
 	"kimi-coding": KIMI_CODING_MODELS,
@@ -116,6 +121,7 @@ export const MODELS: {
 	"opencode": OPENCODE_MODELS,
 	"opencode-go": OPENCODE_GO_MODELS,
 	"openrouter": OPENROUTER_MODELS,
+	"qwen": QWEN_MODELS,
 	"qwen-token-plan": QWEN_TOKEN_PLAN_MODELS,
 	"qwen-token-plan-cn": QWEN_TOKEN_PLAN_CN_MODELS,
 	"qwen-token-plan-individual": QWEN_TOKEN_PLAN_INDIVIDUAL_MODELS,
@@ -146,6 +152,7 @@ export const IMAGE_MODELS: {
 	readonly "github-copilot": typeof GITHUB_COPILOT_IMAGE_MODELS;
 	readonly "google": typeof GOOGLE_IMAGE_MODELS;
 	readonly "google-vertex": typeof GOOGLE_VERTEX_IMAGE_MODELS;
+	readonly "google-vertex-anthropic": typeof GOOGLE_VERTEX_ANTHROPIC_IMAGE_MODELS;
 	readonly "groq": typeof GROQ_IMAGE_MODELS;
 	readonly "huggingface": typeof HUGGINGFACE_IMAGE_MODELS;
 	readonly "kimi-coding": typeof KIMI_CODING_IMAGE_MODELS;
@@ -161,6 +168,7 @@ export const IMAGE_MODELS: {
 	readonly "opencode": typeof OPENCODE_IMAGE_MODELS;
 	readonly "opencode-go": typeof OPENCODE_GO_IMAGE_MODELS;
 	readonly "openrouter": typeof OPENROUTER_IMAGE_MODELS;
+	readonly "qwen": typeof QWEN_IMAGE_MODELS;
 	readonly "qwen-token-plan": typeof QWEN_TOKEN_PLAN_IMAGE_MODELS;
 	readonly "qwen-token-plan-cn": typeof QWEN_TOKEN_PLAN_CN_IMAGE_MODELS;
 	readonly "qwen-token-plan-individual": typeof QWEN_TOKEN_PLAN_INDIVIDUAL_IMAGE_MODELS;
@@ -189,6 +197,7 @@ export const IMAGE_MODELS: {
 	"github-copilot": GITHUB_COPILOT_IMAGE_MODELS,
 	"google": GOOGLE_IMAGE_MODELS,
 	"google-vertex": GOOGLE_VERTEX_IMAGE_MODELS,
+	"google-vertex-anthropic": GOOGLE_VERTEX_ANTHROPIC_IMAGE_MODELS,
 	"groq": GROQ_IMAGE_MODELS,
 	"huggingface": HUGGINGFACE_IMAGE_MODELS,
 	"kimi-coding": KIMI_CODING_IMAGE_MODELS,
@@ -204,6 +213,7 @@ export const IMAGE_MODELS: {
 	"opencode": OPENCODE_IMAGE_MODELS,
 	"opencode-go": OPENCODE_GO_IMAGE_MODELS,
 	"openrouter": OPENROUTER_IMAGE_MODELS,
+	"qwen": QWEN_IMAGE_MODELS,
 	"qwen-token-plan": QWEN_TOKEN_PLAN_IMAGE_MODELS,
 	"qwen-token-plan-cn": QWEN_TOKEN_PLAN_CN_IMAGE_MODELS,
 	"qwen-token-plan-individual": QWEN_TOKEN_PLAN_INDIVIDUAL_IMAGE_MODELS,
@@ -234,6 +244,7 @@ export const CLASSIFIER_MODELS: {
 	readonly "github-copilot": typeof GITHUB_COPILOT_CLASSIFIER_MODELS;
 	readonly "google": typeof GOOGLE_CLASSIFIER_MODELS;
 	readonly "google-vertex": typeof GOOGLE_VERTEX_CLASSIFIER_MODELS;
+	readonly "google-vertex-anthropic": typeof GOOGLE_VERTEX_ANTHROPIC_CLASSIFIER_MODELS;
 	readonly "groq": typeof GROQ_CLASSIFIER_MODELS;
 	readonly "huggingface": typeof HUGGINGFACE_CLASSIFIER_MODELS;
 	readonly "kimi-coding": typeof KIMI_CODING_CLASSIFIER_MODELS;
@@ -249,6 +260,7 @@ export const CLASSIFIER_MODELS: {
 	readonly "opencode": typeof OPENCODE_CLASSIFIER_MODELS;
 	readonly "opencode-go": typeof OPENCODE_GO_CLASSIFIER_MODELS;
 	readonly "openrouter": typeof OPENROUTER_CLASSIFIER_MODELS;
+	readonly "qwen": typeof QWEN_CLASSIFIER_MODELS;
 	readonly "qwen-token-plan": typeof QWEN_TOKEN_PLAN_CLASSIFIER_MODELS;
 	readonly "qwen-token-plan-cn": typeof QWEN_TOKEN_PLAN_CN_CLASSIFIER_MODELS;
 	readonly "qwen-token-plan-individual": typeof QWEN_TOKEN_PLAN_INDIVIDUAL_CLASSIFIER_MODELS;
@@ -277,6 +289,7 @@ export const CLASSIFIER_MODELS: {
 	"github-copilot": GITHUB_COPILOT_CLASSIFIER_MODELS,
 	"google": GOOGLE_CLASSIFIER_MODELS,
 	"google-vertex": GOOGLE_VERTEX_CLASSIFIER_MODELS,
+	"google-vertex-anthropic": GOOGLE_VERTEX_ANTHROPIC_CLASSIFIER_MODELS,
 	"groq": GROQ_CLASSIFIER_MODELS,
 	"huggingface": HUGGINGFACE_CLASSIFIER_MODELS,
 	"kimi-coding": KIMI_CODING_CLASSIFIER_MODELS,
@@ -292,6 +305,7 @@ export const CLASSIFIER_MODELS: {
 	"opencode": OPENCODE_CLASSIFIER_MODELS,
 	"opencode-go": OPENCODE_GO_CLASSIFIER_MODELS,
 	"openrouter": OPENROUTER_CLASSIFIER_MODELS,
+	"qwen": QWEN_CLASSIFIER_MODELS,
 	"qwen-token-plan": QWEN_TOKEN_PLAN_CLASSIFIER_MODELS,
 	"qwen-token-plan-cn": QWEN_TOKEN_PLAN_CN_CLASSIFIER_MODELS,
 	"qwen-token-plan-individual": QWEN_TOKEN_PLAN_INDIVIDUAL_CLASSIFIER_MODELS,

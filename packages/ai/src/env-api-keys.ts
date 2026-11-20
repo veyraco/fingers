@@ -94,6 +94,7 @@ function getApiKeyEnvVars(provider: string): readonly string[] | undefined {
 		deepseek: "DEEPSEEK_API_KEY",
 		google: "GEMINI_API_KEY",
 		"google-vertex": "GOOGLE_CLOUD_API_KEY",
+		qwen: "DASHSCOPE_API_KEY",
 		groq: "GROQ_API_KEY",
 		cerebras: "CEREBRAS_API_KEY",
 		xai: "XAI_API_KEY",
@@ -170,6 +171,16 @@ export function getEnvApiKey(provider: string, env?: ProviderEnv): string | unde
 		if (hasCredentials && hasProject && hasLocation) {
 			return "<authenticated>";
 		}
+	}
+
+	// Claude on Vertex AI: Application Default Credentials and a project (location defaults to global).
+	if (provider === "google-vertex-anthropic") {
+		const hasProject = !!(
+			getProviderEnvValue("ANTHROPIC_VERTEX_PROJECT_ID", env) ||
+			getProviderEnvValue("GOOGLE_CLOUD_PROJECT", env) ||
+			getProviderEnvValue("GCLOUD_PROJECT", env)
+		);
+		if (hasVertexAdcCredentials(env) && hasProject) return "<authenticated>";
 	}
 
 	if (provider === "amazon-bedrock") {

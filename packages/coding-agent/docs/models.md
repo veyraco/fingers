@@ -12,15 +12,15 @@ For a built-in provider, start with `/login`, then choose a model with `/model`.
 | An OpenAI-, Anthropic-, or Google-compatible endpoint | Add it to `models.json` |
 | A provider with a custom protocol or authentication flow | Build or install a provider extension |
 
-Browse the [model catalog](https://fingers.veyra.so/models) for current providers, model IDs, capabilities, context limits, and pricing. Fingers starts with its bundled catalog and can overlay newer catalog data from fingers.veyra.so. Cached catalog data remains available offline; run `fingers update --models` to force a refresh.
+Fingers ships a model catalog with each release: providers, model IDs, capabilities, context limits, and pricing. Run `fingers --list-models` to see the models you can use. When `FINGERS_MODEL_CATALOG_URL` names a model catalog service, Fingers overlays newer catalog data from it; cached data remains available offline, and `fingers update --models` forces a refresh. OpenRouter's list is narrowed to the models your key may use.
 
 ## Authenticate
 
-Run `/login` and select a provider. Fingers stores credentials in [`auth.json`](configuration.md#agent-directory). Run `/logout` to remove stored credentials for a provider.
+Run `/login` and select a provider. Fingers stores credentials in the [OS keychain](providers.md#where-credentials-are-stored) (`auth.json` where no keychain is available). Run `/logout` to remove stored credentials for a provider.
 
 You can instead provide an API key through the provider's environment variable. This is useful in CI and other environments where Fingers should not write credentials. [Providers](providers.md) lists the variables and provider-specific setup.
 
-When several credential sources are configured, Fingers uses a runtime `--api-key` first, then a stored `auth.json` credential, an `apiKey` from `models.json`, and finally the provider's environment variables or ambient cloud credentials. Provider extensions can define their own authentication behavior.
+When several credential sources are configured, Fingers uses a runtime `--api-key` first, then a stored credential (OS keychain or `auth.json`), an `apiKey` from `models.json`, and finally the provider's environment variables or ambient cloud credentials. Provider extensions can define their own authentication behavior.
 
 Keep `auth.json` and any credential commands private. Project settings and extensions can execute inside the Fingers process after you trust a project. Review [Security](security.md) before loading configuration from an untrusted directory.
 
@@ -48,7 +48,7 @@ Use [`models.json`](configuration.md#agent-directory) when an endpoint speaks an
 
 ```json
 {
-  "$schema": "https://fingers.veyra.so/schemas/models.schema.json",
+  "$schema": "https://raw.githubusercontent.com/veyraco/fingers/main/packages/coding-agent/schemas/models.schema.json",
   "providers": {
     "ollama": {
       "baseUrl": "http://localhost:11434/v1",
@@ -62,7 +62,7 @@ Use [`models.json`](configuration.md#agent-directory) when an endpoint speaks an
 }
 ```
 
-The dummy key makes the model available to Fingers; Ollama ignores it. For an authenticated endpoint, `apiKey` and header values can use `$NAME` or `${NAME}` environment interpolation, a literal value, or a leading `!command`. `$$` and `$!` produce a literal `$` and `!`. Commands in `models.json` run at request time and are not cached by Fingers.
+The dummy key makes the model available to Fingers; Ollama ignores it. For an endpoint with a real key, prefer a stored credential to a literal `apiKey`: a credential stored under the provider ID (the first-run screen's "Any OpenAI-compatible endpoint" does this) lives in the OS keychain, and `models.json` then holds no secret. For an authenticated endpoint, `apiKey` and header values can use `$NAME` or `${NAME}` environment interpolation, a literal value, or a leading `!command`. `$$` and `$!` produce a literal `$` and `!`. Commands in `models.json` run at request time and are not cached by Fingers.
 
 Opening `/model` reloads the file. A `models` entry adds or replaces a model with the same ID on that provider. Use `modelOverrides` to change metadata for an existing built-in or extension-provided model without replacing the provider's model list. Unknown override IDs are ignored.
 

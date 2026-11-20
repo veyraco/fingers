@@ -41,8 +41,8 @@ reports and coordinate disclosure as appropriate.
 ## Scope
 
 Security issues in the distributed packages, command-line tools, APIs, and
-repository code are in scope as well as veyra operated infrastructure
-on `fingers.veyra.so`.
+repository code are in scope. Fingers calls no Veyra-hosted service unless you
+sign in to Veyra.
 
 ## Out Of Scope
 

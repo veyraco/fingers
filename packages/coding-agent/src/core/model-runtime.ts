@@ -69,7 +69,8 @@ import {
 } from "@veyraco/fingers-ai/utils/model-operations";
 import { getAgentDir } from "../config.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
-import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
+import { normalizePath } from "../utils/paths.ts";
+import { type CredentialStorageInfo, openCredentialStorage } from "./keychain-auth-storage.ts";
 import { ModelConfig } from "./model-config.ts";
 import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
 import {
@@ -82,7 +83,7 @@ import {
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
-import { withPersonalizedCatalog, withRemoteCatalog } from "./remote-catalog-provider.ts";
+import { getModelCatalogBaseUrl, withPersonalizedCatalog, withRemoteCatalog } from "./remote-catalog-provider.ts";
 import { RuntimeCredentials } from "./runtime-credentials.ts";
 import {
 	createVirtualModel,
@@ -118,6 +119,7 @@ export interface CreateModelRuntimeOptions {
 	allowModelNetwork?: boolean;
 	/** Timeout for the create-time network model refresh. */
 	modelRefreshTimeoutMs?: number;
+	/** Model catalog service to refresh built-in models from. Defaults to FINGERS_MODEL_CATALOG_URL; none: built-in data only. */
 	catalogBaseUrl?: string;
 	/** Optional caller cancellation for initial cache restoration and availability checks. */
 	signal?: AbortSignal;
@@ -174,6 +176,8 @@ function mergeHeaders(
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
+	/** Where stored credentials live (OS keychain or auth.json); undefined for an injected store. */
+	credentialStorage: CredentialStorageInfo | undefined;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
 	private readonly builtins = new Map<string, Provider>();
 	private readonly nativeExtensionProviders = new Map<string, Provider>();
@@ -216,7 +220,16 @@ export class ModelRuntime implements Models {
 	}
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
-		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		let storageInfo: CredentialStorageInfo | undefined;
+		let store = options.credentials;
+		if (!store) {
+			const opened = openCredentialStorage({
+				authPath: normalizePath(options.authPath ?? join(getAgentDir(), "auth.json")),
+			});
+			store = opened.storage;
+			storageInfo = opened.info;
+		}
+		const credentials = new RuntimeCredentials(store);
 		const modelsPath =
 			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
@@ -226,17 +239,19 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
+		const catalogBaseUrl = options.catalogBaseUrl ?? getModelCatalogBaseUrl();
 		const providers = builtinProviderCatalog.builtinProviders().map((provider) => {
 			// OpenRouter narrows the catalog to the models, limits and prices of the user's key.
 			if (provider.id === "openrouter") {
 				return withPersonalizedCatalog(
 					provider,
 					personalizeOpenRouterCatalog,
-					options.catalogBaseUrl,
+					catalogBaseUrl,
 					builtinModelDataGeneratedAt,
 				);
 			}
-			return withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt);
+			// Without a catalog service the provider keeps the model data Fingers ships with.
+			return catalogBaseUrl ? withRemoteCatalog(provider, catalogBaseUrl, builtinModelDataGeneratedAt) : provider;
 		});
 		const runtime = new ModelRuntime(
 			credentials,
@@ -246,6 +261,7 @@ export class ModelRuntime implements Models {
 			providers,
 			process.env.FINGERS_OFFLINE === undefined,
 		);
+		runtime.credentialStorage = storageInfo;
 		runtime.rebuildProviders();
 		const refreshFromNetwork = runtime.modelNetworkEnabled && options.allowModelNetwork === true;
 		const controller =

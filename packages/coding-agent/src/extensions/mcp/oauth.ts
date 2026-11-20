@@ -156,14 +156,22 @@ export class McpOAuthCredentialStore {
 	}
 }
 
-/** fingers' Client ID Metadata Documents on fingers.veyra.so: `client.json` and `<callback ID>/client.json`. */
-const FINGERS_CLIENT_METADATA_DOCUMENTS: McpClientMetadataDocuments = {
-	baseUrl: "https://fingers.veyra.so/oauth",
-	listsRedirectUrl: isClientMetadataDocumentCallback,
-};
+/**
+ * fingers' Client ID Metadata Documents (`client.json` and `<callback ID>/client.json`) under
+ * FINGERS_MCP_CLIENT_METADATA_URL. Fingers hosts no documents, so without it sign-in registers a client
+ * dynamically with each MCP server.
+ */
+export function getFingersClientMetadataDocuments(
+	env: NodeJS.ProcessEnv = process.env,
+): McpClientMetadataDocuments | undefined {
+	const baseUrl = env.FINGERS_MCP_CLIENT_METADATA_URL?.trim().replace(/\/+$/, "");
+	return baseUrl ? { baseUrl, listsRedirectUrl: isClientMetadataDocumentCallback } : undefined;
+}
 
 /** fingers' client identity for sign-in and refresh. */
-const FINGERS_CLIENT = { clientName: APP_NAME, clientMetadataDocuments: FINGERS_CLIENT_METADATA_DOCUMENTS };
+function fingersClient(): { clientName: string; clientMetadataDocuments: McpClientMetadataDocuments | undefined } {
+	return { clientName: APP_NAME, clientMetadataDocuments: getFingersClientMetadataDocuments() };
+}
 
 /** `settings` for fingers-mcp: a rebranded build would show up as fingers with fingers' documents, so `auto` registers. */
 function fingersSettings(settings: McpOAuthSettings): McpOAuthSettings {
@@ -178,7 +186,7 @@ export function createMcpAuthProvider(options: {
 	settings: () => McpOAuthSettings;
 	onChallenge: (challenge: OAuthChallenge) => void;
 }): McpAuthProvider {
-	return createAuthProvider({ ...options, ...FINGERS_CLIENT, settings: () => fingersSettings(options.settings()) });
+	return createAuthProvider({ ...options, ...fingersClient(), settings: () => fingersSettings(options.settings()) });
 }
 
 export interface McpSignInPrompt {
@@ -214,15 +222,16 @@ export async function signInMcpServer(options: {
 }): Promise<void> {
 	const { serverUrl, store, challenge, prompt, signal } = options;
 	const settings = fingersSettings(options.settings);
+	const client = fingersClient();
 	const { callback, redirectUrl } = await listenForLoopbackSignIn({
 		serverUrl,
 		store,
 		settings,
-		clientMetadataDocuments: FINGERS_CLIENT_METADATA_DOCUMENTS,
+		clientMetadataDocuments: client.clientMetadataDocuments,
 		renderPage: renderCallbackPage,
 	});
 	try {
-		const signIn = { serverUrl, store, settings, redirectUrl, challenge, signal, ...FINGERS_CLIENT };
+		const signIn = { serverUrl, store, settings, redirectUrl, challenge, signal, ...client };
 		const authorization = await startMcpSignIn(signIn);
 		if (authorization.kind === "authorized") return;
 		prompt.showAuthorizationUrl(new URL(authorization.authorizationUrl));

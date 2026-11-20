@@ -282,7 +282,7 @@ Running `fingers update` without a target updates Fingers itself.
 
 Add `--force` to reinstall Fingers when the selected update includes Fingers.
 
-`fingers update` cannot update Fingers when another package manager provides it, such as Nix. Update Fingers with that package manager, for example `nix profile upgrade fingers`. Package and model catalog updates still work.
+`fingers update` cannot update Fingers when another package manager provides it. Update Fingers with that package manager. Package and model catalog updates still work.
 
 #### Custom update command
 
@@ -292,7 +292,7 @@ If a wrapper or another package manager provides Fingers, set `FINGERS_SELF_UPDA
 export FINGERS_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
 ```
 
-`fingers update` runs it only when fingers.veyra.so has a newer release, replacing `{packageName}`, `{version}`, and `{installSpec}` (`{packageName}@{version}`) with that release. The value is split on spaces. For arguments with spaces, use the `selfUpdateCommand` setting in `~/.fingers/agent/settings.json` instead, an argv array such as `["nix", "profile", "upgrade", "fingers"]`.
+`fingers update` runs it only when the npm registry has a newer release, replacing `{packageName}`, `{version}`, and `{installSpec}` (`{packageName}@{version}`) with that release. The value is split on spaces. For arguments with spaces, use the `selfUpdateCommand` setting in `~/.fingers/agent/settings.json` instead, an argv array such as `["nix", "profile", "upgrade", "fingers"]`.
 
 ### Aliases and command options
 

@@ -138,6 +138,7 @@ For maintained TypeScript clients, use the checked [RPC client example](../examp
 - [RPC Commands](rpc-commands.md): every stdin command and response
 - [JSON Event Stream](json.md): shared stdout session events and streaming reconstruction
 - [RPC Extension UI](rpc-extension-ui.md): dialogs, notifications, responses, and limitations
+- [Managed RPC Mode](rpc-managed.md): `--managed`, the mode hosts such as Veyra Hands use (Fingers RPC v1)
 - [Message Types](message-types.md): messages and content blocks used by responses and events
 - [Session File Format](session-format.md): entries returned by session commands
 - [`rpc-types.ts`](https://github.com/veyraco/fingers/blob/main/packages/coding-agent/src/modes/rpc/rpc-types.ts): exported TypeScript protocol definitions

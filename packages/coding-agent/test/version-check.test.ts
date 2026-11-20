@@ -42,13 +42,13 @@ describe("version checks", () => {
 		await expect(checkForNewFingersVersion("1.2.2")).resolves.toEqual({ version: "1.2.3" });
 	});
 
-	it("uses the fingers.veyra.so version check api with a fingers user agent", async () => {
-		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.4" }));
+	it("asks the npm registry for the latest release with a fingers user agent", async () => {
+		const fetchMock = vi.fn(async () => Response.json({ name: "@veyraco/fingers", version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(getLatestFingersVersion("1.2.3")).resolves.toBe("1.2.4");
 		expect(fetchMock).toHaveBeenCalledWith(
-			"https://fingers.veyra.so/api/latest-version",
+			"https://registry.npmjs.org/@veyraco/fingers/latest",
 			expect.objectContaining({
 				headers: expect.objectContaining({
 					"User-Agent": expect.stringMatching(/^fingers\/1\.2\.3 /),
@@ -89,26 +89,25 @@ describe("version checks", () => {
 		expect(formatVersionCheckError(error)).toBe("fetch failed (ETIMEDOUT, ENETUNREACH)");
 	});
 
-	it("returns the active package metadata from the version check api", async () => {
+	it("returns the package name and version of the registry's latest release", async () => {
 		const fetchMock = vi.fn(async () =>
-			Response.json({
-				packageName: "@new-scope/fingers",
-				version: "1.2.4",
-			}),
+			Response.json({ name: "@veyraco/fingers", version: "1.2.4", main: "dist/index.js" }),
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestFingersRelease("1.2.3")).resolves.toEqual({
-			packageName: "@new-scope/fingers",
+		await expect(getLatestFingersRelease("1.2.3")).resolves.toStrictEqual({
+			packageName: "@veyraco/fingers",
 			version: "1.2.4",
 		});
 	});
 
-	it("returns update notes from the version check api", async () => {
-		const fetchMock = vi.fn(async () => Response.json({ note: " **Read this** ", version: "1.2.4" }));
-		vi.stubGlobal("fetch", fetchMock);
+	it("reports no release while the package is not published", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json("Not Found", { status: 404 })),
+		);
 
-		await expect(getLatestFingersRelease("1.2.3")).resolves.toEqual({ note: "**Read this**", version: "1.2.4" });
+		await expect(getLatestFingersRelease("1.2.3")).resolves.toBeUndefined();
 	});
 
 	it("skips automatic api calls when version checks are disabled", async () => {

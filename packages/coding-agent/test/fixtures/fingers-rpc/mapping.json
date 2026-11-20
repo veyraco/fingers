@@ -1,0 +1,525 @@
+{
+  "$comment": "Fingers RPC v1 event mapping (fingers-rpc.md, Mapping). prp_v3_event_types is a copy of veyraco/hands packages/veyra-hands/protocol/schemas/event-v3.schema.json eventType at a0a7068; run_event_types is RunEventType in contracts/openapi/hands.yaml (platform#1 draft). prp_v3_additions are additive PRP v3 event types this contract asks Hands to add (Hands lane H01). hands_used_prp_event_types is every PRP v3 eventType referenced at a0a7068 by Hands' harness-driver path (src/backends/harness-driver-backend.ts, src/conformance/harness-driver.ts, src/drivers/dot/dot-harness-driver.ts, src/mock-core/deterministic-harness-driver.ts, src/reducer/session-reducer.ts); each one is a Fingers mapping target or host_sourced. terminal fixes the PRP terminal for every result.status and matches how harness-driver-backend.ts turns turn.* into runTerminalState.",
+  "prp_v3_source": "veyraco/hands@a0a7068:packages/veyra-hands/protocol/schemas/event-v3.schema.json",
+  "run_event_source": "veyraco/platform#1:contracts/openapi/hands.yaml#/components/schemas/RunEventType",
+  "hands_used_source": "veyraco/hands@a0a7068:packages/veyra-hands/src/{backends/harness-driver-backend.ts,conformance/harness-driver.ts,drivers/dot/dot-harness-driver.ts,mock-core/deterministic-harness-driver.ts,reducer/session-reducer.ts}",
+  "prp_v3_additions": [
+    {
+      "type": "checkpoint.created",
+      "reason": "Fingers exports a checkpoint (checkpoint_export); Hands stores it and emits the public checkpoint.created. PRP v3 has no checkpoint event."
+    }
+  ],
+  "host_sourced_run_events": [
+    "run.created",
+    "run.queued",
+    "sandbox.ready",
+    "workspace.ready",
+    "steering.received"
+  ],
+  "host_sourced_prp_event_types": [
+    {
+      "type": "harness.starting",
+      "source": "The runner spawns `fingers --mode rpc --managed`."
+    },
+    {
+      "type": "harness.ready",
+      "source": "The runner, after hello and a successful configure response."
+    },
+    {
+      "type": "harness.exited",
+      "source": "The runner, when the Fingers process exits (exit code and signal)."
+    },
+    {
+      "type": "harness.diagnostic",
+      "source": "Also the runner: a stdout line that is not a protocol record, or a protocol violation (a missing response, seq out of order). Fingers' own diagnostics map through the rows."
+    },
+    {
+      "type": "runner.diagnostic",
+      "source": "The runner's own diagnostics."
+    },
+    {
+      "type": "runtime.phase.changed",
+      "source": "The runner's lifecycle phases."
+    },
+    {
+      "type": "session.started",
+      "source": "The runner, from the configure response's session_id, or the checkpoint_import (fork) response's new session_id."
+    },
+    {
+      "type": "session.resumed",
+      "source": "The runner, from a successful checkpoint_import response with mode resume."
+    },
+    {
+      "type": "session.closed",
+      "source": "The runner, when Fingers exits 0 after stdin is closed."
+    },
+    {
+      "type": "session.failed",
+      "source": "The runner, when Fingers exits non-zero or breaks the protocol before a result."
+    },
+    {
+      "type": "mcp_app.tool_input",
+      "source": "The runner's semantic result tool. The runner serves it to Fingers as an MCP server on loopback (configure.mcp_servers) and records the call it receives, as with Hands' other drivers. Fingers' own tool_execution_* for the same call still map to tool.execution.*."
+    },
+    {
+      "type": "mcp_app.tool_result",
+      "source": "The runner's semantic result tool, as for mcp_app.tool_input."
+    },
+    {
+      "type": "run.result.proposed",
+      "source": "The runner, when its semantic result tool accepts a structured result."
+    }
+  ],
+  "hands_used_prp_event_types": [
+    "harness.diagnostic",
+    "item.completed",
+    "item.delta",
+    "item.failed",
+    "item.started",
+    "mcp_app.tool_input",
+    "mcp_app.tool_result",
+    "run.result.proposed",
+    "run.terminal",
+    "runner.diagnostic",
+    "runtime.phase.changed",
+    "runtime_request.cancelled",
+    "runtime_request.created",
+    "runtime_request.expired",
+    "runtime_request.resolved",
+    "session.closed",
+    "session.failed",
+    "session.resumed",
+    "session.started",
+    "turn.cancelled",
+    "turn.completed",
+    "turn.failed",
+    "turn.interrupted",
+    "turn.started"
+  ],
+  "terminal": [
+    {
+      "result_status": "completed",
+      "aborted": false,
+      "turn_event": "turn.completed",
+      "turn_terminal_state": "completed",
+      "run_terminal_state": "succeeded"
+    },
+    {
+      "result_status": "cancelled",
+      "when": "the host's abort interrupted the turn (Hands interrupt)",
+      "aborted": true,
+      "turn_event": "turn.interrupted",
+      "turn_terminal_state": "interrupted",
+      "run_terminal_state": "cancelled"
+    },
+    {
+      "result_status": "cancelled",
+      "when": "the host's abort cancelled the run (Hands cancel)",
+      "aborted": true,
+      "turn_event": "turn.cancelled",
+      "turn_terminal_state": "cancelled",
+      "run_terminal_state": "cancelled"
+    },
+    {
+      "result_status": "stopped",
+      "aborted": true,
+      "turn_event": "turn.failed",
+      "turn_terminal_state": "failed",
+      "run_terminal_state": "failed"
+    },
+    {
+      "result_status": "failed",
+      "aborted": false,
+      "turn_event": "turn.failed",
+      "turn_terminal_state": "failed",
+      "run_terminal_state": "failed"
+    }
+  ],
+  "rows": [
+    {
+      "fingers": "hello",
+      "prp": null,
+      "run_event": null,
+      "note": "Handshake. The runner checks protocol and version and emits its own harness.ready once configure succeeds."
+    },
+    {
+      "fingers": "agent_start",
+      "prp": "turn.started",
+      "run_event": null
+    },
+    {
+      "fingers": "agent_end",
+      "prp": null,
+      "run_event": null,
+      "note": "Pi's low-level run boundary; retries or queued work may follow. agent_settled is the boundary Hands records."
+    },
+    {
+      "fingers": "agent_settled",
+      "when": "the following result.status is completed",
+      "prp": "turn.completed",
+      "run_event": null
+    },
+    {
+      "fingers": "agent_settled",
+      "when": "the following result.status is cancelled and the host's abort interrupted the turn (Hands interrupt; the session stays open for another prompt)",
+      "prp": "turn.interrupted",
+      "run_event": null
+    },
+    {
+      "fingers": "agent_settled",
+      "when": "the following result.status is cancelled and the host's abort cancelled the run (Hands cancel)",
+      "prp": "turn.cancelled",
+      "run_event": null
+    },
+    {
+      "fingers": "agent_settled",
+      "when": "the following result.status is stopped (a limit). Hands records a limit stop as a failed run with the limit's Run.failure code, so it is turn.failed, not turn.interrupted (which Hands records as cancelled)",
+      "prp": "turn.failed",
+      "run_event": null
+    },
+    {
+      "fingers": "agent_settled",
+      "when": "the following result.status is failed (model_error, tool_error, credentials_expired, agent_error)",
+      "prp": "turn.failed",
+      "run_event": null
+    },
+    {
+      "fingers": "turn_start",
+      "prp": null,
+      "run_event": null,
+      "note": "One model call plus its tool calls; the item events carry the content."
+    },
+    {
+      "fingers": "turn_end",
+      "prp": null,
+      "run_event": null,
+      "note": "Covered by message_end and tool_execution_end."
+    },
+    {
+      "fingers": "message_start",
+      "when": "message.role is assistant; user and tool-result messages are not forwarded",
+      "prp": "item.started",
+      "run_event": null
+    },
+    {
+      "fingers": "message_update",
+      "prp": "item.delta",
+      "run_event": null,
+      "note": "Live text and thinking deltas; the public stream gets the completed message only."
+    },
+    {
+      "fingers": "message_end",
+      "when": "message.role is assistant and message.stopReason is error or aborted. Takes precedence over the two rows below: a partial message is not published as agent.message",
+      "prp": "item.failed",
+      "run_event": null,
+      "note": "The run's failure reaches the public stream through result -> run.finished; the item failure stays in PRP."
+    },
+    {
+      "fingers": "message_end",
+      "when": "message.role is assistant and it has text content",
+      "prp": "item.completed",
+      "run_event": "agent.message"
+    },
+    {
+      "fingers": "message_end",
+      "when": "message.role is assistant and it has thinking content",
+      "prp": "item.completed",
+      "run_event": "agent.thinking"
+    },
+    {
+      "fingers": "tool_execution_start",
+      "prp": "tool.execution.started",
+      "run_event": "tool_call.started"
+    },
+    {
+      "fingers": "tool_execution_update",
+      "prp": "tool.execution.progressed",
+      "run_event": null
+    },
+    {
+      "fingers": "tool_execution_end",
+      "prp": "tool.execution.completed",
+      "run_event": "tool_call.finished"
+    },
+    {
+      "fingers": "queue_update",
+      "prp": null,
+      "run_event": null,
+      "note": "Internal queue state; Hands tracks steering messages itself (steering.received is host-sourced)."
+    },
+    {
+      "fingers": "entry_appended",
+      "prp": null,
+      "run_event": null,
+      "note": "Extension session entries; managed mode turns extension discovery off."
+    },
+    {
+      "fingers": "session_info_changed",
+      "prp": "session.updated",
+      "run_event": null
+    },
+    {
+      "fingers": "thinking_level_changed",
+      "prp": "session.updated",
+      "run_event": null
+    },
+    {
+      "fingers": "compaction_start",
+      "prp": null,
+      "run_event": null,
+      "note": "compaction_end carries the outcome."
+    },
+    {
+      "fingers": "compaction_end",
+      "prp": "context.compacted",
+      "run_event": "log"
+    },
+    {
+      "fingers": "auto_retry_start",
+      "prp": "provider.notice.recorded",
+      "run_event": "log"
+    },
+    {
+      "fingers": "auto_retry_end",
+      "when": "success is false; a successful retry is not forwarded",
+      "prp": "provider.notice.recorded",
+      "run_event": "log"
+    },
+    {
+      "fingers": "summarization_retry_scheduled",
+      "prp": "harness.diagnostic",
+      "run_event": null
+    },
+    {
+      "fingers": "summarization_retry_attempt_start",
+      "prp": "harness.diagnostic",
+      "run_event": null
+    },
+    {
+      "fingers": "summarization_retry_finished",
+      "prp": "harness.diagnostic",
+      "run_event": null
+    },
+    {
+      "fingers": "extension_error",
+      "prp": "harness.diagnostic",
+      "run_event": "log"
+    },
+    {
+      "fingers": "extension_ui_request",
+      "prp": "harness.diagnostic",
+      "run_event": null,
+      "note": "Managed mode answers dialog methods with cancelled itself; only notify reaches the runner, as a diagnostic."
+    },
+    {
+      "fingers": "approval_request",
+      "prp": "runtime_request.created",
+      "run_event": "approval.requested"
+    },
+    {
+      "fingers": "approval_resolved",
+      "when": "decision is allow_once, allow_always or deny",
+      "prp": "runtime_request.resolved",
+      "run_event": "approval.resolved"
+    },
+    {
+      "fingers": "approval_resolved",
+      "when": "decision is expired",
+      "prp": "runtime_request.expired",
+      "run_event": "approval.resolved"
+    },
+    {
+      "fingers": "approval_resolved",
+      "when": "decision is cancelled",
+      "prp": "runtime_request.cancelled",
+      "run_event": "approval.resolved"
+    },
+    {
+      "fingers": "memory_request",
+      "prp": null,
+      "run_event": null,
+      "note": "A relay request the runner answers with memory_response after calling Brain; not a run event."
+    },
+    {
+      "fingers": "telemetry_span",
+      "prp": null,
+      "run_event": null,
+      "note": "Relayed by the runner to Eyes as OTLP when the run sends to Eyes; not a run event."
+    },
+    {
+      "fingers": "usage",
+      "prp": "usage.reported",
+      "run_event": "usage"
+    },
+    {
+      "fingers": "file_changed",
+      "prp": "workspace.change.updated",
+      "run_event": "file.changed"
+    },
+    {
+      "fingers": "checkpoint_created",
+      "prp": "checkpoint.created",
+      "run_event": "checkpoint.created"
+    },
+    {
+      "fingers": "subagent_started",
+      "prp": "delegation.started",
+      "run_event": null
+    },
+    {
+      "fingers": "subagent_updated",
+      "prp": "delegation.updated",
+      "run_event": null
+    },
+    {
+      "fingers": "subagent_finished",
+      "prp": "delegation.completed",
+      "run_event": null
+    },
+    {
+      "fingers": "notice",
+      "prp": "harness.diagnostic",
+      "run_event": "log"
+    },
+    {
+      "fingers": "result",
+      "prp": "run.terminal",
+      "run_event": "run.finished",
+      "note": "run.terminal carries turnTerminalState and runTerminalState from the terminal table for result.status, and result.failure as the Hands Run.failure."
+    }
+  ],
+  "run_event_types": [
+    "run.created",
+    "run.queued",
+    "sandbox.ready",
+    "workspace.ready",
+    "agent.message",
+    "agent.thinking",
+    "tool_call.started",
+    "tool_call.finished",
+    "file.changed",
+    "steering.received",
+    "usage",
+    "approval.requested",
+    "approval.resolved",
+    "checkpoint.created",
+    "log",
+    "run.finished"
+  ],
+  "prp_v3_event_types": [
+    "runner.connected",
+    "runner.reconnected",
+    "runner.reconciled",
+    "runner.disconnected",
+    "runner.draining",
+    "runner.suspending",
+    "runner.suspended",
+    "runner.stopped",
+    "runner.diagnostic",
+    "runtime.phase.changed",
+    "sandbox.metric",
+    "workspace.ready",
+    "workspace.change.updated",
+    "workspace.diff.recorded",
+    "workspace.file.referenced",
+    "harness.starting",
+    "harness.ready",
+    "harness.exited",
+    "harness.diagnostic",
+    "plan.updated",
+    "plan.proposed",
+    "tool.execution.started",
+    "tool.execution.progressed",
+    "tool.execution.completed",
+    "research.started",
+    "research.progressed",
+    "research.completed",
+    "delegation.started",
+    "delegation.updated",
+    "delegation.completed",
+    "model.route.changed",
+    "model.verification.updated",
+    "context.compacted",
+    "artifact.viewed",
+    "artifact.generated",
+    "review.mode.changed",
+    "hook.started",
+    "hook.completed",
+    "memory.citation.referenced",
+    "safety.review.started",
+    "safety.review.completed",
+    "terminal.input.sent",
+    "wait.started",
+    "wait.completed",
+    "provider.notice.recorded",
+    "session.starting",
+    "session.started",
+    "session.resuming",
+    "session.resumed",
+    "session.reconciled",
+    "session.updated",
+    "session.closed",
+    "session.failed",
+    "session.capabilities.updated",
+    "session.goal.snapshot",
+    "session.goal.updated",
+    "session.goal.cleared",
+    "turn.submitted",
+    "turn.accepted",
+    "turn.started",
+    "turn.completed",
+    "turn.failed",
+    "turn.interrupted",
+    "turn.cancelled",
+    "item.started",
+    "item.delta",
+    "item.completed",
+    "item.failed",
+    "usage.reported",
+    "semantic_tool.input",
+    "semantic_tool.result",
+    "mcp_app.discovered",
+    "mcp_app.resource.resolved",
+    "mcp_app.initializing",
+    "mcp_app.ready",
+    "mcp_app.tool_input",
+    "mcp_app.tool_result",
+    "mcp_app.action.requested",
+    "mcp_app.action.resolved",
+    "mcp_app.host_context.changed",
+    "mcp_app.failed",
+    "mcp_app.teardown",
+    "runtime_request.created",
+    "runtime_request.resolved",
+    "runtime_request.expired",
+    "runtime_request.cancelled",
+    "interaction.request.proposed",
+    "interaction.request.materialized",
+    "interaction.request.rejected",
+    "interaction.response.progressed",
+    "interaction.response.resolved",
+    "interaction.response.delivered",
+    "run.attached",
+    "run.detached",
+    "run.result.proposed",
+    "run.result.accepted",
+    "run.result.rejected",
+    "attention.request.proposed",
+    "attention.request.routed",
+    "attention.request.resolved",
+    "attention.request.expired",
+    "attention.request.superseded",
+    "work.assessment.recorded",
+    "issue.status.decision.recorded",
+    "issue.status.decision.applied",
+    "issue.status.decision.rejected",
+    "issue.status.decision.superseded",
+    "run.terminal",
+    "external_provider.dispatch_requested",
+    "external_provider.operation_settled",
+    "external_provider.input_available",
+    "runner.attachment.settled",
+    "auth.credentials.updated",
+    "runtime.activity.recorded"
+  ]
+}

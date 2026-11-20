@@ -39,7 +39,7 @@ node packages/coding-agent/test/mcp-conformance/run.ts --update-baseline
 ## Known failures
 
 - `elicitation-sep1034-client-defaults`: fingers does not support elicitation.
-- `auth/basic-cimd`: fingers uses its Client ID Metadata Document on fingers.veyra.so, not the suite's `https://conformance-test.local/client-metadata.json`.
+- `auth/basic-cimd`: fingers uses its Client ID Metadata Document under `FINGERS_MCP_CLIENT_METADATA_URL`, not the suite's `https://conformance-test.local/client-metadata.json`; without that variable it registers dynamically.
 - `auth/scope-retry-limit`: `fingers-client` fails by design; the server never accepts the granted scope.
 
 2026-07-28 is not covered: it is a stateless protocol fingers does not implement.

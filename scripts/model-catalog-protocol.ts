@@ -1,14 +1,10 @@
 /**
- * Model catalog protocol shared by fingers and fingers.veyra.so.
+ * Model catalog protocol between fingers and a model catalog service.
  *
- * This file is copied verbatim into two repositories. Change both copies in
- * the same pair of pull requests and keep them byte for byte identical:
- *
- *   veyraco/fingers      scripts/model-catalog-protocol.ts
- *   veyraco/fingers.dev  src/shared/models/protocol.ts
- *
- * fingers uses it to publish catalog revisions and to test clients against the
- * catalog selection fingers.veyra.so performs. fingers.veyra.so uses it to serve catalog requests.
+ * Fingers hosts no catalog service. A client refreshes its built-in models from
+ * one only when FINGERS_MODEL_CATALOG_URL names it. This file is the contract
+ * such a service implements, and fingers tests its client against the catalog
+ * selection described here.
  * Keep it free of imports and runtime specific APIs so it runs unchanged in
  * Node.js and Cloudflare Workers.
  *

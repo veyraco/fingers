@@ -9,10 +9,11 @@ import {
 	type OAuthChallenge,
 	OAuthIssuerMismatchError,
 } from "@veyraco/fingers-mcp/oauth";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InMemoryAuthStorageBackend } from "../src/core/auth-storage.ts";
 import {
 	createMcpAuthProvider,
+	getFingersClientMetadataDocuments,
 	McpOAuthCredentialStore,
 	type McpSignInPrompt,
 	signInMcpServer,
@@ -209,8 +210,15 @@ describe("MCP OAuth client ID metadata documents", () => {
 	const cleanups: (() => Promise<void>)[] = [];
 	const cimd: McpOAuthSettings = { clientRegistration: "cimd" };
 	const dcr: McpOAuthSettings = { clientRegistration: "dcr" };
+	// Fingers hosts no documents; these tests name a place that serves them.
+	const documentsUrl = "https://mcp-client.example/oauth";
+
+	beforeEach(() => {
+		vi.stubEnv("FINGERS_MCP_CLIENT_METADATA_URL", documentsUrl);
+	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
 		while (cleanups.length > 0) await cleanups.pop()?.();
 	});
 
@@ -235,24 +243,39 @@ describe("MCP OAuth client ID metadata documents", () => {
 		expect(server.authorizations[0].get("client_id")).toBe("client-1");
 	});
 
+	it("has no documents unless FINGERS_MCP_CLIENT_METADATA_URL names them", () => {
+		expect(getFingersClientMetadataDocuments({})).toBeUndefined();
+		expect(getFingersClientMetadataDocuments({ FINGERS_MCP_CLIENT_METADATA_URL: `${documentsUrl}/` })?.baseUrl).toBe(
+			documentsUrl,
+		);
+	});
+
+	it("registers dynamically by default without hosted documents, even when the server supports them", async () => {
+		vi.stubEnv("FINGERS_MCP_CLIENT_METADATA_URL", undefined);
+		const { server, signIn } = await startServer({ cimd: true, issParameter: true });
+		await signIn({});
+		expect(server.registrations).toHaveLength(1);
+		expect(server.authorizations[0].get("client_id")).toBe("client-1");
+	});
+
 	// #11426
 	it("uses fingers' document by default when authorization responses name their issuer", async () => {
 		const { server, store, signIn } = await startServer({ cimd: true, issParameter: true });
 		await signIn({});
 		const [authorization] = server.authorizations;
-		expect(authorization.get("client_id")).toBe("https://fingers.veyra.so/oauth/client.json");
+		expect(authorization.get("client_id")).toBe("https://mcp-client.example/oauth/client.json");
 		const redirect = new URL(authorization.get("redirect_uri") ?? "");
 		expect(`${redirect.hostname}${redirect.pathname}`).toBe("127.0.0.1/callback");
 		expect(redirect.port).not.toBe("");
 		expect(server.registrations).toEqual([]);
-		expect(server.tokenRequests[0].get("client_id")).toBe("https://fingers.veyra.so/oauth/client.json");
+		expect(server.tokenRequests[0].get("client_id")).toBe("https://mcp-client.example/oauth/client.json");
 		expect(server.tokenRequests[0].get("redirect_uri")).toBe(redirect.href);
 		// The document is not stored, so signing in again refreshes the tokens instead of discarding them.
 		expect((await store.load())?.clientInformation).toBeUndefined();
 		await signIn({});
 		expect(server.authorizations).toHaveLength(1);
 		expect(server.tokenRequests[1].get("grant_type")).toBe("refresh_token");
-		expect(server.tokenRequests[1].get("client_id")).toBe("https://fingers.veyra.so/oauth/client.json");
+		expect(server.tokenRequests[1].get("client_id")).toBe("https://mcp-client.example/oauth/client.json");
 	});
 
 	// #11426
@@ -288,7 +311,7 @@ describe("MCP OAuth client ID metadata documents", () => {
 		// Computed like Codex: the first 9 bytes of the SHA-256 of the MCP server URL.
 		const id = createHash("sha256").update(server.url).digest().subarray(0, 9).toString("base64url");
 		const [authorization] = server.authorizations;
-		expect(authorization.get("client_id")).toBe(`https://fingers.veyra.so/oauth/${id}/client.json`);
+		expect(authorization.get("client_id")).toBe(`https://mcp-client.example/oauth/${id}/client.json`);
 		const redirect = new URL(authorization.get("redirect_uri") ?? "");
 		expect(redirect.pathname).toBe(`/callback/${id}`);
 		expect(server.registrations).toEqual([]);
@@ -303,7 +326,7 @@ describe("MCP OAuth client ID metadata documents", () => {
 		// The registered client's tokens are not refreshed with another client.
 		expect(server.authorizations.map((authorization) => authorization.get("client_id"))).toEqual([
 			"client-1",
-			"https://fingers.veyra.so/oauth/client.json",
+			"https://mcp-client.example/oauth/client.json",
 		]);
 		expect((await store.load())?.clientInformation).toBeUndefined();
 	});

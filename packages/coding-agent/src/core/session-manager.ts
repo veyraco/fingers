@@ -999,6 +999,8 @@ export class SessionManager {
 	private cwd: string;
 	private persist: boolean;
 	private flushed: boolean = false;
+	/** Applied to every serialized entry line before it is written (managed mode removes secrets). */
+	private serializedEntryFilter: ((line: string) => string) | undefined;
 	private fileEntries: FileEntry[] = [];
 	private byId: Map<string, SessionEntry> = new Map();
 	private labelsById: Map<string, string> = new Map();
@@ -1129,12 +1131,25 @@ export class SessionManager {
 		}
 	}
 
+	/**
+	 * Filter every entry line this manager writes to its session file from now on, for example to remove
+	 * secret values. Entries in memory are unchanged.
+	 */
+	setSerializedEntryFilter(filter: ((line: string) => string) | undefined): void {
+		this.serializedEntryFilter = filter;
+	}
+
+	private _serializeEntry(entry: FileEntry): string {
+		const line = JSON.stringify(entry);
+		return `${this.serializedEntryFilter ? this.serializedEntryFilter(line) : line}\n`;
+	}
+
 	private _rewriteFile(): void {
 		if (!this.persist || !this.sessionFile) return;
 		const fd = openSync(this.sessionFile, "w");
 		try {
 			for (const entry of this.fileEntries) {
-				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
+				writeFileSync(fd, this._serializeEntry(entry));
 			}
 		} finally {
 			closeSync(fd);
@@ -1185,14 +1200,14 @@ export class SessionManager {
 			const fd = openSync(this.sessionFile, "wx");
 			try {
 				for (const e of this.fileEntries) {
-					writeFileSync(fd, `${JSON.stringify(e)}\n`);
+					writeFileSync(fd, this._serializeEntry(e));
 				}
 			} finally {
 				closeSync(fd);
 			}
 			this.flushed = true;
 		} else {
-			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+			appendFileSync(this.sessionFile, this._serializeEntry(entry));
 		}
 	}
 

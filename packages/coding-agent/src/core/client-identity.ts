@@ -5,7 +5,7 @@ import { isInstallTelemetryEnabled } from "./telemetry.ts";
 
 /**
  * How fingers' requests identify it to providers: a detailed `User-Agent` with fingers' version, and attribution to fingers as a
- * CLI agent while install telemetry is enabled.
+ * CLI agent while the attribution setting (`enableInstallTelemetry`) is on.
  */
 export function getClientIdentity(settingsManager: SettingsManager): ClientIdentity {
 	return {

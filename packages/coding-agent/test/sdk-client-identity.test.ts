@@ -149,7 +149,7 @@ describe("createAgentSession client identity", () => {
 			attribution: FINGERS_ATTRIBUTION,
 		});
 		expect(getAttributionHeaders(model, options?.identity)).toEqual({
-			"HTTP-Referer": "https://fingers.veyra.so",
+			"HTTP-Referer": "https://veyra.so/fingers",
 			"X-OpenRouter-Title": "fingers",
 			"X-OpenRouter-Categories": "cli-agent",
 		});

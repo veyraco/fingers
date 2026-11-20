@@ -291,7 +291,8 @@ export const SettingsSchema = Type.Object(
 		),
 		enableInstallTelemetry: Type.Optional(
 			Type.Boolean({
-				description: "Send an anonymous version and update ping after changelog-detected updates.",
+				description:
+					"Identify requests as Fingers to providers that support app attribution. Fingers sends no install or usage reports.",
 				default: SETTINGS_DEFAULTS.enableInstallTelemetry,
 			}),
 		),

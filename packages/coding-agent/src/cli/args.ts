@@ -22,6 +22,8 @@ export interface Args {
 	help?: boolean;
 	version?: boolean;
 	mode?: Mode;
+	/** `--managed`: Hands mode for `--mode rpc` (Fingers RPC v1 managed policy). */
+	managed?: boolean;
 	name?: string;
 	noSession?: boolean;
 	session?: string;
@@ -188,6 +190,8 @@ export function parseArgs(args: string[]): Args {
 			result.extensions.push(args[++i]);
 		} else if (arg === "--no-extensions" || arg === "-ne") {
 			result.noExtensions = true;
+		} else if (arg === "--managed") {
+			result.managed = true;
 		} else if (arg === "--no-mcp") {
 			result.noMcp = true;
 		} else if (arg === "--skill" && i + 1 < args.length) {
@@ -304,6 +308,7 @@ ${chalk.bold("Options:")}
   --system-prompt <text>         System prompt (default: coding assistant prompt)
   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
   --mode <mode>                  Output mode: text (default), json, or rpc
+  --managed                      With --mode rpc: managed mode for hosts such as Veyra Hands (Fingers RPC v1)
   --print, -p                    Non-interactive mode: process prompt and exit
   --continue, -c                 Continue the most recent session for the current directory
   --resume, -r                   Pick a session to resume
@@ -466,8 +471,9 @@ ${chalk.bold("Environment Variables:")}
   FINGERS_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
   FINGERS_OFFLINE                       - Disable startup network operations when set to 1/true/yes
   FINGERS_SELF_UPDATE_COMMAND           - Command fingers update runs to update fingers itself ({packageName}, {version}, {installSpec})
-  FINGERS_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no
-  FINGERS_SHARE_VIEWER_URL              - Base URL for /share command (default: https://fingers.veyra.so/session/)
+  FINGERS_TELEMETRY                     - Override provider attribution when set to 1/true/yes or 0/false/no
+  FINGERS_SHARE_VIEWER_URL              - Base URL of a viewer for /share gists (default: none, /share prints the gist URL)
+  FINGERS_MODEL_CATALOG_URL             - Base URL of a model catalog service to refresh built-in models from (default: none)
 
 ${chalk.bold("Built-in Tool Names:")}
   read       - Read file contents

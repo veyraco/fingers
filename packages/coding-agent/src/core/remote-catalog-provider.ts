@@ -11,7 +11,13 @@ import { VERSION } from "../config.ts";
 import { getFingersUserAgent } from "../utils/fingers-user-agent.ts";
 import { fetchWithRetry } from "../utils/management-http.ts";
 
-const DEFAULT_CATALOG_BASE_URL = "https://fingers.veyra.so";
+/**
+ * Base URL of a model catalog service, from FINGERS_MODEL_CATALOG_URL. Fingers hosts no catalog
+ * service: without one it uses the model data it ships with and makes no catalog request.
+ */
+export function getModelCatalogBaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	return env.FINGERS_MODEL_CATALOG_URL?.trim() || undefined;
+}
 const REMOTE_CATALOG_ATTEMPT_TIMEOUT_MS = 4_000;
 export const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /**
@@ -50,7 +56,7 @@ function parseCatalog(providerId: string, value: unknown): AnyModel[] {
 		.map((model) => ({ ...model, provider: providerId }) as AnyModel);
 }
 
-/** Read a successful fingers.veyra.so catalog response. A missing or invalid Last-Modified header is 0. */
+/** Read a successful catalog response. A missing or invalid Last-Modified header is 0. */
 async function readCatalog(
 	providerId: string,
 	response: Response,
@@ -63,7 +69,7 @@ async function readCatalog(
 	};
 }
 
-/** Whether a fingers.veyra.so catalog is newer than the model data shipped with fingers. */
+/** Whether a served catalog is newer than the model data shipped with fingers. */
 function isNewer(lastModified: number | undefined, localGeneratedAt: number | undefined): boolean {
 	return localGeneratedAt === undefined || (lastModified !== undefined && lastModified > localGeneratedAt);
 }
@@ -73,11 +79,10 @@ function remoteModels(entry: ModelsStoreEntry | undefined, localGeneratedAt: num
 }
 
 /**
- * Request one provider's catalog from fingers.veyra.so. The User-Agent carries this fingers' version, and fingers.veyra.so
- * serves the newest catalog published for a minimum version at or below it (see
- * `scripts/model-catalog-minimum-version.mjs` and `selectModelCatalog()` in
- * `scripts/model-catalog-protocol.ts`). So a client receives catalogs published after its release,
- * and those catalogs must work with this client's code.
+ * Request one provider's catalog from the catalog service. The User-Agent carries this fingers' version, and
+ * the service serves the newest catalog published for a minimum version at or below it (see
+ * `selectModelCatalog()` in `scripts/model-catalog-protocol.ts`). So a client receives catalogs published
+ * after its release, and those catalogs must work with this client's code.
  */
 function requestCatalog(
 	providerId: string,
@@ -107,12 +112,8 @@ export type PersonalizeCatalog = (
 	context: RefreshModelsContext,
 ) => Promise<readonly AnyModel[]>;
 
-/** Add a persisted fingers.veyra.so catalog overlay to a static built-in provider. */
-export function withRemoteCatalog(
-	provider: Provider,
-	catalogBaseUrl: string = DEFAULT_CATALOG_BASE_URL,
-	localGeneratedAt?: number,
-): Provider {
+/** Add a persisted catalog-service overlay to a static built-in provider. */
+export function withRemoteCatalog(provider: Provider, catalogBaseUrl: string, localGeneratedAt?: number): Provider {
 	let dynamicModels: readonly AnyModel[] = [];
 
 	return {
@@ -123,7 +124,7 @@ export function withRemoteCatalog(
 				dynamicModels.filter((model) => isModelType(model, "chat")),
 			),
 		getAllModels: () => mergeModels(provider.getAllModels?.() ?? provider.getModels(), dynamicModels),
-		// fingers.veyra.so serves the catalog, so a stale provider login must not block or fail its refresh.
+		// The catalog service serves the catalog, so a stale provider login must not block or fail its refresh.
 		refreshModelsAuth: "configured",
 		refreshModels: async (context) => {
 			const stored = context.stored;
@@ -138,7 +139,7 @@ export function withRemoteCatalog(
 				return;
 			}
 			if (!context.allowNetwork || context.signal.aborted) return;
-			// Skip the request if fingers.veyra.so was checked less than REMOTE_CATALOG_REFRESH_INTERVAL_MS ago.
+			// Skip the request if the service was checked less than REMOTE_CATALOG_REFRESH_INTERVAL_MS ago.
 			// An entry without lastModified (saved by an older fingers, or after a failed first request) is
 			// always refetched: remoteModels() ignores it, so waiting would leave the overlay empty.
 			if (
@@ -195,16 +196,16 @@ export function withRemoteCatalog(
 
 /**
  * Like `withRemoteCatalog`, but on each network refresh the catalog (built-in models plus a newer
- * fingers.veyra.so catalog) is passed through `personalize` and the result is saved. The saved entry holds
- * the personalized list, not the fingers.veyra.so catalog, and replaces the catalog, including offline.
- * The refresh interval and etag revalidation are skipped. An empty list (nothing saved yet, or an
- * empty catalog saved by an older fingers after a failed or missing fingers.veyra.so catalog) falls back to the
- * built-in models.
+ * catalog-service catalog when `catalogBaseUrl` names a service) is passed through `personalize` and the
+ * result is saved. The saved entry holds the personalized list, not the service's catalog, and replaces the
+ * catalog, including offline. The refresh interval and etag revalidation are skipped. An empty list (nothing
+ * saved yet, or an empty catalog saved after a failed or missing service catalog) falls back to the built-in
+ * models.
  */
 export function withPersonalizedCatalog(
 	provider: Provider,
 	personalize: PersonalizeCatalog,
-	catalogBaseUrl: string = DEFAULT_CATALOG_BASE_URL,
+	catalogBaseUrl: string | undefined,
 	localGeneratedAt?: number,
 ): Provider {
 	let personalModels: readonly AnyModel[] = [];
@@ -228,10 +229,12 @@ export function withPersonalizedCatalog(
 			}
 			if (!context.allowNetwork || context.signal.aborted) return;
 
-			const response = await requestCatalog(provider.id, catalogBaseUrl, context.signal);
-			if (context.signal.aborted) return;
 			let remote: readonly AnyModel[] = [];
-			if (response.status !== 404 && response.status !== 501) {
+			const response = catalogBaseUrl
+				? await requestCatalog(provider.id, catalogBaseUrl, context.signal)
+				: undefined;
+			if (context.signal.aborted) return;
+			if (response && response.status !== 404 && response.status !== 501) {
 				if (!response.ok) throw new Error(`Model catalog request failed for ${provider.id}: ${response.status}`);
 				const catalog = await readCatalog(provider.id, response);
 				if (isNewer(catalog.lastModified, localGeneratedAt)) remote = catalog.models;

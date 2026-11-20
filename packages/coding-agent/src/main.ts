@@ -5,6 +5,7 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@veyraco/fingers-ai";
 import { setCapabilityOverrides } from "@veyraco/fingers-tui";
@@ -44,10 +45,10 @@ import {
 	createAgentSessionServices,
 } from "./core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
-import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+import { openCredentialStorage, openReadOnlyCredentialStorage } from "./core/keychain-auth-storage.ts";
 import { resolveCliModel, resolveModelScopeWithDiagnostics, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
@@ -72,7 +73,8 @@ import { writeDiagnosticsToStderr } from "./modes/diagnostics-stderr.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, setThemeJsonValidator, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { validateThemeJson } from "./modes/interactive/theme/theme-schema.ts";
-import { cleanupManagedInstall, handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { runManagedRpcMode } from "./modes/rpc/managed/index.ts";
+import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
@@ -218,7 +220,10 @@ async function runAuthCommand(args: string[]): Promise<boolean> {
 		let result: AuthCheckResult;
 		let credential: string | undefined;
 		try {
-			const credentials = command.noRefresh ? new ReadOnlyAuthStorage() : AuthStorage.create();
+			const authPath = join(getAgentDir(), "auth.json");
+			const credentials = command.noRefresh
+				? openReadOnlyCredentialStorage({ authPath })
+				: openCredentialStorage({ authPath }).storage;
 			const modelRuntime = await createAuthCheckModelRuntime(credentials);
 			result = await checkProviderAuth(parsed, modelRuntime, { refresh: !command.noRefresh });
 			if (command.credentials && result.status === "ready") {
@@ -620,7 +625,6 @@ export async function main(args: string[], options?: MainOptions) {
 	if (process.platform === "win32") {
 		cleanupWindowsSelfUpdateQuarantine(getPackageDir());
 	}
-	cleanupManagedInstall();
 
 	let cwd: string;
 	try {
@@ -702,6 +706,15 @@ export async function main(args: string[], options?: MainOptions) {
 	if (parsed.mode === "rpc" && parsed.fileArgs.length > 0) {
 		console.error(chalk.red("Error: @file arguments are not supported in RPC mode"));
 		process.exit(1);
+	}
+
+	if (parsed.managed) {
+		if (parsed.mode !== "rpc") {
+			console.error(chalk.red("Error: --managed requires --mode rpc"));
+			process.exit(1);
+		}
+		// Managed mode builds its runtime after the host's configure command, under the managed policy.
+		await runManagedRpcMode({ sessionDir: parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined });
 	}
 
 	validateForkFlags(parsed);

@@ -173,9 +173,9 @@ function getSelfUpdateCommandForMethod(
 			const [command = "npm", ...npmArgs] = npmCommand ?? [];
 			const inferred = npmCommand?.length ? undefined : getInferredNpmInstall();
 			const prefixArgs = [...npmArgs, ...(inferred ? ["--prefix", inferred.prefix] : [])];
-			// fingers.veyra.so advertises releases immediately, so a configured npm age gate would
-			// block the update. npm has no per-package age gate, so this also lets new
-			// transitive dependency releases through. Managed installs avoid this.
+			// The update check reads the registry's latest release immediately, so a configured npm
+			// age gate would block the update. npm has no per-package age gate, so this also lets new
+			// transitive dependency releases through.
 			const installStep = makeSelfUpdateCommandStep(command, [
 				...prefixArgs,
 				"install",
@@ -614,12 +614,17 @@ export function expandTildePath(path: string): string {
 	return normalizePath(path);
 }
 
-const DEFAULT_SHARE_VIEWER_URL = "https://fingers.veyra.so/session/";
+/** Fingers' GitHub repository: source, releases and the changelog. */
+export const REPOSITORY_URL = "https://github.com/veyraco/fingers";
+export const CHANGELOG_URL = `${REPOSITORY_URL}/blob/main/packages/coding-agent/CHANGELOG.md`;
 
-/** Get the share viewer URL for a gist ID. */
-export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.FINGERS_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
-	return `${baseUrl}#${gistId}`;
+/**
+ * Get the share viewer URL for a gist ID. Fingers hosts no share viewer, so there is one only when
+ * FINGERS_SHARE_VIEWER_URL names a viewer.
+ */
+export function getShareViewerUrl(gistId: string): string | undefined {
+	const baseUrl = process.env.FINGERS_SHARE_VIEWER_URL?.trim();
+	return baseUrl ? `${baseUrl}#${gistId}` : undefined;
 }
 
 // =============================================================================

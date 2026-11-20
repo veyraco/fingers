@@ -105,7 +105,7 @@ describe("client identity", () => {
 	it("attributes OpenRouter requests", () => {
 		const openRouter = target("openrouter", "https://openrouter.ai/api/v1");
 		expect(getAttributionHeaders(openRouter, { attribution: FINGERS_ATTRIBUTION })).toEqual({
-			"HTTP-Referer": "https://fingers.veyra.so",
+			"HTTP-Referer": "https://veyra.so/fingers",
 			"X-OpenRouter-Title": "fingers",
 			"X-OpenRouter-Categories": "cli-agent",
 		});

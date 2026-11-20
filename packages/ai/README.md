@@ -452,7 +452,7 @@ await models.completeSimple(model, context, { identity: { attribution: null } })
   - NVIDIA NIM: `X-BILLING-INVOKE-ORIGIN: <name>` with its first letter upper-cased.
   - OpenCode: `x-opencode-client: <name>`.
 
-  `FINGERS_ATTRIBUTION` is fingers': `{ name: "fingers", url: "https://fingers.veyra.so", categories: ["cli-agent"] }`.
+  `FINGERS_ATTRIBUTION` is fingers': `{ name: "fingers", url: "https://veyra.so/fingers", categories: ["cli-agent"] }`.
 
 Identity headers are defaults below provider, model, and request headers, so configured headers win and a `null` request header removes one. Providers that send a fixed client identity, such as GitHub Copilot and Anthropic OAuth, keep it. `withClientIdentity(models, identity)` returns a wrapper of a `Models` (or `MutableModels`) whose requests use `identity` over the one the `Models` was created with, for libraries that receive a `Models` from their host. `identity` is plain JSON, so it can be persisted with other request options.
 

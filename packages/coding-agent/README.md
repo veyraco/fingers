@@ -1,14 +1,6 @@
 <p align="center">
-  <a href="https://fingers.veyra.so">
-    <img alt="Fingers logo" src="https://fingers.veyra.so/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
   <a href="https://www.npmjs.com/package/@veyraco/fingers"><img alt="npm" src="https://img.shields.io/npm/v/@veyraco/fingers?style=flat-square&logo=npm&logoColor=white" /></a>
 </p>
-
-> New issues and PRs from new contributors are closed automatically. Maintainers review closed submissions daily. See [CONTRIBUTING.md](https://github.com/veyraco/fingers/blob/main/CONTRIBUTING.md).
 
 # Fingers
 
@@ -22,27 +14,13 @@ Use Fingers [interactively](docs/usage.md), automate it in [print or JSON mode](
 
 ## Getting started
 
-Install the command-line interface:
-
-```bash
-curl -fsSL https://fingers.veyra.so/install.sh | sh
-```
-
-On Windows:
-
-```shell
-powershell -c "irm https://fingers.veyra.so/install.ps1 | iex"
-```
-
-The installer pins all dependencies and updates Fingers with `fingers update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
+Install the command-line interface from npm:
 
 ```bash
 npm install -g --ignore-scripts @veyraco/fingers
 ```
 
-Fingers requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Fingers does not require dependency lifecycle scripts for a normal npm installation.
-
-On macOS and Linux, Nix users can install the latest release with `nix profile add github:veyraco/fingers/stable`. See the [quickstart](docs/quickstart.md#1-install-fingers) for updating and pinning releases.
+Fingers requires Node.js 22.19 or newer and does not require dependency lifecycle scripts. Update it with `fingers update`, which installs the npm registry's latest release.
 
 Start Fingers in the directory where you want it to work:
 
