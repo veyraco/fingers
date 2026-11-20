@@ -1156,6 +1156,9 @@ export class InteractiveMode {
 			this.builtInHeader = new Text("", 0, 0);
 			this.headerContainer.addChild(this.builtInHeader);
 		}
+		// The session's first line on the canvas (FingersTuiSession): cwd, branch, org, memory.
+		this.headerContainer.addChild(this.footer.location);
+		this.headerContainer.addChild(new Spacer(1));
 		if (this.renderer.mode === "fullscreen") this.showFullscreenModelScopeNotice();
 		this.ui.requestRender();
 

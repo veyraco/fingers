@@ -1,8 +1,13 @@
 /**
  * The approval box (canvas FingersTuiSession): "Approval needed · run a command", the command, why it asks,
  * and three answers: Yes, Yes always allow "<prefix>", No and tell Fingers what to do instead.
+ *
+ * The person approves what they see, so the whole command is shown: long commands wrap across rows
+ * instead of being cut off, every line of a multi-line command gets its own rows, and control and
+ * bidirectional characters are shown as visible placeholders instead of acting on the terminal.
+ * The keys (←→, enter, y, a, n, esc) are not listed under the box, as on the artboard.
  */
-import { type Component, type Focusable, getKeybindings, Input } from "@veyraco/fingers-tui";
+import { type Component, type Focusable, getKeybindings, Input, visibleWidth } from "@veyraco/fingers-tui";
 import { theme } from "../theme/theme.ts";
 import { renderShellBox } from "./shell-box.ts";
 
@@ -26,6 +31,44 @@ export interface ApprovalBoxOptions {
 }
 
 const MAX_BOX_WIDTH = 100;
+/** The box's border and padding: `│ ` and ` │`. */
+const BOX_CHROME = 4;
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Bidirectional overrides and invisible characters that could make the shown text differ from what runs. */
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+/**
+ * Makes `text` safe to show as one line: control characters become their Unicode control pictures
+ * (ESC → ␛, CR → ␍, tab → ␉) and invisible or bidi characters become `<U+202E>`.
+ */
+export function visibleCommandText(text: string): string {
+	return text
+		.replace(/[\u0000-\u001F\u007F]/g, (char) =>
+			char === "\u007F" ? "␡" : String.fromCharCode(0x2400 + char.charCodeAt(0)),
+		)
+		.replace(INVISIBLE, (char) => `<U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}>`);
+}
+
+/** Splits plain `text` into pieces at most `width` cells wide, keeping every character. */
+export function hardWrap(text: string, width: number): string[] {
+	const pieces: string[] = [];
+	let current = "";
+	let currentWidth = 0;
+	for (const { segment } of graphemes.segment(text)) {
+		const segmentWidth = visibleWidth(segment);
+		if (currentWidth + segmentWidth > width && current) {
+			pieces.push(current);
+			current = "";
+			currentWidth = 0;
+		}
+		current += segment;
+		currentWidth += segmentWidth;
+	}
+	if (current || pieces.length === 0) pieces.push(current);
+	return pieces;
+}
 
 export class ApprovalBoxComponent implements Component, Focusable {
 	private readonly options: ApprovalBoxOptions;
@@ -60,33 +103,45 @@ export class ApprovalBoxComponent implements Component, Focusable {
 
 	render(width: number): string[] {
 		const { action, summary, isCommand, reason, allowPattern } = this.options;
-		const labels = ["Yes", `Yes, always allow “${allowPattern}”`, "No, tell Fingers what to do instead"];
-		const answers = labels
-			.map((label, index) =>
-				index === this.choice ? theme.bold(theme.fg("accent", `❯ ${label}`)) : theme.fg("text", label),
-			)
-			.join("    ");
-		const rows = [
-			isCommand
-				? `${theme.fg("muted", "$ ")}${theme.bold(theme.fg("text", summary))}`
-				: theme.bold(theme.fg("text", summary)),
-			theme.fg("muted", reason),
-			"",
-			answers,
+		const boxWidth = Math.min(width, MAX_BOX_WIDTH);
+		const inner = Math.max(1, boxWidth - BOX_CHROME);
+		const rows: string[] = [];
+
+		// The command: "$ " on its first row, continuation rows indented under it.
+		const indent = isCommand ? 2 : 0;
+		summary.split("\n").forEach((line, lineIndex) => {
+			hardWrap(visibleCommandText(line), Math.max(1, inner - indent)).forEach((piece, pieceIndex) => {
+				const lead = !isCommand ? "" : lineIndex === 0 && pieceIndex === 0 ? theme.fg("muted", "$ ") : "  ";
+				rows.push(`${lead}${theme.bold(theme.fg("text", piece))}`);
+			});
+		});
+		rows.push(theme.fg("muted", reason), "");
+
+		// The answers on one row when they fit, otherwise one per row, wrapped.
+		const labels = [
+			"Yes",
+			`Yes, always allow “${visibleCommandText(allowPattern)}”`,
+			"No, tell Fingers what to do instead",
 		];
+		const style = (index: number, text: string) =>
+			index === this.choice ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text);
+		const marked = labels.map((label, index) => (index === this.choice ? `❯ ${label}` : label));
+		const oneRow = marked.join("    ");
+		if (visibleWidth(oneRow) <= inner) {
+			rows.push(marked.map((label, index) => style(index, label)).join("    "));
+		} else {
+			marked.forEach((label, index) => {
+				const lead = index === this.choice ? "" : "  ";
+				for (const piece of hardWrap(`${lead}${label}`, inner)) rows.push(style(index, piece));
+			});
+		}
+
 		if (this.input) {
-			const inputWidth = Math.max(10, Math.min(width, MAX_BOX_WIDTH) - 4 - 14);
+			const inputWidth = Math.max(10, inner - 15);
 			const [inputLine = ""] = this.input.render(inputWidth);
 			rows.push("", `${theme.bold(theme.fg("accent", "tell Fingers › "))}${inputLine}`);
 		}
-		const lines = renderShellBox(`Approval needed · ${action}`, rows, Math.min(width, MAX_BOX_WIDTH), (text) =>
-			theme.fg("warning", text),
-		);
-		const hint = this.input
-			? "enter send · esc back"
-			: "←→ choose · enter confirm · y yes · a always · n tell Fingers · esc no";
-		lines.push(theme.fg("dim", hint));
-		return lines;
+		return renderShellBox(`Approval needed · ${action}`, rows, boxWidth, (text) => theme.fg("warning", text));
 	}
 
 	handleInput(data: string): void {

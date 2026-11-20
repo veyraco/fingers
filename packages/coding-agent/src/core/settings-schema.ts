@@ -268,7 +268,7 @@ export const SettingsSchema = Type.Object(
 					allow: Type.Optional(
 						Type.Array(Type.String(), {
 							description:
-								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only list (ls, cat, rg, git status, ...). Chained or redirected commands always ask.',
+								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only commands (ls, cat, rg, git status, ...), which run without asking only with arguments that cannot run a program or write a file. A pattern added here matches any arguments. Chained or redirected commands always ask.',
 						}),
 					),
 				},

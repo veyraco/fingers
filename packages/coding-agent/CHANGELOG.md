@@ -6,7 +6,7 @@
 
 - First Veyra Fingers release.
 - Terminal screens from the Veyra canvas: the banner with the Fingers mark, the Veyra dark and light palettes for the `dark` and `light` themes, the status line (model, provider, tokens in/out, cost, cache, budget, and the Veyra account or "core only · not signed in") on its own background (`statusBarBg`) under a location line and the editor key hints, the slash menu in a "Commands" box with `ee` tags, and the first-run screen when no model is configured (sign in to Veyra, an API key for one of the first-version providers, or environment keys).
-- Approvals in the interactive terminal: shell commands outside the allow list show the approval box (Yes / Yes, always allow / No, tell Fingers what to do instead). `approvals.commands: "never"` turns it off; `approvals.allow` adds prefixes.
+- Approvals in the interactive terminal: shell commands outside the allow list show the approval box (Yes / Yes, always allow / No, tell Fingers what to do instead). `approvals.commands: "never"` turns it off; `approvals.allow` adds prefixes. The built-in read-only commands are checked argument by argument (`rg --pre`, `git diff --output`, `git branch -D` and the like ask; `fd` and `tree` are not built in), the box shows long commands in full, and each decision is recorded in the session as an `approval` entry.
 
 ### Removed
 

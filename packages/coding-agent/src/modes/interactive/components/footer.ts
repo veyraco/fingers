@@ -87,7 +87,9 @@ interface SessionStats {
 }
 
 /**
- * Footer component: the location line (cwd, branch, session, org, memory) and the status line.
+ * Footer component: the editor key hints and the status line (canvas FingersTuiSession). The location
+ * line (cwd, branch, session, org, memory) is the session's first line on the artboard, so it is a
+ * separate component, `location`, that interactive mode puts at the top of the session.
  * Computes token/context stats from session, gets git branch and extension statuses from provider.
  */
 export class FooterComponent implements Component {
@@ -96,6 +98,12 @@ export class FooterComponent implements Component {
 	private footerData: ReadonlyFooterDataProvider;
 	private sessionStats?: SessionStats;
 	private shell: FingersShellStatus | undefined;
+
+	/** The location line, `~/acme/web  ·  main  ·  org …  ·  memory: …`, for the top of the session. */
+	readonly location: Component = {
+		render: (width: number) => [this.renderLocationLine(width)],
+		invalidate: () => {},
+	};
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider, shell?: FingersShellStatus) {
 		this.session = session;
@@ -187,7 +195,7 @@ export class FooterComponent implements Component {
 	render(width: number): string[] {
 		const lines = [
 			truncateToWidth(theme.fg("dim", `  ${editorHintLine()}`), width, ""),
-			this.renderLocationLine(width),
+			"",
 			this.renderStatusBar(width),
 		];
 

@@ -133,7 +133,7 @@ describe("FooterComponent width handling", () => {
 		const session = createSession({ sessionName: "한글".repeat(30) });
 		const footer = new FooterComponent(session, createFooterData(1));
 
-		const lines = footer.render(width);
+		const lines = [...footer.render(width), ...footer.location.render(width)];
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
