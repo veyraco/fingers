@@ -5,6 +5,7 @@
  * real tools in a temporary workspace. The host side sends each `in` record once the `out` record before it
  * in the transcript has been seen, and the output is compared with the transcript.
  */
+import { createHash } from "node:crypto";
 import {
 	chmodSync,
 	mkdirSync,
@@ -106,6 +107,14 @@ async function replay(
 				server.url = `${mcpUrl}/mcp`;
 				secrets.push(...Object.values(server.headers ?? {}).map(String));
 			}
+		}
+		if (copy.type === "checkpoint_export" || copy.type === "checkpoint_import") {
+			copy.path = copy.path.replace(/^\/run\/veyra(?=\/)/, runDir);
+		}
+		if (copy.type === "checkpoint_import") {
+			// The transcript's hash is illustrative: import the file the export really wrote.
+			const exported = outs.find((out) => out.type === "response" && out.command === "checkpoint_export");
+			copy.sha256 = exported?.data?.checkpoint?.sha256 ?? copy.sha256;
 		}
 		if (copy.type === "credentials") {
 			copy.base_url = anthropicUrl;
@@ -384,5 +393,40 @@ describe("managed RPC golden transcripts", () => {
 		});
 		checkCommon(golden, run);
 		expect(run.anthropic.requests).toHaveLength(1);
+	});
+
+	it("checkpoint-fork: export after a run, fork from the checkpoint, continue in the fork", async () => {
+		const { golden, run } = await replay("checkpoint-fork", () => {});
+		checkCommon(golden, run);
+		const responses = (command: string) =>
+			run.outs.find((record) => record.type === "response" && record.command === command)!;
+		const configured = responses("configure").data.session_id as string;
+		const expected = golden.find((line) => line.dir === "out" && line.record.id === "cmd-4")!.record.data.checkpoint;
+		const checkpoint = responses("checkpoint_export").data.checkpoint;
+		expect(checkpoint).toMatchObject({
+			id: expected.id,
+			format: expected.format,
+			label: expected.label,
+			session_id: configured,
+			path: join(run.root, "run/veyra/checkpoints/cp_6.jsonl"),
+			message_count: expected.message_count,
+		});
+		const file = readFileSync(checkpoint.path);
+		expect(checkpoint.size_bytes).toBe(file.length);
+		expect(checkpoint.sha256).toBe(createHash("sha256").update(file).digest("hex"));
+		expect(run.outs.find((record) => record.type === "checkpoint_created")).toMatchObject({
+			checkpoint_id: expected.id,
+			sha256: checkpoint.sha256,
+			entry_id: checkpoint.entry_id,
+		});
+		const imported = responses("checkpoint_import").data;
+		expect(imported).toMatchObject({ mode: "fork", entry_id: checkpoint.entry_id, forked_from: configured });
+		expect(imported.session_id).not.toBe(configured);
+		const results = run.outs.filter((record) => record.type === "result");
+		expect(results.map((record) => record.session_id)).toEqual([configured, imported.session_id]);
+		// The fork carries the first exchange to the model.
+		expect(JSON.stringify(run.anthropic.requests[1]!.body.messages)).toContain(
+			"Plan: 1. schema 2. backfill 3. switch.",
+		);
 	});
 });

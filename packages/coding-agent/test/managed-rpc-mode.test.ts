@@ -140,9 +140,10 @@ describe("managed RPC handshake", () => {
 			success: false,
 			code: "credentials_missing",
 		});
+		// No checkpoints.dir configured: nowhere a checkpoint may be written.
 		expect(await m.command({ type: "checkpoint_export", path: join(m.root, "cp.jsonl") })).toMatchObject({
 			success: false,
-			code: "unsupported",
+			code: "path_not_allowed",
 		});
 		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
 	});

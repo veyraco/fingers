@@ -23,13 +23,14 @@ export interface PathPolicy {
 export const READ_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
 export const WRITE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
 
-function inside(root: string, target: string): boolean {
+/** True when `target` is `root` or lies under it (both already resolved the same way). */
+export function inside(root: string, target: string): boolean {
 	const suffix = relative(root, target);
 	return suffix === "" || (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`));
 }
 
 /** Resolve every existing ancestor, including symlinks, of a path that may not exist yet. */
-async function physicalPath(path: string): Promise<string> {
+export async function physicalPath(path: string): Promise<string> {
 	try {
 		return await realpath(path);
 	} catch (error) {

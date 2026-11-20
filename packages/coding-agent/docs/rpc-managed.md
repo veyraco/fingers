@@ -24,14 +24,15 @@ no other CLI option selects the model, tools or working folder.
 | MCP | `configure.mcp_servers` are Streamable HTTP servers; their tools are declared directly as `mcp__<server>__<tool>`, limited to `allowed_tools` when given. |
 | Usage | A `usage` record follows every model call, with the call's and the process' token counts and list-price cost (`cost_source: unknown` and one `cost_unknown` notice when the model has no price). |
 | Files | A `file_changed` record follows every successful `edit` or `write` (shell commands are not tracked). |
-| Limits | `max_cost_usd`, `max_output_tokens` and `max_turns` stop the run after the turn in which they are reached; `max_duration_ms` aborts at once. The run then ends with `notice` `limit_reached` and a `result` with `status: stopped`. |
+| Limits | `max_cost_usd`, `max_output_tokens` and `max_turns` stop the run after the turn in which they are reached; `max_duration_ms` aborts at once. The run then ends with `notice` `limit_reached` and a `result` with `status: stopped`. Limits hold for the whole process: a later `prompt` makes no model call and gets a run of its own that ends the same way (`agent_start`, `notice`, `agent_end`, `agent_settled`, `result` with `turns: 0`). |
+| Checkpoints | `checkpoint_export` writes the session (header and every entry, secrets removed, mode 0600, written atomically) to a path inside `configure.checkpoints.dir` and answers with its id, `sha256`, size, leaf `entry_id` and message count (the recorded system prompt included), then emits `checkpoint_created`. `checkpoint_import` reads a file from that directory, checks `sha256`, stores it as a session of this workspace and either resumes it (same `session_id`, identical transcript) or forks it at `entry_id` (default: the leaf) into a new session whose parent is the stored checkpoint. Paths are checked as written and after resolving symlinks (`path_not_allowed`); an import is refused while a run is active (`busy`). |
+| Session replacement | `fork`, `clone` and `checkpoint_import` build a new session runtime; the credentials the host sent are applied to it again, so no new `credentials` message is needed. |
 | Result | A `result` record follows every `agent_settled`. |
 
 ## Not available yet
 
 These parts of the contract are not announced in `capabilities` and are refused or ignored:
-`checkpoint_export` and `checkpoint_import` (answered with `unsupported`), the memory relay, the telemetry relay
-and sub-agents. Extension UI `notify` calls are not forwarded in managed mode.
+the memory relay, the telemetry relay and sub-agents. Extension UI `notify` calls are not forwarded in managed mode.
 
 ## Contract copies
 

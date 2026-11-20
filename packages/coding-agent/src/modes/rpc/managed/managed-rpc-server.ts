@@ -7,15 +7,27 @@
  *
  * On top of Pi's RPC commands and session events it adds the handshake (`hello`, `configure`,
  * `credentials`), `seq` and `traceparent` correlation, structured stderr logs, the managed path policy,
- * approvals, `usage`, `file_changed`, limits and a `result` after every `agent_settled`.
+ * approvals, `usage`, `file_changed`, limits, checkpoints and a `result` after every `agent_settled`.
  */
 import type { AgentTurnDecision } from "@veyraco/fingers-agent";
 import type { AssistantMessage } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
+import { SessionManager } from "../../../core/session-manager.ts";
 import { toJsonEvent } from "../../json-event.ts";
 import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
+import {
+	branchMessageCount,
+	CHECKPOINT_FORMAT,
+	CheckpointError,
+	checkpointId,
+	readCheckpointFile,
+	resolveCheckpointPath,
+	serializeCheckpoint,
+	storeImportedSession,
+	writeCheckpointFile,
+} from "./checkpoints.ts";
 import {
 	CONTRACT_COMMANDS,
 	CONTRACT_REPLIES,
@@ -140,6 +152,11 @@ export class ManagedRpcServer {
 	private fileTracker?: FileChangeTracker;
 	private broker?: ApprovalBroker;
 	private readonly credentials = new Map<string, { expiresAt?: string }>();
+	/**
+	 * The latest `credentials` message per provider, in memory only. A session replacement (fork, clone,
+	 * checkpoint import) builds a new model runtime, which gets them again.
+	 */
+	private readonly credentialMessages = new Map<string, CredentialsMessage>();
 	private readonly heldStarts = new Map<string, JsonRecord>();
 	private readonly cumulative = zeroTotals();
 	private totalTurns = 0;
@@ -466,12 +483,25 @@ export class ManagedRpcServer {
 		this.emit(held);
 	}
 
+	/** Give a session's model runtime a provider's credential and base URL, and refresh the session's model. */
+	private async applyCredentialsTo(session: AgentSession, message: CredentialsMessage): Promise<void> {
+		await applyCredentials(session.modelRuntime, message, this.secrets);
+		// The session holds the model object composed before the provider got its base URL: refresh it.
+		const current = session.model;
+		if (current?.provider === message.provider) {
+			const refreshed = session.modelRuntime.getModel(current.provider, current.id);
+			if (refreshed) session.agent.state.model = refreshed;
+		}
+	}
+
 	private async bindSession(): Promise<void> {
 		const runtime = this.runtime!;
 		const session = runtime.session;
 		this.session = session;
 		// Secrets a provider echoes (an error body, a header) must not reach the session file either.
 		session.sessionManager.setSerializedEntryFilter((line) => this.secrets.redact(line));
+		// A replaced session has a new model runtime: give it the credentials the host sent.
+		for (const message of this.credentialMessages.values()) await this.applyCredentialsTo(session, message);
 		this.unsubscribe?.();
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		const agent = session.agent;
@@ -737,13 +767,8 @@ export class ManagedRpcServer {
 		switch (type) {
 			case "credentials": {
 				const message = command as unknown as CredentialsMessage;
-				await applyCredentials(session.modelRuntime, message, this.secrets);
-				// The session holds the model object composed before the provider got its base URL: refresh it.
-				const current = session.model;
-				if (current?.provider === message.provider) {
-					const refreshed = session.modelRuntime.getModel(current.provider, current.id);
-					if (refreshed) session.agent.state.model = refreshed;
-				}
+				await this.applyCredentialsTo(session, message);
+				this.credentialMessages.set(message.provider, message);
 				this.credentials.set(message.provider, { expiresAt: message.expires_at });
 				this.logger.info("credentials received", {
 					provider: message.provider,
@@ -769,6 +794,10 @@ export class ManagedRpcServer {
 				}
 				if (session.isStreaming && !command.streamingBehavior) {
 					this.fail(id, "prompt", "busy", "A run is active: send streamingBehavior steer or followUp");
+					return;
+				}
+				if (this.limitStop && !session.isStreaming) {
+					this.stopPromptAtLimit(id);
 					return;
 				}
 				this.startDurationLimit();
@@ -880,16 +909,125 @@ export class ManagedRpcServer {
 				return;
 			case "checkpoint_export":
 			case "checkpoint_import":
-				this.fail(
-					id,
-					type,
-					"unsupported",
-					"Checkpoints are not available in this Fingers version (no `checkpoints` capability)",
-				);
+				try {
+					if (type === "checkpoint_export") await this.exportCheckpoint(id, command);
+					else await this.importCheckpoint(id, command);
+				} catch (error) {
+					if (!(error instanceof CheckpointError)) throw error;
+					this.fail(id, type, error.code, error.message);
+				}
 				return;
 			default:
 				this.fail(id, type, "unknown_command", `Unknown command: ${type}`);
 		}
+	}
+
+	/**
+	 * The budget is a hard stop for the whole process: once a limit was reached, a new prompt makes no model
+	 * call. It still gets a run of its own (agent_start ... agent_settled, result) so the host closes its turn.
+	 */
+	private stopPromptAtLimit(id: string | undefined): void {
+		const stop = this.limitStop!;
+		this.logger.warn("prompt refused: a limit was reached", { command_id: id, stop_reason: stop.reason });
+		this.respond(id, "prompt", { disposition: "started" });
+		this.run = { startedAt: this.now(), turns: 0, limitNoticeSent: true };
+		this.emit({ type: "agent_start" });
+		this.notice("warn", "limit_reached", stop.notice);
+		this.emit({ type: "agent_end", messages: [], willRetry: false });
+		this.onAgentSettled({ type: "agent_settled", aborted: true });
+	}
+
+	// =====================================================================
+	// Checkpoints
+	// =====================================================================
+
+	private async exportCheckpoint(id: string | undefined, command: JsonRecord): Promise<void> {
+		const session = this.session!;
+		const path = await resolveCheckpointPath(command.path, this.configure?.checkpoints?.dir);
+		const sessionManager = session.sessionManager;
+		const entryId = sessionManager.getLeafId();
+		if (!entryId) throw new CheckpointError("not_found", "The session has no entries to checkpoint yet");
+		const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redact(line));
+		const { sha256, sizeBytes } = await writeCheckpointFile(path, content);
+		const checkpoint = {
+			id: checkpointId(path, sha256),
+			format: CHECKPOINT_FORMAT,
+			session_id: session.sessionId,
+			entry_id: entryId,
+			...(command.label !== undefined ? { label: command.label } : {}),
+			path: command.path,
+			sha256,
+			size_bytes: sizeBytes,
+			message_count: branchMessageCount(sessionManager),
+			created_at: new Date(this.now()).toISOString(),
+		};
+		this.logger.info("checkpoint exported", {
+			checkpoint_id: checkpoint.id,
+			session_id: checkpoint.session_id,
+			entry_id: entryId,
+			sha256,
+			size_bytes: sizeBytes,
+		});
+		this.respond(id, "checkpoint_export", { checkpoint });
+		this.emit({
+			type: "checkpoint_created",
+			checkpoint_id: checkpoint.id,
+			...(command.label !== undefined ? { label: command.label } : {}),
+			sha256,
+			size_bytes: sizeBytes,
+			entry_id: entryId,
+		});
+	}
+
+	private async importCheckpoint(id: string | undefined, command: JsonRecord): Promise<void> {
+		const session = this.session!;
+		const runtime = this.runtime!;
+		const mode = command.mode as "resume" | "fork";
+		if (mode === "resume" && command.entry_id !== undefined) {
+			throw new CheckpointError("invalid_command", "entry_id applies to mode fork only");
+		}
+		if (session.isStreaming || this.run) {
+			this.fail(id, "checkpoint_import", "busy", "A run is active: import a checkpoint between runs");
+			return;
+		}
+		const path = await resolveCheckpointPath(command.path, this.configure?.checkpoints?.dir);
+		const checkpoint = await readCheckpointFile(path, command.sha256);
+		const ids = new Set(checkpoint.entries.slice(1).map((entry) => (entry as { id: string }).id));
+		const forkAt = mode === "fork" ? (command.entry_id as string | undefined) : undefined;
+		if (forkAt !== undefined && !ids.has(forkAt)) {
+			throw new CheckpointError("not_found", `No entry ${forkAt} in the checkpoint`);
+		}
+		const workspaceRoot = this.policy!.workspace.logical;
+		const sessionDir = session.sessionManager.getSessionDir();
+		const stored = await storeImportedSession(checkpoint, sessionDir, workspaceRoot);
+		let target = stored;
+		let entryId: string | undefined;
+		if (mode === "fork") {
+			// A new session holding the path from the root to the fork entry; its parent is the stored checkpoint.
+			const source = SessionManager.open(stored, sessionDir);
+			entryId = forkAt ?? source.getLeafId() ?? undefined;
+			if (!entryId) throw new CheckpointError("not_found", "The checkpoint has no entries to fork from");
+			const branched = source.createBranchedSession(entryId);
+			if (!branched) throw new Error("The forked session could not be created");
+			target = branched;
+		}
+		const result = await runtime.switchSession(target, { cwdOverride: workspaceRoot });
+		if (result.cancelled) throw new Error("The session switch was cancelled");
+		const current = this.session!;
+		const data = {
+			session_id: current.sessionId,
+			mode,
+			entry_id: entryId ?? current.sessionManager.getLeafId() ?? checkpoint.header.id,
+			...(mode === "fork" ? { forked_from: checkpoint.header.id } : {}),
+		};
+		this.logger.info("checkpoint imported", {
+			mode,
+			session_id: data.session_id,
+			entry_id: data.entry_id,
+			forked_from: mode === "fork" ? checkpoint.header.id : undefined,
+			sha256: command.sha256,
+		});
+		this.respond(id, "checkpoint_import", data);
 	}
 
 	private startDurationLimit(): void {
