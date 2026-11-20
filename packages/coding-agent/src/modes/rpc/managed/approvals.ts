@@ -3,7 +3,7 @@
  * `approval`), the `approval_request` sent to the host, and the host's `approval_response`.
  */
 import { randomBytes } from "node:crypto";
-import { commandAllowPattern, commandMatchesPattern } from "../../../core/command-allow-list.ts";
+import { commandAllowPattern, commandMatchesPattern, commandShellOf } from "../../../core/command-allow-list.ts";
 
 export type ApprovalMode = "never" | "write_tools" | "always";
 export type ApprovalKind = "command" | "file_write" | "mcp_tool" | "network" | "other";
@@ -104,8 +104,9 @@ export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<str
 
 function patternMatches(pattern: string, tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
 	if (tool.kind !== "command") return pattern === allowAlwaysPattern(tool, args);
-	// A chained or redirected command could run anything after an allowed prefix: always ask.
-	return commandMatchesPattern(pattern, commandOf(args));
+	// A chained or redirected command (or PowerShell code in an argument) could run anything after an
+	// allowed prefix: always ask.
+	return commandMatchesPattern(pattern, commandOf(args), commandShellOf(tool.name));
 }
 
 interface PendingApproval {

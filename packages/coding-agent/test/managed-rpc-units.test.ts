@@ -313,6 +313,22 @@ describe("approvals", () => {
 		expect(b.isAllowed(bash, { command: "pnpm install" })).toBe(false);
 	});
 
+	it("never lets an allow_always pattern match PowerShell code in the arguments", async () => {
+		const { b } = broker();
+		const powershell = describeManagedTool("powershell", servers);
+		const pending = b.request({
+			toolCallId: "t1",
+			tool: powershell,
+			args: { command: "pnpm vitest run a.test.ts" },
+			reason: "Not in your allow list",
+		});
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		expect(b.isAllowed(powershell, { command: "pnpm vitest run b.test.ts" })).toBe(true);
+		expect(b.isAllowed(powershell, { command: "pnpm vitest (Start-Process calc)" })).toBe(false);
+		expect(b.isAllowed(powershell, { command: "pnpm vitest $env:TOKEN" })).toBe(false);
+	});
+
 	it("expires unanswered requests and cancels on abort", async () => {
 		const { b, records } = broker(20);
 		const bash = describeManagedTool("bash", servers);

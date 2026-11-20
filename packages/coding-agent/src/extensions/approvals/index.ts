@@ -2,20 +2,25 @@
  * Approvals in the interactive terminal (canvas FingersTuiSession, "Approval needed · run a command").
  *
  * Before a shell command runs, the approval box asks unless the command matches the allow list: the
- * built-in read-only commands (with their arguments checked), the `approvals.allow` setting, and what
- * "always allow" added in this process. `approvals.commands: "never"` turns the box off. Only the TUI
+ * built-in read-only commands (with their arguments checked; bash only, never PowerShell), the
+ * `approvals.allow` setting, and what "always allow" added in this process. `approvals.commands: "never"` turns the box off. Only the TUI
  * asks; print, JSON and RPC modes are unchanged (managed RPC mode has its own approvals over the
  * protocol).
  *
- * Every answer from the box, and every command an allow rule from the settings or "always allow" let
- * through, is written to the session as an `approval` entry (not sent to the model): the audit record
+ * Every answer from the box, and every command a rule let through (built in, the settings or "always
+ * allow"), is written to the session as an `approval` entry (not sent to the model): the audit record
  * of the terminal's approvals, with the session id and tool call id to correlate it. Writing to stderr
- * would draw over the TUI. Built-in read-only commands are not recorded.
+ * would draw over the TUI.
  *
  * The canvas box also shows "Hooks: pre-command ✓ passed"; that line waits for org hooks (F23).
  */
 
-import { commandAllowPattern, isBuiltInAllowedCommand, isCommandAllowed } from "../../core/command-allow-list.ts";
+import {
+	commandAllowPattern,
+	commandShellOf,
+	isBuiltInAllowedCommand,
+	isCommandAllowed,
+} from "../../core/command-allow-list.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
 import { type ApprovalAnswer, ApprovalBoxComponent } from "../../modes/interactive/components/approval-box.ts";
 
@@ -56,8 +61,8 @@ export interface ApprovalRecord {
 	/** The prefix "always allow" adds, or added. */
 	pattern: string;
 	decision: "allow_once" | "allow_always" | "deny" | "allowed_by_rule";
-	/** For `allowed_by_rule`: whether the rule came from the settings or from "always allow". */
-	rule?: "settings" | "session";
+	/** For `allowed_by_rule`: the built-in read-only list, the settings, or "always allow". */
+	rule?: "built_in" | "settings" | "session";
 	/** What the person told Fingers to do instead, for `deny`. */
 	message?: string;
 }
@@ -76,7 +81,7 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 			const input = event.input as { command?: unknown };
 			const command = typeof input.command === "string" ? input.command : "";
 			if (!command.trim()) return undefined;
-			if (isBuiltInAllowedCommand(command)) return undefined;
+			const shell = commandShellOf(event.toolName);
 
 			const allowPattern = commandAllowPattern(command);
 			const record = (decision: ApprovalRecord["decision"], extra: Partial<ApprovalRecord> = {}) =>
@@ -90,11 +95,15 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 					...extra,
 				});
 
-			if (isCommandAllowed(command, settings?.allow ?? [])) {
+			if (isBuiltInAllowedCommand(command, shell)) {
+				record("allowed_by_rule", { rule: "built_in" });
+				return undefined;
+			}
+			if (isCommandAllowed(command, settings?.allow ?? [], shell)) {
 				record("allowed_by_rule", { rule: "settings" });
 				return undefined;
 			}
-			if (isCommandAllowed(command, allowedThisSession)) {
+			if (isCommandAllowed(command, allowedThisSession, shell)) {
 				record("allowed_by_rule", { rule: "session" });
 				return undefined;
 			}

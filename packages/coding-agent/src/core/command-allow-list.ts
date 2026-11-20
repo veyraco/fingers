@@ -5,10 +5,21 @@
  *
  * The built-in list is checked more strictly than a pattern people add themselves: a built-in command
  * runs without asking only when none of its arguments can make it run another program or write a file.
+ * The built-in list is for bash only: PowerShell commands match only patterns people add.
  */
+
+/** The shell a command runs in: `bash` (also sh/zsh) or `powershell`. */
+export type CommandShell = "bash" | "powershell";
 
 /** A chained, piped, substituted or redirected command could run anything after an allowed prefix. */
 const SHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
+
+/**
+ * PowerShell runs code inside arguments: `(…)` subexpressions, `$x`/`$env:X` variables, `@(…)`/`@x`
+ * arrays and splats, `{…}` script blocks and `[Type]::Method()` calls. A PowerShell command with any of
+ * them never matches an allow pattern.
+ */
+const POWERSHELL_CODE = /[(){}$@[\]]/;
 
 /**
  * An argument the shell passes on literally: no quotes, escapes, expansions, globs or braces, which
@@ -55,7 +66,7 @@ function all(...checks: Array<(args: readonly string[]) => boolean>): (args: rea
 	return (args) => checks.every((check) => check(args));
 }
 
-/** `git diff/log/show/status/rev-parse`: no writing the output to a file and no external diff program. */
+/** `git rev-parse`: no writing a file and no other git programs. */
 const gitReadOnly = noLongOption(["output", "ext-diff", "exec-path"]);
 
 /** `git branch` lists branches only: no name (that would create one) and no delete, move or force. */
@@ -84,8 +95,11 @@ function datePrintsOnly(args: readonly string[]): boolean {
 
 /**
  * Commands that run without asking in the interactive shell. None of them can run another program or
- * write a file with the arguments allowed here. Left out on purpose: `fd` (`-x`/`-X` run programs) and
- * `tree` (`-o` writes a file, and short options combine).
+ * write a file with the arguments allowed here. Left out on purpose: `fd` (`-x`/`-X` run programs),
+ * `tree` (`-o` writes a file, and short options combine) and `git status`/`diff`/`log`/`show`: they run
+ * programs named in the repository's config (`core.fsmonitor`, `diff.external`, a `textconv` driver),
+ * and the write and edit tools can change `.git/config` and `.gitattributes` without asking.
+ * `git rev-parse` and listing `git branch` never run those programs.
  */
 const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "ls" },
@@ -105,10 +119,6 @@ const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	// `-C`/`--compile` writes a compiled magic file.
 	{ pattern: "file", literalArguments: true, argumentsAreSafe: all(noShortOption("C"), noLongOption(["compile"])) },
 	{ pattern: "date", literalArguments: true, argumentsAreSafe: datePrintsOnly },
-	{ pattern: "git status", literalArguments: true, argumentsAreSafe: gitReadOnly },
-	{ pattern: "git diff", literalArguments: true, argumentsAreSafe: gitReadOnly },
-	{ pattern: "git log", literalArguments: true, argumentsAreSafe: gitReadOnly },
-	{ pattern: "git show", literalArguments: true, argumentsAreSafe: gitReadOnly },
 	{ pattern: "git rev-parse", literalArguments: true, argumentsAreSafe: gitReadOnly },
 	{ pattern: "git branch", literalArguments: true, argumentsAreSafe: gitBranchListsOnly },
 ];
@@ -120,28 +130,41 @@ export function commandTokens(command: string): string[] {
 	return command.trim().split(/\s+/).filter(Boolean);
 }
 
+/** The shell a command tool runs in. */
+export function commandShellOf(toolName: string): CommandShell {
+	return toolName === "powershell" ? "powershell" : "bash";
+}
+
 /** What "always allow" adds for a command: its first two words (`pnpm vitest`). */
 export function commandAllowPattern(command: string): string {
 	return commandTokens(command).slice(0, 2).join(" ");
 }
 
-/** Whether `command` starts with every word of `pattern` and is not chained or redirected. */
-export function commandMatchesPattern(pattern: string, command: string): boolean {
+/**
+ * Whether `command` starts with every word of `pattern` and is not chained or redirected (nor, in
+ * PowerShell, carries code in its arguments).
+ */
+export function commandMatchesPattern(pattern: string, command: string, shell: CommandShell = "bash"): boolean {
 	if (SHELL_CHAINING.test(command)) return false;
+	if (shell === "powershell" && POWERSHELL_CODE.test(command)) return false;
 	const wanted = commandTokens(pattern);
 	const tokens = commandTokens(command);
 	return wanted.length > 0 && wanted.every((token, index) => tokens[index] === token);
 }
 
-export function isCommandAllowed(command: string, patterns: Iterable<string>): boolean {
+export function isCommandAllowed(command: string, patterns: Iterable<string>, shell: CommandShell = "bash"): boolean {
 	for (const pattern of patterns) {
-		if (commandMatchesPattern(pattern, command)) return true;
+		if (commandMatchesPattern(pattern, command, shell)) return true;
 	}
 	return false;
 }
 
-/** Whether `command` is a built-in command that runs without asking, with arguments that keep it read-only. */
-export function isBuiltInAllowedCommand(command: string): boolean {
+/**
+ * Whether `command` is a built-in command that runs without asking, with arguments that keep it
+ * read-only. Always false for PowerShell, where the bash checks do not hold (`echo (Start-Process x)`).
+ */
+export function isBuiltInAllowedCommand(command: string, shell: CommandShell = "bash"): boolean {
+	if (shell !== "bash") return false;
 	const tokens = commandTokens(command);
 	return BUILT_IN_COMMANDS.some((builtIn) => {
 		if (!commandMatchesPattern(builtIn.pattern, command)) return false;

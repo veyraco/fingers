@@ -2,10 +2,12 @@
  * The approval box (canvas FingersTuiSession): "Approval needed · run a command", the command, why it asks,
  * and three answers: Yes, Yes always allow "<prefix>", No and tell Fingers what to do instead.
  *
- * The person approves what they see, so the whole command is shown: long commands wrap across rows
- * instead of being cut off, every line of a multi-line command gets its own rows, and control and
- * bidirectional characters are shown as visible placeholders instead of acting on the terminal.
- * The keys (←→, enter, y, a, n, esc) are not listed under the box, as on the artboard.
+ * The person approves what they see, so no text is dropped: long commands wrap across rows instead of
+ * being cut off, every line of a multi-line command gets its own rows, and control and bidirectional
+ * characters are shown as visible placeholders instead of acting on the terminal. A command longer
+ * than MAX_COMMAND_ROWS rows shows its start and its end around a "… N more rows · v shows all" row,
+ * so the answers stay on the screen; v shows every row and folds them again.
+ * The keys (←→, enter, y, a, n, v, esc) are not listed under the box, as on the artboard.
  */
 import { type Component, type Focusable, getKeybindings, Input, visibleWidth } from "@veyraco/fingers-tui";
 import { theme } from "../theme/theme.ts";
@@ -31,6 +33,10 @@ export interface ApprovalBoxOptions {
 }
 
 const MAX_BOX_WIDTH = 100;
+/** Command rows shown before the middle is folded: the box then fits a 36-row terminal with room to spare. */
+export const MAX_COMMAND_ROWS = 20;
+/** Of the folded rows, how many come from the end of the command (where a last step could hide). */
+const FOLDED_TAIL_ROWS = 7;
 /** The box's border and padding: `│ ` and ` │`. */
 const BOX_CHROME = 4;
 
@@ -75,6 +81,7 @@ export class ApprovalBoxComponent implements Component, Focusable {
 	private choice = 0;
 	private input: Input | undefined;
 	private answered = false;
+	private expanded = false;
 	private _focused = false;
 
 	constructor(options: ApprovalBoxOptions) {
@@ -109,12 +116,27 @@ export class ApprovalBoxComponent implements Component, Focusable {
 
 		// The command: "$ " on its first row, continuation rows indented under it.
 		const indent = isCommand ? 2 : 0;
+		const commandRows: string[] = [];
 		summary.split("\n").forEach((line, lineIndex) => {
 			hardWrap(visibleCommandText(line), Math.max(1, inner - indent)).forEach((piece, pieceIndex) => {
 				const lead = !isCommand ? "" : lineIndex === 0 && pieceIndex === 0 ? theme.fg("muted", "$ ") : "  ";
-				rows.push(`${lead}${theme.bold(theme.fg("text", piece))}`);
+				commandRows.push(`${lead}${theme.bold(theme.fg("text", piece))}`);
 			});
 		});
+		if (commandRows.length <= MAX_COMMAND_ROWS) {
+			rows.push(...commandRows);
+		} else if (this.expanded) {
+			rows.push(...commandRows, theme.fg("muted", "v folds the command"));
+		} else {
+			// Start and end of the command around one row that says how much is folded.
+			const head = MAX_COMMAND_ROWS - 1 - FOLDED_TAIL_ROWS;
+			const hidden = commandRows.length - head - FOLDED_TAIL_ROWS;
+			rows.push(
+				...commandRows.slice(0, head),
+				theme.fg("warning", `… ${hidden} more rows · v shows all`),
+				...commandRows.slice(-FOLDED_TAIL_ROWS),
+			);
+		}
 		rows.push(theme.fg("muted", reason), "");
 
 		// The answers on one row when they fit, otherwise one per row, wrapped.
@@ -163,6 +185,8 @@ export class ApprovalBoxComponent implements Component, Focusable {
 			this.finish({ decision: "allow_once" });
 		} else if (data === "a") {
 			this.finish({ decision: "allow_always" });
+		} else if (data === "v") {
+			this.expanded = !this.expanded;
 		} else if (data === "n") {
 			this.choice = 2;
 			this.startTelling();

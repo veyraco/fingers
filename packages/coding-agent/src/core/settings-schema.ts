@@ -268,7 +268,7 @@ export const SettingsSchema = Type.Object(
 					allow: Type.Optional(
 						Type.Array(Type.String(), {
 							description:
-								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only commands (ls, cat, rg, git status, ...), which run without asking only with arguments that cannot run a program or write a file. A pattern added here matches any arguments. Chained or redirected commands always ask.',
+								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only bash commands (ls, cat, rg, git rev-parse, ...), which run without asking only with arguments that cannot run a program or write a file. git status/diff/log/show are not built in: they run programs named in the repository config, which the write and edit tools can change. A pattern added here matches any arguments. Chained or redirected commands always ask, and so do PowerShell commands with code in an argument ((), {}, $, @, []).',
 						}),
 					),
 				},
