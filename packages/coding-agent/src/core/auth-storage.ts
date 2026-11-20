@@ -203,11 +203,24 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 }
 
 export class ReadOnlyAuthStorage implements CredentialStore {
-	private readonly authPath: string;
+	private readonly source: () => string | undefined;
 	private data: AuthStorageData | undefined;
 
-	constructor(authPath: string = join(getAgentDir(), "auth.json")) {
-		this.authPath = normalizePath(authPath);
+	/** Reads auth.json at `source`, or the text a loader returns (undefined: no credentials). */
+	constructor(source: string | (() => string | undefined) = join(getAgentDir(), "auth.json")) {
+		if (typeof source === "function") {
+			this.source = source;
+		} else {
+			const authPath = normalizePath(source);
+			this.source = () => {
+				try {
+					return readFileSync(authPath, "utf-8");
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+					throw error;
+				}
+			};
+		}
 	}
 
 	private load(): AuthStorageData {
@@ -215,12 +228,13 @@ export class ReadOnlyAuthStorage implements CredentialStore {
 
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(stripBom(readFileSync(this.authPath, "utf-8")));
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			const text = this.source();
+			if (text === undefined) {
 				this.data = {};
 				return this.data;
 			}
+			parsed = JSON.parse(stripBom(text));
+		} catch (error) {
 			throw new Error(`Failed to read auth.json: ${error instanceof Error ? error.message : String(error)}`);
 		}
 
@@ -351,8 +365,12 @@ export class AuthStorage implements CredentialStore {
 		return new AuthStorage(new FileAuthStorageBackend(normalizedAuthPath), normalizedAuthPath);
 	}
 
-	static fromStorage(storage: AuthStorageBackend): AuthStorage {
-		return new AuthStorage(storage);
+	/**
+	 * Storage over a custom backend. `revisionPath` names a file that changes whenever the backend's
+	 * content changes (the keychain marker file); reads skip the backend while it is unchanged.
+	 */
+	static fromStorage(storage: AuthStorageBackend, revisionPath?: string): AuthStorage {
+		return new AuthStorage(storage, revisionPath ? normalizePath(revisionPath) : undefined);
 	}
 
 	static inMemory(data: AuthStorageData = {}): AuthStorage {

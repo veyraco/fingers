@@ -4,6 +4,8 @@
  * change settings or add MCP servers), no cache warming, and only the built-in MCP extension and the managed
  * extension are loaded. The session works in `workspace.root`.
  */
+
+import { join } from "node:path";
 import type { ThinkingLevel } from "@veyraco/fingers-agent";
 import { getAgentDir } from "../../../config.ts";
 import {
@@ -13,14 +15,16 @@ import {
 	createAgentSessionRuntime,
 	createAgentSessionServices,
 } from "../../../core/agent-session-runtime.ts";
+import { AuthStorage } from "../../../core/auth-storage.ts";
 import type { InlineExtension } from "../../../core/extensions/types.ts";
+import { ModelRuntime } from "../../../core/model-runtime.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { DEFAULT_TOOL_NAMES, type Settings, SettingsManager } from "../../../core/settings-manager.ts";
 import { builtInExtensions } from "../../../extensions/index.ts";
 import type { ManagedRuntimeFactory, ManagedRuntimeFactoryInput } from "./managed-rpc-server.ts";
 
 export interface ManagedRuntimeOptions {
-	/** Fingers' agent directory (sessions, auth). Default: `~/.fingers/agent` or FINGERS_CODING_AGENT_DIR. */
+	/** Fingers' agent directory (sessions, models.json; never credentials). Default: `~/.fingers/agent` or FINGERS_CODING_AGENT_DIR. */
 	agentDir?: string;
 	/** Directory for session files. Default: under the agent directory. */
 	sessionDir?: string;
@@ -47,11 +51,18 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 		}) => {
 			const settingsManager = SettingsManager.create(runtimeCwd, runtimeAgentDir, { projectTrusted: false });
 			settingsManager.applyOverrides({ cacheWarming: "off", ...options.settingsOverrides });
+			// Credentials come only from the host's `credentials` message: never from auth.json or the
+			// machine's OS keychain, so a managed run cannot pick up keys stored by a person on this machine.
+			const modelRuntime = await ModelRuntime.create({
+				credentials: AuthStorage.inMemory(),
+				modelsPath: join(runtimeAgentDir, "models.json"),
+				signal: AbortSignal.timeout(15_000),
+			});
 			const services = await createAgentSessionServices({
 				cwd: runtimeCwd,
 				agentDir: runtimeAgentDir,
 				settingsManager,
-				modelRuntimeSignal: AbortSignal.timeout(15_000),
+				modelRuntime,
 				resourceLoaderOptions: {
 					// Discovery off; the built-in MCP extension is loaded explicitly, like `-e builtin:mcp`.
 					noExtensions: true,

@@ -51,6 +51,10 @@
 			"types": "./dist/bun-oauth.d.ts",
 			"import": "./dist/bun-oauth.js"
 		},
+		"./vertex-auth-provider": {
+			"types": "./dist/vertex-auth-provider.d.ts",
+			"import": "./dist/vertex-auth-provider.js"
+		},
 		"./lazy-bedrock-provider": {
 			"types": "./dist/lazy-bedrock-provider.d.ts",
 			"import": "./dist/lazy-bedrock-provider.js"
@@ -84,6 +88,7 @@
 		"@veyraco/fingers-schema": "0.1.0",
 		"@veyraco/fingers-telemetry": "0.1.0",
 		"@google/genai": "2.32.0",
+		"google-auth-library": "10.6.2",
 		"@smithy/node-http-handler": "4.12.1",
 		"http-proxy-agent": "9.1.0",
 		"https-proxy-agent": "9.1.0",

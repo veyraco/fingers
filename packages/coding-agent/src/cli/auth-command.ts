@@ -45,7 +45,8 @@ export function printAuthCommandHelp(): void {
   fingers auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
 
 Log in to and out of model providers, print their credentials for external clients, or check that they are ready.
-Credentials are stored in ~/.fingers/agent/auth.json.
+Credentials are stored in the OS keychain (macOS Keychain, Secret Service on Linux, Windows Credential
+Manager). Without one, or with FINGERS_CREDENTIAL_STORE=file, they stay in ~/.fingers/agent/auth.json.
 
 Commands:
   login <provider>        Sign in with an account in the browser, or save an API key, then exit

@@ -1290,6 +1290,13 @@ export class InteractiveMode {
 			this.showWarning(`Migrated credentials to auth.json: ${migratedProviders.join(", ")}`);
 		}
 
+		const credentialStorage = this.session.modelRuntime.credentialStorage;
+		if (credentialStorage && credentialStorage.migratedProviders.length > 0) {
+			this.showWarning(
+				`Moved saved credentials from auth.json into the ${credentialStorage.location} and deleted the file: ${credentialStorage.migratedProviders.join(", ")}`,
+			);
+		}
+
 		const modelsJsonError = this.session.modelRuntime.getError();
 		if (modelsJsonError) {
 			this.showError(`models.json error: ${modelsJsonError}`);

@@ -9,7 +9,8 @@ export default mergeConfig(
 			environment: "node",
 			testTimeout: 30000,
 			// Tests run offline by default; opt in with allowNetwork() from test/test-network-env.ts.
-			env: { FINGERS_OFFLINE: "1" },
+			// Tests never touch the developer's OS keychain; keychain tests inject a fake store.
+			env: { FINGERS_OFFLINE: "1", FINGERS_CREDENTIAL_STORE: "file" },
 			unstubEnvs: true,
 			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
 			silent: "passed-only",

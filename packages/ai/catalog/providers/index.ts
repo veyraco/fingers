@@ -14,6 +14,7 @@ import fireworks from "./fireworks.ts";
 import githubCopilot from "./github-copilot.ts";
 import google from "./google.ts";
 import googleVertex from "./google-vertex.ts";
+import googleVertexAnthropic from "./google-vertex-anthropic.ts";
 import groq from "./groq.ts";
 import huggingface from "./huggingface.ts";
 import kimiCoding from "./kimi-coding.ts";
@@ -29,6 +30,7 @@ import openaiCodex from "./openai-codex.ts";
 import opencode from "./opencode.ts";
 import opencodeGo from "./opencode-go.ts";
 import openrouter from "./openrouter.ts";
+import qwen from "./qwen.ts";
 import qwenTokenPlan from "./qwen-token-plan.ts";
 import qwenTokenPlanCn from "./qwen-token-plan-cn.ts";
 import qwenTokenPlanIndividual from "./qwen-token-plan-individual.ts";
@@ -57,6 +59,7 @@ export const PROVIDERS: readonly ProviderDefinition[] = [
 	fireworks,
 	githubCopilot,
 	googleVertex,
+	googleVertexAnthropic,
 	google,
 	groq,
 	huggingface,
@@ -73,6 +76,7 @@ export const PROVIDERS: readonly ProviderDefinition[] = [
 	opencodeGo,
 	opencode,
 	openrouter,
+	qwen,
 	qwenTokenPlanCn,
 	qwenTokenPlanIndividual,
 	qwenTokenPlanIndividualCn,

@@ -69,7 +69,8 @@ import {
 } from "@veyraco/fingers-ai/utils/model-operations";
 import { getAgentDir } from "../config.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
-import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
+import { normalizePath } from "../utils/paths.ts";
+import { type CredentialStorageInfo, openCredentialStorage } from "./keychain-auth-storage.ts";
 import { ModelConfig } from "./model-config.ts";
 import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
 import {
@@ -175,6 +176,8 @@ function mergeHeaders(
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
+	/** Where stored credentials live (OS keychain or auth.json); undefined for an injected store. */
+	credentialStorage: CredentialStorageInfo | undefined;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
 	private readonly builtins = new Map<string, Provider>();
 	private readonly nativeExtensionProviders = new Map<string, Provider>();
@@ -217,7 +220,16 @@ export class ModelRuntime implements Models {
 	}
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
-		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		let storageInfo: CredentialStorageInfo | undefined;
+		let store = options.credentials;
+		if (!store) {
+			const opened = openCredentialStorage({
+				authPath: normalizePath(options.authPath ?? join(getAgentDir(), "auth.json")),
+			});
+			store = opened.storage;
+			storageInfo = opened.info;
+		}
+		const credentials = new RuntimeCredentials(store);
 		const modelsPath =
 			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
@@ -249,6 +261,7 @@ export class ModelRuntime implements Models {
 			providers,
 			process.env.FINGERS_OFFLINE === undefined,
 		);
+		runtime.credentialStorage = storageInfo;
 		runtime.rebuildProviders();
 		const refreshFromNetwork = runtime.modelNetworkEnabled && options.allowModelNetwork === true;
 		const controller =

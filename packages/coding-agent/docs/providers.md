@@ -9,13 +9,27 @@ Use `/login [provider]` to see the methods supported by a provider. Amazon Bedro
 
 ## Authenticate interactively
 
-Run `/login` and select a provider. Fingers guides you through its OAuth or API-key flow and saves the resulting credential in [`auth.json`](configuration.md#agent-directory).
+Run `/login` and select a provider. Fingers guides you through its OAuth or API-key flow and saves the resulting credential in your [OS keychain](#where-credentials-are-stored).
 
 On a remote or headless machine, an OAuth callback may not reach the local process. When prompted, paste the final redirect URL or authorization code back into Fingers.
 
 Run `/logout` and select a provider to remove its stored credential. This does not unset environment variables, remove authentication from `models.json`, or revoke the credential at the provider.
 
-`auth.json` can contain API keys and OAuth tokens. Keep it private and do not commit it.
+## Where credentials are stored
+
+Fingers keeps saved API keys and OAuth tokens in the operating system's keychain:
+
+| System | Store | Tool Fingers uses |
+|---|---|---|
+| macOS | login keychain, item "Veyra Fingers" | `security` (built in) |
+| Linux | Secret Service (GNOME Keyring, KWallet) | `secret-tool` from libsecret |
+| Windows | Credential Manager, "Veyra Fingers/..." | PowerShell (built in) |
+
+Keys reach these tools on standard input, never on a command line. The agent directory then holds only `auth.keychain.json`, a marker without secrets that names the keychain entry.
+
+The first time Fingers starts with a keychain, it moves an existing `auth.json` into the keychain and deletes the file. If the keychain cannot be reached (for example a headless Linux machine without a Secret Service, or a container), Fingers keeps using `auth.json`. Set `FINGERS_CREDENTIAL_STORE=file` to keep `auth.json` on purpose. `auth.json` can contain API keys and OAuth tokens: keep it private and do not commit it.
+
+In [managed RPC mode](rpc-managed.md) Fingers reads neither the keychain nor `auth.json`; the host sends the run's credential.
 
 ## Use an API key from the environment
 
@@ -56,6 +70,7 @@ This table covers providers with a single primary API-key variable. Providers th
 | MiniMax | `MINIMAX_API_KEY` |
 | MiniMax (China) | `MINIMAX_CN_API_KEY` |
 | Moonshot AI (Global and China) | `MOONSHOT_API_KEY` |
+| Qwen (Alibaba Cloud Model Studio) | `DASHSCOPE_API_KEY` |
 | Qwen Token Plan Team | `QWEN_TOKEN_PLAN_TEAM_API_KEY` |
 | Qwen Token Plan Team (China) | `QWEN_TOKEN_PLAN_TEAM_CN_API_KEY` |
 | Qwen Token Plan Individual | `QWEN_TOKEN_PLAN_INDIVIDUAL_API_KEY` |
@@ -234,3 +249,17 @@ gcloud auth application-default login
 ```
 
 To use a service-account key file instead, set `GOOGLE_APPLICATION_CREDENTIALS` along with the project and location.
+
+### Claude on Google Vertex AI
+
+The provider `google-vertex-anthropic` sends the Anthropic Messages API to Vertex AI with Application Default Credentials. It needs a project; the location defaults to `global`:
+
+```bash
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT=your-project
+# optional: a regional endpoint
+export GOOGLE_CLOUD_LOCATION=us-east5
+fingers --model google-vertex-anthropic/claude-sonnet-4-6
+```
+
+`ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION` (the names Anthropic's tools use) work too. Model IDs are Anthropic's; Fingers turns dated IDs such as `claude-sonnet-4-5-20250929` into Vertex's `claude-sonnet-4-5@20250929`. Costs use Anthropic's list prices; regional endpoints may bill more.
