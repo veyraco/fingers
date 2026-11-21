@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { commandAllowPattern, commandMatchesPattern, isCommandAllowed } from "../src/core/command-allow-list.ts";
+import {
+	commandAllowPattern,
+	commandMatchesPattern,
+	isBuiltInAllowedCommand,
+	isCommandAllowed,
+	parsePlainBashWords,
+} from "../src/core/command-allow-list.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import type { Settings } from "../src/core/settings-schema.ts";
 import {
@@ -14,8 +20,10 @@ type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
 function setup(answers: ApprovalAnswer[], settings: Settings = {}) {
 	const asked: string[] = [];
+	const askedCommands: string[] = [];
 	const ask: AskForApproval = async (_ctx, request) => {
 		asked.push(`${request.command} [${request.allowPattern}] ${request.reason}`);
+		askedCommands.push(request.command);
 		const answer = answers.shift();
 		if (!answer) throw new Error("unexpected question");
 		return answer;
@@ -37,15 +45,14 @@ function setup(answers: ApprovalAnswer[], settings: Settings = {}) {
 			hasUI: mode === "tui" || mode === "rpc",
 			sessionManager: { getSessionId: () => "session-1" },
 		} as unknown as ExtensionContext);
-	return { asked, call, records };
+	return { asked, askedCommands, call, records };
 }
 
 /** Calls each command, answering No, and returns the ones that ran without asking. */
 async function ranWithoutAsking(commands: readonly string[]): Promise<string[]> {
-	const { asked, call } = setup(commands.map(() => ({ decision: "deny" }) as const));
+	const { askedCommands, call } = setup(commands.map(() => ({ decision: "deny" }) as const));
 	for (const command of commands) await call(command);
-	const askedCommands = new Set(asked.map((line) => line.slice(0, line.indexOf(" ["))));
-	return commands.filter((command) => !askedCommands.has(command));
+	return commands.filter((command) => !askedCommands.includes(command));
 }
 
 describe("approvals extension", () => {
@@ -127,6 +134,97 @@ describe("approvals extension", () => {
 		expect(await ranWithoutAsking(hidden)).toEqual([]);
 	});
 
+	it("asks for every shell expansion in a built-in command's arguments", async () => {
+		// Each of these runs a program through an argument of a built-in command. The first three ran
+		// `touch` under macOS /bin/bash 3.2 through arithmetic in an array subscript; `${x@P}` is prompt
+		// expansion (bash 4.4+); `$'\x24'` spells `$` without typing it.
+		const expansions = [
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"echo ${y:=$'a[\\x24(touch P1)]'} ${x:=abc} ${x:y}",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"echo ${y:=$'a[\\x24(touch P2)]'} ${a[y]}",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"cat ${y:=$'a[\\x24(touch P4)]'} ${a[y]}",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"echo ${x@P}",
+			"echo $x",
+			"cat $HOME/.ssh/id_rsa",
+			"echo $'\\x24(touch P)'",
+			'echo $"x"',
+			"echo $(touch P)",
+			"echo `touch P`",
+			"echo $((a[1]))",
+			"echo $[1+1]",
+			'echo "$(touch P)"',
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			'echo "${x@P}"',
+			'echo "`touch P`"',
+			'echo "$x"',
+			"ls <(touch P)",
+			"ls >(touch P)",
+			"cat <<< x",
+			"cat <<EOF",
+			"cat < /etc/passwd",
+			"echo x >> ~/.bashrc",
+			"echo x 2>/tmp/x",
+			"echo x &> /tmp/x",
+			"echo x & touch P",
+			"echo x; touch P",
+			"echo x | sh",
+			"echo x\ntouch P",
+			"echo (touch P)",
+			"echo {a,b}",
+			"echo a[1]",
+			"ls [ab]",
+			"echo !!",
+			'echo "!!"',
+			"echo # comment",
+			"echo 'unclosed",
+			'echo "unclosed',
+			"echo trailing\\",
+			"echo a\u202eb",
+			"echo 'a\u202eb'",
+		];
+		expect(await ranWithoutAsking(expansions)).toEqual([]);
+		for (const command of expansions) {
+			expect(isBuiltInAllowedCommand(command)).toBe(false);
+			expect(isCommandAllowed(command, ["echo", "cat", "ls"])).toBe(false);
+		}
+	});
+
+	it("asks for the same expansions after a person's own allow pattern", async () => {
+		const tricks = [
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"cat foo ${y:=$'a[\\x24(touch P)]'} ${a[y]}",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"cat foo ${x@P}",
+			"cat foo $(touch P)",
+			"cat foo <(touch P)",
+			"cat foo $((1))",
+		];
+		const { asked, call } = setup(
+			tricks.map(() => ({ decision: "deny" }) as const),
+			{ approvals: { allow: ["cat foo"] } },
+		);
+		for (const command of tricks) await call(command);
+		expect(asked).toHaveLength(tricks.length);
+	});
+
+	it("checks the arguments a built-in command receives, after quotes and escapes", async () => {
+		const hidden = [
+			'rg x "--pre=sh"',
+			"rg x '--pre'=sh",
+			"rg x --p\\re=sh",
+			"rg x --pre\\ sh",
+			"git rev-parse '--output=/tmp/x'",
+			'git branch "-D" main',
+			'date "-s" 2020-01-01',
+			'file "-b C"',
+			"file '-bC'",
+		];
+		expect(await ranWithoutAsking(hidden)).toEqual([]);
+	});
+
 	it("still runs read-only uses of the built-in commands without asking", async () => {
 		const readOnly = [
 			"ls -la src",
@@ -143,7 +241,15 @@ describe("approvals extension", () => {
 			"git rev-parse --show-toplevel",
 			"date",
 			"date -u +%Y-%m-%dT%H:%M:%S",
+			'date "+%Y %m"',
 			"file -b README.md",
+			// Quotes and escapes that only keep text literal.
+			"rg 'rate limit' src",
+			"echo 'costs $5 (`not run`)'",
+			'cat "my notes.md" my\\ file.txt',
+			"grep -rn 'a|b' src",
+			"ls café/",
+			"cat ''",
 		];
 		const { asked, call } = setup([]);
 		for (const command of readOnly) expect(await call(command)).toBeUndefined();
@@ -328,10 +434,44 @@ describe("command allow list", () => {
 		expect(commandMatchesPattern("ls", "lsof -i")).toBe(false);
 		expect(commandMatchesPattern("", "ls")).toBe(false);
 		expect(isCommandAllowed("echo $(rm -rf x)", ["echo"])).toBe(false);
-		expect(commandMatchesPattern("echo", "echo (calc)")).toBe(true);
+		// `(` is shell syntax in bash too: not a plain word, so it asks.
+		expect(commandMatchesPattern("echo", "echo (calc)")).toBe(false);
+		expect(commandMatchesPattern("npm test", "'npm' test --watch=false")).toBe(true);
+		expect(commandMatchesPattern("npm test", '"npm test"')).toBe(false);
+		expect(commandMatchesPattern("npm test", "np? test")).toBe(false);
 		expect(commandMatchesPattern("echo", "echo (calc)", "powershell")).toBe(false);
 		expect(isCommandAllowed("echo (calc)", ["echo"], "powershell")).toBe(false);
 		expect(isCommandAllowed("echo hi", ["echo"], "powershell")).toBe(true);
 		expect(commandAllowPattern("  pnpm   vitest run x ")).toBe("pnpm vitest");
+	});
+});
+
+describe("plain bash words", () => {
+	it("gives the words a program receives, after quotes and escapes", () => {
+		expect(parsePlainBashWords(`  rg  -n 'rate limit' "a \\"b\\" \\c" x\\ y *.ts ''`)).toEqual([
+			{ value: "rg", glob: false },
+			{ value: "-n", glob: false },
+			{ value: "rate limit", glob: false },
+			{ value: 'a "b" \\c', glob: false },
+			{ value: "x y", glob: false },
+			{ value: "*.ts", glob: true },
+			{ value: "", glob: false },
+		]);
+		expect(parsePlainBashWords("")).toEqual([]);
+	});
+
+	it("refuses every form it cannot prove literal", () => {
+		for (const command of [
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+			"echo ${x}",
+			"echo $x",
+			"echo `x`",
+			"echo <(x)",
+			"cat <<< x",
+			"echo $((1))",
+			"echo {a,b}",
+		]) {
+			expect(parsePlainBashWords(command)).toBeUndefined();
+		}
 	});
 });

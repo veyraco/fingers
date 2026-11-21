@@ -3,16 +3,18 @@
  * command matches when it starts with those words and does nothing else. Shared by the interactive
  * approval box and managed RPC mode.
  *
- * The built-in list is checked more strictly than a pattern people add themselves: a built-in command
- * runs without asking only when none of its arguments can make it run another program or write a file.
- * The built-in list is for bash only: PowerShell commands match only patterns people add.
+ * A bash command matches only when it parses as plain words (parsePlainBashWords). That parser accepts
+ * the forms it can prove literal and nothing else, so any shell syntax it does not know asks. The
+ * built-in list is checked more strictly than a pattern people add themselves: a built-in command runs
+ * without asking only when none of its arguments can make it run another program or write a file. The
+ * built-in list is for bash only: PowerShell commands match only patterns people add.
  */
 
 /** The shell a command runs in: `bash` (also sh/zsh) or `powershell`. */
 export type CommandShell = "bash" | "powershell";
 
-/** A chained, piped, substituted or redirected command could run anything after an allowed prefix. */
-const SHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
+/** A chained, piped, substituted or redirected PowerShell command could run anything after an allowed prefix. */
+const POWERSHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
 
 /**
  * PowerShell runs code inside arguments: `(…)` subexpressions, `$x`/`$env:X` variables, `@(…)`/`@x`
@@ -22,18 +24,106 @@ const SHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
 const POWERSHELL_CODE = /[(){}$@[\]]/;
 
 /**
- * An argument the shell passes on literally: no quotes, escapes, expansions, globs or braces, which
- * could turn into an option the check did not see (`"--pre"=sh`, `--${x}output`, a file named `--pre=sh`).
- * `~` may expand, but only to a path; `^` is literal outside an interactive shell (`HEAD^`).
+ * Characters bash passes on literally outside quotes. Left out: expansions (`$`, `` ` ``, `{`, `}`),
+ * metacharacters (`;`, `&`, `|`, `<`, `>`, `(`, `)`, newline), comments (`#`), history (`!`) and `[`/`]`
+ * (subscripts, bracket globs). `~` may expand, but only to a path; `^` is literal outside an interactive
+ * shell (`HEAD^`). Letters, digits and marks of other scripts are literal too.
  */
-const LITERAL_ARGUMENT = /^[A-Za-z0-9_@%+=:,./~^-]+$/;
+const PLAIN_UNQUOTED = /^(?:[A-Za-z0-9_@%+=:,./~^-]|[\p{L}\p{N}\p{M}])$/u;
+
+/** Glob characters that only match file names (`*.ts`). */
+const GLOB = /^[*?]$/;
+
+/** Characters that never count as plain text, quoted or not: control and format (bidi) characters, line breaks. */
+const UNPRINTABLE = /^[\p{C}\p{Zl}\p{Zp}]$/u;
+
+/** Characters that keep a special meaning inside double quotes: expansions and history. */
+const DOUBLE_QUOTE_SPECIAL = new Set(["$", "`", "!"]);
+
+/** Inside double quotes a backslash escapes only these (and a newline, which is never plain). */
+const DOUBLE_QUOTE_ESCAPED = new Set(['"', "\\", "$", "`"]);
+
+/** A word of a plain bash command, after quote removal. */
+export interface ShellWord {
+	/** What the program receives; for a glob word, the pattern that file names may replace. */
+	value: string;
+	/** Has an unquoted `*` or `?`: bash may replace the word with file names, so its value is not known. */
+	glob: boolean;
+}
+
+/**
+ * Parses a bash command made only of plain words, separated by spaces and tabs. A word is built from
+ * unquoted literal characters, `*`/`?` globs, a backslash before a printable character, '…' (any
+ * printable text) and "…" (printable text without `$`, `` ` `` or `!`).
+ *
+ * Anything else gives undefined, and the command must ask. That covers `${…}`/`$x` parameter expansion,
+ * `$(…)`, `$((…))` and backtick substitution, `$'…'` strings, `<(…)`/`>(…)` process substitution,
+ * here-strings, here-documents and other redirections, `;`/`&`/`|`/newline, `(…)`/`{…}` and brace
+ * expansion, `[…]` subscripts and globs, comments and history.
+ *
+ * Values are what the program receives, so quoting cannot hide an option from a check (`"--pre"=sh`).
+ */
+export function parsePlainBashWords(command: string): ShellWord[] | undefined {
+	const words: ShellWord[] = [];
+	const chars = [...command];
+	let word: ShellWord | undefined;
+	let index = 0;
+	const current = (): ShellWord => {
+		word ??= { value: "", glob: false };
+		return word;
+	};
+	while (index < chars.length) {
+		const char = chars[index++];
+		if (char === " " || char === "\t") {
+			if (word) words.push(word);
+			word = undefined;
+		} else if (char === "\\") {
+			const next = chars[index++];
+			if (next === undefined || UNPRINTABLE.test(next)) return undefined;
+			current().value += next;
+		} else if (char === "'") {
+			const target = current();
+			for (;;) {
+				const next = chars[index++];
+				if (next === undefined || UNPRINTABLE.test(next)) return undefined;
+				if (next === "'") break;
+				target.value += next;
+			}
+		} else if (char === '"') {
+			const target = current();
+			for (;;) {
+				const next = chars[index++];
+				if (next === undefined || UNPRINTABLE.test(next) || DOUBLE_QUOTE_SPECIAL.has(next)) return undefined;
+				if (next === '"') break;
+				if (next === "\\" && DOUBLE_QUOTE_ESCAPED.has(chars[index] ?? "")) {
+					target.value += chars[index++];
+				} else {
+					target.value += next;
+				}
+			}
+		} else if (GLOB.test(char)) {
+			const target = current();
+			target.value += char;
+			target.glob = true;
+		} else if (PLAIN_UNQUOTED.test(char)) {
+			current().value += char;
+		} else {
+			return undefined;
+		}
+	}
+	if (word) words.push(word);
+	return words;
+}
 
 interface BuiltInCommand {
 	/** The command's first words, as in a pattern. */
 	pattern: string;
-	/** Arguments must be literal (see LITERAL_ARGUMENT) because some option is dangerous. */
+	/**
+	 * Arguments must not be globs because some option is dangerous: a file named `--pre=sh` in the
+	 * folder would become an option the check did not see.
+	 */
 	literalArguments?: boolean;
-	/** Whether the arguments after the pattern are safe; absent means any argument is. */
+	/** Whether the arguments after the pattern (as the program receives them) are safe; absent means any argument is. */
 	argumentsAreSafe?: (args: readonly string[]) => boolean;
 }
 
@@ -56,10 +146,18 @@ function noLongOption(forbidden: readonly string[]): (args: readonly string[]) =
 		});
 }
 
-/** Rejects short options such as `-C` alone or in a group (`-bC`). */
+/**
+ * Rejects short options such as `-C` alone or anywhere in a group (`-bC`, or `"-b C"`, which getopt
+ * also reads letter by letter).
+ */
 function noShortOption(letters: string): (args: readonly string[]) => boolean {
 	return (args) =>
-		args.every((arg) => !/^-[A-Za-z]+$/.test(arg) || ![...arg.slice(1)].some((letter) => letters.includes(letter)));
+		args.every(
+			(arg) =>
+				!arg.startsWith("-") ||
+				arg.startsWith("--") ||
+				![...arg.slice(1)].some((letter) => letters.includes(letter)),
+		);
 }
 
 function all(...checks: Array<(args: readonly string[]) => boolean>): (args: readonly string[]) => boolean {
@@ -140,16 +238,32 @@ export function commandAllowPattern(command: string): string {
 	return commandTokens(command).slice(0, 2).join(" ");
 }
 
+/** Whether the plain words start with every word of `pattern`, none of them a glob. */
+function startsWithPattern(pattern: string, words: readonly ShellWord[]): boolean {
+	const wanted = commandTokens(pattern);
+	return (
+		wanted.length > 0 &&
+		wanted.every((token, index) => {
+			const word = words[index];
+			return word !== undefined && !word.glob && word.value === token;
+		})
+	);
+}
+
 /**
- * Whether `command` starts with every word of `pattern` and is not chained or redirected (nor, in
- * PowerShell, carries code in its arguments).
+ * Whether `command` starts with every word of `pattern` and does nothing else. In bash it must be plain
+ * words (parsePlainBashWords): no expansion, substitution, chaining or redirection. In PowerShell it must
+ * not be chained or redirected nor carry code in its arguments.
  */
 export function commandMatchesPattern(pattern: string, command: string, shell: CommandShell = "bash"): boolean {
-	if (SHELL_CHAINING.test(command)) return false;
-	if (shell === "powershell" && POWERSHELL_CODE.test(command)) return false;
-	const wanted = commandTokens(pattern);
-	const tokens = commandTokens(command);
-	return wanted.length > 0 && wanted.every((token, index) => tokens[index] === token);
+	if (shell === "powershell") {
+		if (POWERSHELL_CHAINING.test(command) || POWERSHELL_CODE.test(command)) return false;
+		const wanted = commandTokens(pattern);
+		const tokens = commandTokens(command);
+		return wanted.length > 0 && wanted.every((token, index) => tokens[index] === token);
+	}
+	const words = parsePlainBashWords(command);
+	return words !== undefined && startsWithPattern(pattern, words);
 }
 
 export function isCommandAllowed(command: string, patterns: Iterable<string>, shell: CommandShell = "bash"): boolean {
@@ -165,11 +279,12 @@ export function isCommandAllowed(command: string, patterns: Iterable<string>, sh
  */
 export function isBuiltInAllowedCommand(command: string, shell: CommandShell = "bash"): boolean {
 	if (shell !== "bash") return false;
-	const tokens = commandTokens(command);
+	const words = parsePlainBashWords(command);
+	if (!words) return false;
 	return BUILT_IN_COMMANDS.some((builtIn) => {
-		if (!commandMatchesPattern(builtIn.pattern, command)) return false;
-		const args = tokens.slice(commandTokens(builtIn.pattern).length);
-		if (builtIn.literalArguments && !args.every((arg) => LITERAL_ARGUMENT.test(arg))) return false;
-		return builtIn.argumentsAreSafe ? builtIn.argumentsAreSafe(args) : true;
+		if (!startsWithPattern(builtIn.pattern, words)) return false;
+		const args = words.slice(commandTokens(builtIn.pattern).length);
+		if (builtIn.literalArguments && args.some((arg) => arg.glob)) return false;
+		return builtIn.argumentsAreSafe ? builtIn.argumentsAreSafe(args.map((arg) => arg.value)) : true;
 	});
 }

@@ -229,7 +229,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Command prefixes that run without asking, such as \"pnpm vitest\", besides the built-in read-only bash commands (ls, cat, rg, git rev-parse, ...), which run without asking only with arguments that cannot run a program or write a file. git status/diff/log/show are not built in: they run programs named in the repository config, which the write and edit tools can change. A pattern added here matches any arguments. Chained or redirected commands always ask, and so do PowerShell commands with code in an argument ((), {}, $, @, [])."
+          "description": "Command prefixes that run without asking, such as \"pnpm vitest\", besides the built-in read-only bash commands (ls, cat, rg, git rev-parse, ...), which run without asking only with arguments that cannot run a program or write a file. git status/diff/log/show are not built in: they run programs named in the repository config, which the write and edit tools can change. A pattern added here matches any plain arguments. A bash command with shell syntax beyond plain words, quotes and * ? globs (such as $x and every other parameter expansion, $(...), backticks, <(...), here-strings, {...} or [...]) always asks, as do chained or redirected commands and PowerShell commands with code in an argument ((), {}, $, @, [])."
         }
       },
       "description": "Approvals for shell commands in the interactive terminal."

@@ -329,6 +329,25 @@ describe("approvals", () => {
 		expect(b.isAllowed(powershell, { command: "pnpm vitest $env:TOKEN" })).toBe(false);
 	});
 
+	it("never lets an allow_always pattern match a bash expansion that runs a program", async () => {
+		const { b } = broker();
+		const bash = describeManagedTool("bash", servers);
+		const pending = b.request({
+			toolCallId: "t1",
+			tool: bash,
+			args: { command: "pnpm vitest run a.test.ts" },
+			reason: "Not in your allow list",
+		});
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		expect(b.isAllowed(bash, { command: "pnpm vitest run 'b c.test.ts'" })).toBe(true);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+		expect(b.isAllowed(bash, { command: "pnpm vitest ${y:=$'a[\\x24(touch P)]'} ${a[y]}" })).toBe(false);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+		expect(b.isAllowed(bash, { command: "pnpm vitest ${x@P}" })).toBe(false);
+		expect(b.isAllowed(bash, { command: "pnpm vitest <(touch P)" })).toBe(false);
+	});
+
 	it("expires unanswered requests and cancels on abort", async () => {
 		const { b, records } = broker(20);
 		const bash = describeManagedTool("bash", servers);
