@@ -130,8 +130,11 @@ interface BuiltInCommand {
 	 * folder would become an option the check did not see.
 	 */
 	literalArguments?: boolean;
-	/** Whether the arguments after the pattern (as the program receives them) are safe; absent means any argument is. */
-	argumentsAreSafe?: (args: readonly string[]) => boolean;
+	/**
+	 * Whether the arguments after the pattern (as the program receives them) are safe in the environment
+	 * the shell gets; absent means any argument is.
+	 */
+	argumentsAreSafe?: (args: readonly string[], env: NodeJS.ProcessEnv) => boolean;
 }
 
 /** `--name` or `--name=value` → `name`; anything else → undefined. */
@@ -322,7 +325,10 @@ function rgOptionIsSafe(arg: string): boolean {
  * check does not try to tell values from options, and `--` does not end it (in `-e -- -z` rg reads
  * `--` as the pattern and `-z` as an option). Words without a leading `-` are patterns and paths.
  */
-function rgArgumentsAreSafe(args: readonly string[]): boolean {
+function rgArgumentsAreSafe(args: readonly string[], env: NodeJS.ProcessEnv): boolean {
+	// rg prepends the options in the file RIPGREP_CONFIG_PATH names (`--pre=…` among them) unless
+	// `--no-config` is given. Only a first argument is surely that option and not another option's value.
+	if (env.RIPGREP_CONFIG_PATH && args[0] !== "--no-config") return false;
 	return args.every((arg) => !arg.startsWith("-") || rgOptionIsSafe(arg));
 }
 
@@ -342,7 +348,9 @@ function datePrintsOnly(args: readonly string[]): boolean {
  * write and edit tools can change `.git/config`, `.gitattributes` and the refs without asking.
  *
  * The names resolve on the PATH bash commands get (getShellEnv), which leaves out the agent's own bin
- * directory: Fingers downloads `rg` and `fd` there, and the write tool could replace them.
+ * directory: Fingers downloads `rg` and `fd` there, and the write tool could replace them. The approvals
+ * extension also asks while that PATH has an entry the write tool can fill without asking
+ * (pathEntryWritableWithoutAsking), and `file -z` would run decompressors found on it.
  */
 const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "ls" },
@@ -357,10 +365,15 @@ const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "stat" },
 	{ pattern: "du" },
 	{ pattern: "df" },
-	// Only known options: `--pre`, `--pre-glob`, `--hostname-bin` and `-z` run programs.
+	// Only known options: `--pre`, `--pre-glob`, `--hostname-bin` and `-z` run programs, and so can a
+	// config file named by RIPGREP_CONFIG_PATH (then only `rg --no-config …` is built in).
 	{ pattern: "rg", literalArguments: true, argumentsAreSafe: rgArgumentsAreSafe },
-	// `-C`/`--compile` writes a compiled magic file.
-	{ pattern: "file", literalArguments: true, argumentsAreSafe: all(noShortOption("C"), noLongOption(["compile"])) },
+	// `-C`/`--compile` writes a compiled magic file; `-z`/`-Z`/`--uncompress` run decompressors found on PATH.
+	{
+		pattern: "file",
+		literalArguments: true,
+		argumentsAreSafe: all(noShortOption("CzZ"), noLongOption(["compile", "uncompress", "uncompress-noreport"])),
+	},
 	{ pattern: "date", literalArguments: true, argumentsAreSafe: datePrintsOnly },
 	{ pattern: "git rev-parse", literalArguments: true, argumentsAreSafe: exactArguments("git rev-parse") },
 	{ pattern: "git branch", literalArguments: true, argumentsAreSafe: exactArguments("git branch") },
@@ -430,7 +443,12 @@ export function isCommandAllowed(command: string, patterns: Iterable<string>, sh
  * read-only. Always false for PowerShell and other shells, where the bash checks do not hold
  * (`echo (Start-Process x)`, fish's `\'` inside single quotes).
  */
-export function isBuiltInAllowedCommand(command: string, shell: CommandShell = "bash"): boolean {
+export function isBuiltInAllowedCommand(
+	command: string,
+	shell: CommandShell = "bash",
+	/** The environment the shell gets (getShellEnv); `RIPGREP_CONFIG_PATH` in it changes what rg runs. */
+	env: NodeJS.ProcessEnv = process.env,
+): boolean {
 	if (shell !== "bash") return false;
 	const words = parsePlainBashWords(command);
 	if (!words) return false;
@@ -438,6 +456,11 @@ export function isBuiltInAllowedCommand(command: string, shell: CommandShell = "
 		if (!startsWithPattern(builtIn.pattern, words)) return false;
 		const args = words.slice(commandTokens(builtIn.pattern).length);
 		if (builtIn.literalArguments && args.some((arg) => arg.glob)) return false;
-		return builtIn.argumentsAreSafe ? builtIn.argumentsAreSafe(args.map((arg) => arg.value)) : true;
+		return builtIn.argumentsAreSafe
+			? builtIn.argumentsAreSafe(
+					args.map((arg) => arg.value),
+					env,
+				)
+			: true;
 	});
 }

@@ -4,8 +4,13 @@
  * Before a shell command runs, the approval box asks unless the command matches the allow list: the
  * built-in read-only commands (with their arguments checked; bash only, never PowerShell or a
  * `shellPath` that quotes unlike bash), the `approvals.allow` setting, and what "always allow" added in
- * this process. The write and edit tools ask only before changing Fingers' agent directory or the
- * project's `.fingers` directory (protected-paths.ts). `approvals.commands: "never"` turns the box off.
+ * this process. Built-in commands ask too while the shell's PATH has a folder the write tool can fill
+ * without asking (`.`, a relative or empty entry, one in the project or the temporary directory), where
+ * `ls` could resolve to a planted program. The write and edit tools ask before changing a file outside
+ * the working directory (the temporary directory is exempt), a file with other hard links, and,
+ * wherever they are, Fingers' agent directory, the project's `.fingers` directory, the shell startup
+ * files and the files BASH_ENV, ENV and RIPGREP_CONFIG_PATH name (protected-paths.ts).
+ * `approvals.commands: "never"` turns the box off.
  * The approval settings and `shellPath` come from the agent directory's settings only. Only the TUI
  * asks; print, JSON and RPC modes are unchanged (managed RPC mode has its own approvals over the
  * protocol).
@@ -30,12 +35,23 @@ import type {
 	ExtensionFactory,
 	ToolCallEventResult,
 } from "../../core/extensions/types.ts";
-import { protectedWriteReason } from "../../core/protected-paths.ts";
+import { pathEntryWritableWithoutAsking, writeApprovalReason } from "../../core/protected-paths.ts";
 import { resolveToCwd } from "../../core/tools/path-utils.ts";
 import { type ApprovalAnswer, ApprovalBoxComponent } from "../../modes/interactive/components/approval-box.ts";
+import { getShellConfig, getShellEnv } from "../../utils/shell.ts";
 
 const COMMAND_TOOLS = new Set(["bash", "powershell"]);
 const FILE_WRITE_TOOLS = new Set(["write", "edit"]);
+
+/** bash expands `~/…` PATH entries to the home directory; zsh and dash do not (see pathEntryWritableWithoutAsking). */
+function shellExpandsTildeInPath(shellPath: string | undefined): boolean {
+	try {
+		const { shell } = getShellConfig(shellPath);
+		return (shell.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "") === "bash";
+	} catch {
+		return false;
+	}
+}
 
 export type AskForApproval = (
 	ctx: ExtensionContext,
@@ -94,6 +110,7 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 			const allSettings = fingers.getSettings();
 			const settings = allSettings.approvals;
 			if (settings?.commands === "never") return undefined;
+			const cwd = ctx.cwd ?? process.cwd();
 
 			const recorder =
 				(command: string, pattern: string) =>
@@ -125,9 +142,9 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 			if (!isCommand) {
 				const input = event.input as { path?: unknown };
 				if (typeof input.path !== "string" || !input.path.trim()) return undefined;
-				const reason = protectedWriteReason(input.path, ctx.cwd);
+				const reason = writeApprovalReason(input.path, cwd);
 				if (!reason) return undefined;
-				const target = resolveToCwd(input.path, ctx.cwd);
+				const target = resolveToCwd(input.path, cwd);
 				const summary = `${event.toolName} ${target}`;
 				const record = recorder(summary, target);
 				if (filesAllowedThisSession.has(target)) {
@@ -148,7 +165,14 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 			const allowPattern = commandAllowPattern(command);
 			const record = recorder(command, allowPattern);
 
-			if (isBuiltInAllowedCommand(command, shell)) {
+			const shellEnv = getShellEnv();
+			const builtIn = isBuiltInAllowedCommand(command, shell, shellEnv);
+			const plantablePathEntry = builtIn
+				? pathEntryWritableWithoutAsking(cwd, shellEnv, {
+						tildeExpands: shellExpandsTildeInPath(allSettings.shellPath),
+					})
+				: undefined;
+			if (builtIn && plantablePathEntry === undefined) {
 				record("allowed_by_rule", { rule: "built_in" });
 				return undefined;
 			}
@@ -164,7 +188,9 @@ export function createApprovalsExtension(options: { ask?: AskForApproval } = {})
 			const reason =
 				shell === "other"
 					? "Your shellPath is not bash, sh, dash or zsh, so every command asks."
-					: "Not in your allow list.";
+					: plantablePathEntry !== undefined
+						? `Your PATH has a folder Fingers can write to without asking (${JSON.stringify(plantablePathEntry)}), so built-in commands ask.`
+						: "Not in your allow list.";
 			return askAndRecord({ command, allowPattern, reason }, record, allowedThisSession);
 		});
 	};

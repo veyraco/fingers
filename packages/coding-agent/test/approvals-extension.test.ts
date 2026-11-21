@@ -1,3 +1,4 @@
+import { delimiter } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	commandAllowPattern,
@@ -18,6 +19,9 @@ import { builtInExtensions } from "../src/extensions/index.ts";
 import type { ApprovalAnswer } from "../src/modes/interactive/components/approval-box.ts";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
+
+/** A working directory that does not exist, so no PATH entry of the test run lies inside it. */
+const TEST_CWD = "/fingers-approvals-test-cwd";
 
 function setup(answers: ApprovalAnswer[], settings: Settings = {}) {
 	const asked: string[] = [];
@@ -44,6 +48,7 @@ function setup(answers: ApprovalAnswer[], settings: Settings = {}) {
 		handler!({ type: "tool_call", toolCallId: "t1", toolName, input: { command } }, {
 			mode,
 			hasUI: mode === "tui" || mode === "rpc",
+			cwd: TEST_CWD,
 			sessionManager: { getSessionId: () => "session-1" },
 		} as unknown as ExtensionContext);
 	return { asked, askedCommands, call, records };
@@ -475,16 +480,67 @@ describe("approvals extension", () => {
 			expect(asked).toHaveLength(3);
 			expect(asked[0]).toContain("Your shellPath is not bash, sh, dash or zsh");
 		}
-		for (const shellPath of ["/bin/zsh", "/usr/bin/dash", "/bin/sh", "C:\\Program Files\\Git\\bin\\bash.exe"]) {
-			const { asked, call } = setup([], { shellPath });
-			expect(await call("ls")).toBeUndefined();
-			expect(asked).toEqual([]);
+		// A PATH without `~/…` entries, which zsh and dash would look up under the working directory.
+		const savedPath = process.env.PATH;
+		process.env.PATH = ["/usr/bin", "/bin"].join(delimiter);
+		try {
+			for (const shellPath of ["/bin/zsh", "/usr/bin/dash", "/bin/sh", "C:\\Program Files\\Git\\bin\\bash.exe"]) {
+				const { asked, call } = setup([], { shellPath });
+				expect(await call("ls")).toBeUndefined();
+				expect(asked).toEqual([]);
+			}
+		} finally {
+			process.env.PATH = savedPath;
 		}
 		expect(commandShellOf("bash", "/opt/homebrew/bin/fish")).toBe("other");
 		expect(commandShellOf("bash", "/bin/BASH")).toBe("bash");
 		expect(commandShellOf("powershell", "/opt/homebrew/bin/fish")).toBe("powershell");
 		expect(commandMatchesPattern("echo", "echo hi", "other")).toBe(false);
 		expect(isBuiltInAllowedCommand("ls", "other")).toBe(false);
+	});
+
+	it("asks for built-in commands while PATH has a folder the write tool can fill without asking (F10b)", async () => {
+		const saved = process.env.PATH;
+		try {
+			for (const path of [
+				[".", "/usr/bin", "/bin"],
+				["/usr/bin", "", "/bin"],
+				["node_modules/.bin", "/usr/bin"],
+				[`${TEST_CWD}/node_modules/.bin`, "/usr/bin"],
+			]) {
+				process.env.PATH = path.join(delimiter);
+				expect(await ranWithoutAsking(["ls", "cat README.md", "rg foo"]), path.join(delimiter)).toEqual([]);
+			}
+			process.env.PATH = [".", "/usr/bin"].join(delimiter);
+			const { asked, call } = setup([{ decision: "deny" }]);
+			await call("ls");
+			expect(asked[0]).toMatch(/PATH/);
+			process.env.PATH = ["/usr/bin", "/bin"].join(delimiter);
+			expect(await ranWithoutAsking(["ls"])).toEqual(["ls"]);
+			// `~/bin`: bash (the default shell) looks in the home directory; zsh and dash (sh here) in ./~/bin.
+			if (process.platform !== "win32") {
+				process.env.PATH = ["~/bin", "/usr/bin", "/bin"].join(delimiter);
+				expect(await ranWithoutAsking(["ls"])).toEqual(["ls"]);
+				const sh = setup([{ decision: "deny" }], { shellPath: "/bin/sh" });
+				await sh.call("ls");
+				expect(sh.asked[0]).toMatch(/PATH/);
+			}
+		} finally {
+			process.env.PATH = saved;
+		}
+	});
+
+	it("asks for rg while RIPGREP_CONFIG_PATH names a config file, unless --no-config comes first (F10b)", async () => {
+		const saved = process.env.RIPGREP_CONFIG_PATH;
+		try {
+			process.env.RIPGREP_CONFIG_PATH = "/tmp/ripgreprc";
+			expect(await ranWithoutAsking(["rg foo", "rg -e --no-config foo", "rg --no-config foo"])).toEqual([
+				"rg --no-config foo",
+			]);
+		} finally {
+			if (saved === undefined) delete process.env.RIPGREP_CONFIG_PATH;
+			else process.env.RIPGREP_CONFIG_PATH = saved;
+		}
 	});
 
 	it("asks only in the terminal", async () => {
