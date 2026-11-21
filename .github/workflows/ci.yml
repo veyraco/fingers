@@ -83,6 +83,19 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
+      # A fresh runner's first Chrome start builds its caches (fonts, disk) and took over 30 s beside the
+      # parallel test workers. Do that once here and print how long it took; the session itself allows
+      # 60 s for a start.
+      - name: Warm the browser
+        if: matrix.suite == 'coding-agent'
+        run: |
+          start=$(date +%s)
+          timeout 120 google-chrome --headless --dump-dom about:blank > /dev/null || echo "first start failed: $?"
+          echo "first browser start: $(( $(date +%s) - start )) s"
+          start=$(date +%s)
+          timeout 120 google-chrome --headless --dump-dom about:blank > /dev/null || echo "second start failed: $?"
+          echo "second browser start: $(( $(date +%s) - start )) s"
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
