@@ -182,6 +182,60 @@ describe("managed RPC handshake", () => {
 	});
 });
 
+describe("managed RPC correlation on model requests", () => {
+	const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+	const header = (value: string | string[] | undefined) => (Array.isArray(value) ? value.join(",") : value);
+
+	it("sends a child traceparent of the command's trace and the run's X-Request-Id on every model request", async () => {
+		const m = await startManaged([
+			{ content: [{ type: "toolCall", id: "toolu_l", name: "ls", arguments: {} }], usage, stopReason: "toolUse" },
+			{ content: [{ type: "text", text: "Done." }], usage, stopReason: "stop" },
+		]);
+		await m.configure({ tools: { builtin: ["read", "ls"], approval: "never" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "look around" });
+		await m.waitFor("result");
+		expect(m.anthropic.requests).toHaveLength(2);
+		const spans = m.anthropic.requests.map((request) => {
+			const traceparent = header(request.headers.traceparent) ?? "";
+			const match = traceparent.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-01$/);
+			expect(match, `traceparent ${traceparent}`).not.toBeNull();
+			expect(match![1]).toBe(TRACE_ID);
+			expect(header(request.headers["x-request-id"])).toBe("req_test");
+			return match![2];
+		});
+		// Each model request is a new child span, never the host's span itself.
+		expect(new Set(spans).size).toBe(2);
+		expect(spans).not.toContain("00f067aa0ba90200");
+	});
+
+	it("keeps the trace of the command that started the run; a new run takes its own command's trace", async () => {
+		const TRACE_B = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+		const TRACE_C = "00-11111111111111111111111111111111-2222222222222222-00";
+		const m = await startManaged([
+			{
+				content: [{ type: "toolCall", id: "toolu_w", name: "write", arguments: { path: "a.txt", content: "a" } }],
+				usage,
+				stopReason: "toolUse",
+			},
+			{ content: [{ type: "text", text: "Written." }], usage, stopReason: "stop" },
+			{ content: [{ type: "text", text: "Second run." }], usage, stopReason: "stop" },
+		]);
+		await m.configure({ tools: { approval: "write_tools" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "write a" });
+		const [request] = await m.waitFor("approval_request");
+		// A command that starts no work, sent mid-run, does not move the run's model requests to its trace.
+		await m.command({ type: "get_state", traceparent: TRACE_C });
+		await m.send({ type: "approval_response", id: request.id, decision: "allow_once" });
+		await m.waitFor("result");
+		await m.command({ type: "prompt", message: "again", traceparent: TRACE_B });
+		await m.waitFor("result", 2);
+		const traces = m.anthropic.requests.map((r) => header(r.headers.traceparent)?.split("-")[1]);
+		expect(traces).toEqual([TRACE_ID, TRACE_ID, "0af7651916cd43dd8448eb211c80319c"]);
+	});
+});
+
 describe("managed RPC secrets", () => {
 	it("keeps a credential the provider echoes out of stdout, logs and session files", async () => {
 		const m = await startManaged([

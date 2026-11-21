@@ -10,7 +10,7 @@ import { FileChangeTracker } from "../src/modes/rpc/managed/file-changes.ts";
 import { ManagedLogger } from "../src/modes/rpc/managed/log.ts";
 import { checkManagedToolPaths, preparePathPolicy } from "../src/modes/rpc/managed/path-policy.ts";
 import { SecretSet } from "../src/modes/rpc/managed/secrets.ts";
-import { continueTrace, parseTraceparent } from "../src/modes/rpc/managed/trace.ts";
+import { childSpan, continueTrace, formatTraceparent, parseTraceparent } from "../src/modes/rpc/managed/trace.ts";
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -51,6 +51,20 @@ describe("traceparent", () => {
 			expect(next.context.traceId).toMatch(/^[0-9a-f]{32}$/);
 			expect(next.context.parentSpanId).toBeUndefined();
 		}
+	});
+
+	it("makes a child span per outgoing call with the parent's trace id and flags", () => {
+		const parent = continueTrace("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90200-00").context;
+		const first = childSpan(parent);
+		const second = childSpan(parent);
+		expect(first).toMatchObject({ traceId: parent.traceId, parentSpanId: parent.spanId, flags: "00" });
+		expect(first.spanId).toMatch(/^[0-9a-f]{16}$/);
+		expect(new Set([parent.spanId, first.spanId, second.spanId]).size).toBe(3);
+		expect(parseTraceparent(formatTraceparent(first))).toEqual({
+			traceId: parent.traceId,
+			parentId: first.spanId,
+			flags: "00",
+		});
 	});
 });
 
