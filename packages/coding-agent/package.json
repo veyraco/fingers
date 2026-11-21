@@ -27,7 +27,8 @@
 		"examples",
 		"schemas",
 		"containerization.md",
-		"CHANGELOG.md"
+		"CHANGELOG.md",
+		"!**/*.map"
 	],
 	"scripts": {
 		"clean": "node ../../scripts/package-files.mjs clean dist",

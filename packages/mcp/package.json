@@ -27,7 +27,8 @@
 		"dist",
 		"README.md",
 		"CHANGELOG.md",
-		"THIRD_PARTY_NOTICES"
+		"THIRD_PARTY_NOTICES",
+		"!**/*.map"
 	],
 	"scripts": {
 		"clean": "node ../../scripts/package-files.mjs clean dist",

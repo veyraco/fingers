@@ -1,14 +1,26 @@
 #!/usr/bin/env node
+// Usage: node scripts/publish.mjs [--dry-run] [--manifest <artifact manifest.json>]
+//
+// With --manifest it publishes that already-packed artifact set: the release workflow packs once
+// and checks, images and publishes the same tarballs. Without it, it packs the built workspace.
+// Every tarball passes scripts/check-package-tarballs.mjs first. Stable versions go to the
+// `latest` dist-tag, prereleases to `next`. Versions already on npm are skipped, so a failed
+// release can be re-run.
 
 import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { produceArtifactSet } from "./package-artifacts.mjs";
-import { getPublicWorkspacePackages } from "./release-packages.mjs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { checkArtifactSet } from "./check-package-tarballs.mjs";
 import { execNpmSync } from "./npm-command.mjs";
+import { produceArtifactSet, readArtifactSet } from "./package-artifacts.mjs";
+import { distTagFor } from "./release-check.mjs";
+import { getPublicWorkspacePackages } from "./release-packages.mjs";
 
-const dryRun = process.argv.includes("--dry-run");
-const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--dry-run");
-if (unknownArgs.length > 0) throw new Error("Usage: node scripts/publish.mjs [--dry-run]");
+const { values: options } = parseArgs({
+	options: { "dry-run": { type: "boolean", default: false }, manifest: { type: "string" } },
+});
+const dryRun = options["dry-run"];
 
 function isPublished(name, version) {
 	try {
@@ -27,20 +39,27 @@ function isPublished(name, version) {
 	}
 }
 
-const repoRoot = process.cwd();
-const packages = getPublicWorkspacePackages();
-const packageByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
-const versions = [...new Set(packages.map((pkg) => pkg.version))];
-if (versions.length !== 1) throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
-for (const pkg of packages) {
-	if (!existsSync(join(pkg.directory, "dist"))) {
-		throw new Error(`${pkg.directory}/dist does not exist. Run npm run build before publishing.`);
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+let artifactSet;
+if (options.manifest) {
+	artifactSet = readArtifactSet(options.manifest);
+} else {
+	for (const pkg of getPublicWorkspacePackages(join(repoRoot, "packages"))) {
+		if (!existsSync(join(pkg.directory, "dist"))) {
+			throw new Error(`${pkg.directory}/dist does not exist. Run npm run build before publishing.`);
+		}
 	}
+	artifactSet = produceArtifactSet({ build: false, repoRoot });
 }
 
-console.log(`Publishing fingers packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
-const artifactSet = produceArtifactSet({ build: false, repoRoot });
 try {
+	const versions = [...new Set(artifactSet.packages.map((pkg) => pkg.version))];
+	if (versions.length !== 1) throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
+	const problems = checkArtifactSet(artifactSet.manifestPath, repoRoot);
+	if (problems.length > 0) throw new Error(`Package tarballs are not ready to publish:\n  ${problems.join("\n  ")}`);
+	const distTag = distTagFor(versions[0]);
+	console.log(`Publishing fingers packages at ${versions[0]} under the ${distTag} dist-tag${dryRun ? " (dry run)" : ""}\n`);
+
 	const packageStates = artifactSet.packages.map((pkg) => ({ ...pkg, published: isPublished(pkg.name, pkg.version) }));
 	for (const pkg of packageStates) {
 		console.log(`${pkg.name}@${pkg.version} ${pkg.published ? "is already published" : "is ready to publish"}: ${pkg.tarballPath}`);
@@ -51,14 +70,13 @@ try {
 			console.log(`Skipping ${pkg.name}@${pkg.version}: already published\n`);
 			continue;
 		}
-		const args = ["publish", pkg.tarballPath, "--access", "public", "--provenance", "--ignore-scripts"];
+		const args = ["publish", pkg.tarballPath, "--access", "public", "--tag", distTag, "--provenance", "--ignore-scripts"];
 		if (dryRun) args.push("--dry-run");
-		execNpmSync(args, {
-			cwd: packageByName.get(pkg.name).directory,
-			stdio: "inherit",
-		});
+		// Outside the workspace, so npm does not read the workspace's package.json or .npmrc.
+		execNpmSync(args, { cwd: artifactSet.artifactDirectory, stdio: "inherit" });
 		console.log();
 	}
 } finally {
-	rmSync(artifactSet.artifactDirectory, { force: true, recursive: true });
+	// A caller's artifact set stays: the release workflow also builds the image from it.
+	if (!options.manifest) rmSync(artifactSet.artifactDirectory, { force: true, recursive: true });
 }
