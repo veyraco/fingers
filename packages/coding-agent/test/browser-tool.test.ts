@@ -123,6 +123,31 @@ kill -ABRT $$
 		}
 	}, 30_000);
 
+	it("makes a call during a slow start wait for that start instead of failing at once", async () => {
+		// A browser that never answers on the DevTools pipe: the start ends at the start timeout.
+		const dir = mkdtempSync(join(tmpdir(), "fingers-silent-browser-"));
+		const fake = join(dir, "chrome");
+		writeFileSync(fake, "#!/bin/sh\nexec sleep 30\n");
+		chmodSync(fake, 0o755);
+		const session = new BrowserSession({ env: { FINGERS_BROWSER_PATH: fake }, startTimeoutMs: 1_500 });
+		try {
+			const first = session.start().then(
+				() => undefined,
+				(failure: Error) => failure,
+			);
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			const second = await session.navigate("http://127.0.0.1:9/").then(
+				() => undefined,
+				(failure: Error) => failure,
+			);
+			expect(second?.message).toContain("The browser did not start: the browser did not answer");
+			expect((await first)?.message).toContain("The browser did not start: the browser did not answer");
+		} finally {
+			await session.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 30_000);
+
 	/**
 	 * A fake browser that leaves a helper behind, as Chrome's zygote, renderer and GPU processes can
 	 * outlive the browser process: the helper keeps writing files into the profile until it is killed
@@ -269,15 +294,15 @@ try { new WebSocket("ws://127.0.0.1:${outside.port}/socket"); } catch (e) {}
 		expect(outside.hits).toEqual([]);
 		expect(textOf(opened)).toContain(`127.0.0.1:${outside.port} (not in the run's network allow list)`);
 		expect(opened.details.blocked?.length).toBeGreaterThan(0);
-	});
+		// This test starts the browser; a cold first start may take up to the session's start timeout.
+	}, 120_000);
 
 	it("a navigation to a blocked host fails without reaching it", async () => {
 		const res = await call({ action: "navigate", url: `http://127.0.0.1:${outside.port}/direct` });
 		expect(textOf(res)).toMatch(/Could not open/);
 		expect(textOf(res)).toContain(`127.0.0.1:${outside.port}`);
 		expect(outside.hits).toEqual([]);
-		// This test starts the browser; a cold first start may take up to the session's start timeout.
-	}, 120_000);
+	});
 
 	it("an https navigation outside the allow list fails as blocked, and only the page's requests are listed", async () => {
 		const res = await call({ action: "navigate", url: "https://blocked.example.org/" });

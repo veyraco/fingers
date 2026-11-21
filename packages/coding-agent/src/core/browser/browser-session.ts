@@ -122,6 +122,8 @@ export interface BrowserSessionOptions {
 	env?: NodeJS.ProcessEnv;
 	/** Page load timeout for `navigate` (default 30 s). */
 	navigationTimeoutMs?: number;
+	/** How long a starting browser may take to answer (default 60 s). */
+	startTimeoutMs?: number;
 	/** Characters of page text `text` returns (default 20,000). */
 	maxTextChars?: number;
 }
@@ -212,8 +214,10 @@ export class BrowserSession {
 		this.options.log?.(level, msg, fields);
 	}
 
-	/** Start the browser if it is not running. */
+	/** Start the browser if it is not running; a call during a start waits for that start. */
 	async start(): Promise<void> {
+		// The pipe exists before the browser has answered, so `running` alone is not "started".
+		if (this.starting) return this.starting;
 		if (this.running) return;
 		this.starting ??= this.launch().finally(() => {
 			this.starting = undefined;
@@ -303,7 +307,11 @@ export class BrowserSession {
 	}
 
 	private async attach(cdp: CdpPipe): Promise<void> {
-		await withTimeout(cdp.send("Browser.getVersion"), START_TIMEOUT_MS, "the browser did not answer");
+		await withTimeout(
+			cdp.send("Browser.getVersion"),
+			this.options.startTimeoutMs ?? START_TIMEOUT_MS,
+			"the browser did not answer",
+		);
 		await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" });
 		const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
 		const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
