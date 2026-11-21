@@ -184,6 +184,9 @@ export class BrowserSession {
 	private userDataDir: string | undefined;
 	private starting: Promise<void> | undefined;
 	private stderrTail = "";
+	/** Chrome's own FATAL and ERROR log lines, kept apart from the tail so a crash dump cannot push them out. */
+	private stderrFatal: string | undefined;
+	private stderrErrors: string[] = [];
 	/** `host:port` of the page's own requests (and WebSockets), with when they started. */
 	private pageRequests: Array<{ target: string; at: number }> = [];
 
@@ -230,9 +233,21 @@ export class BrowserSession {
 		const args = browserArguments({ userDataDir: this.userDataDir, proxyUrl: proxy.url, noSandbox });
 		const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
 		this.child = child;
+		this.stderrTail = "";
+		this.stderrFatal = undefined;
+		this.stderrErrors = [];
+		let partial = "";
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
 			this.stderrTail = (this.stderrTail + chunk).slice(-2000);
+			const lines = (partial + chunk).split("\n");
+			partial = lines.pop() ?? "";
+			if (partial.length > 4000) partial = "";
+			for (const line of lines) this.noteStderrLine(line);
+		});
+		child.stderr?.once("end", () => {
+			if (partial) this.noteStderrLine(partial);
+			partial = "";
 		});
 		child.once("exit", (code, signal) => {
 			this.log("debug", "browser exited", { code, signal });
@@ -243,8 +258,8 @@ export class BrowserSession {
 		try {
 			await Promise.race([this.attach(cdp), spawnError]);
 		} catch (error) {
-			const detail = this.stderrTail.trim().split("\n").slice(-3).join(" | ");
 			await this.close();
+			const detail = this.startFailureDetail();
 			throw new Error(`The browser did not start: ${(error as Error).message}${detail ? ` (${detail})` : ""}`);
 		}
 		this.log("info", "browser started", {
@@ -253,6 +268,26 @@ export class BrowserSession {
 			sandbox: !noSandbox,
 			network_mode: this.policy.mode,
 		});
+	}
+
+	/** Keeps Chrome's log lines at FATAL or ERROR level (`[pid:tid:time:FATAL:file(line)] message`). */
+	private noteStderrLine(line: string): void {
+		const match = /^\[[^\]]*:(FATAL|ERROR):[^\]]*\]\s*(.*)$/.exec(line.trim());
+		if (!match) return;
+		const message = match[2].slice(0, 500);
+		// The first FATAL line is the reason Chrome aborted; of the errors, the latest few.
+		if (match[1] === "FATAL") this.stderrFatal ??= `FATAL: ${message}`;
+		else this.stderrErrors = [...this.stderrErrors, `ERROR: ${message}`].slice(-3);
+	}
+
+	/**
+	 * Why the browser did not start, from its stderr: its FATAL line when it aborted (what follows is a
+	 * stack trace and register dump), else its last ERROR lines, else the last lines it printed.
+	 */
+	private startFailureDetail(): string {
+		if (this.stderrFatal) return this.stderrFatal;
+		if (this.stderrErrors.length > 0) return this.stderrErrors.join(" | ");
+		return this.stderrTail.trim().split("\n").slice(-3).join(" | ");
 	}
 
 	private async attach(cdp: CdpPipe): Promise<void> {

@@ -3,8 +3,11 @@
  * workflow runs docker/fingers/browser-smoke.mjs inside the image). Two local servers: `site` is in the
  * network allow list, `outside` is not and must never see a request.
  */
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BrowserSession, browserArguments, findBrowserExecutable } from "../src/core/browser/browser-session.ts";
 import { createBrowserToolDefinition } from "../src/extensions/browser/index.ts";
@@ -70,6 +73,55 @@ describe("browser arguments", () => {
 		).toBe("/x/chrome");
 		expect(findBrowserExecutable({ FINGERS_BROWSER_PATH: "/missing" }, "linux", () => false)).toBeUndefined();
 	});
+});
+
+describe.skipIf(process.platform === "win32")("a browser that dies at start", () => {
+	it("names the browser's own fatal error, not the crash dump printed after it", async () => {
+		// What Chrome prints when Linux gives it no sandbox (e.g. Ubuntu 24.04 restricting user
+		// namespaces): one FATAL line, then a long stack trace and register dump, then SIGABRT.
+		const dir = mkdtempSync(join(tmpdir(), "fingers-dying-browser-"));
+		const fake = join(dir, "chrome");
+		const dump = Array.from(
+			{ length: 80 },
+			(_, i) => `#${i} 0x5581${String(i).padStart(8, "0")} (/opt/google/chrome/chrome+0x${i}abc)`,
+		).join("\n");
+		writeFileSync(
+			fake,
+			`#!/bin/sh
+cat >&2 <<'EOF'
+[4242:4242:1121/084454.123456:ERROR:ozone_platform_x11.cc(244)] Missing X server or $DISPLAY
+[4242:4242:1121/084454.123789:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox! You are probably running on Ubuntu 23.10+ or another Linux distro that has disabled unprivileged user namespaces with AppArmor.
+${dump}
+  r8: 0000000000000000  r9: 00007ffd6f1f5a30 r10: 0000000000000008 r11: 0000000000000246
+  ip: 00007360d8cae0cc efl: 0000000000000246 cgf: 002b000000000033 erf: 0000000000000000
+  trp: 0000000000000000 msk: 0000000000000000 cr2: 0000000000000000
+[end of stack trace]
+EOF
+kill -ABRT $$
+`,
+		);
+		chmodSync(fake, 0o755);
+		const logs: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+		const session = new BrowserSession({
+			env: { FINGERS_BROWSER_PATH: fake },
+			log: (_level, msg, fields) => logs.push({ msg, fields }),
+		});
+		try {
+			const error = await session.start().then(
+				() => undefined,
+				(failure: Error) => failure,
+			);
+			expect(error?.message).toMatch(/^The browser did not start: /);
+			expect(error?.message).toContain("No usable sandbox!");
+			expect(error?.message).not.toContain("end of stack trace");
+			expect(error?.message).not.toContain("efl:");
+			expect(session.running).toBe(false);
+			expect(logs.some((entry) => entry.msg === "browser started")).toBe(false);
+		} finally {
+			await session.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 30_000);
 });
 
 describe.skipIf(!executable)("browser tool with a real browser", () => {
