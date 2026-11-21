@@ -1,0 +1,14 @@
+{
+	"repository": "veyraco/platform",
+	"commit": "1b822b59b053a8f35bb295da5f15cf2206a855d5",
+	"files": {
+		"manifest/fingers.json": {
+			"from": "contracts/openapi/manifests/fingers.json",
+			"sha256": "36b70037e6c352851de49c623b40a1855c03939cad9fce91ec249edaad8a2c13"
+		},
+		"manifest/permission-manifest.schema.json": {
+			"from": "contracts/v1/schemas/permission-manifest.schema.json",
+			"sha256": "74a86946c78ff309b3823d827d5e36851b450201a7e5bf11cf78054b7b8dfde2"
+		}
+	}
+}

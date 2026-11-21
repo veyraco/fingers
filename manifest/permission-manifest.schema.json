@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://veyra.so/schemas/platform/v1/permission-manifest.schema.json",
+  "title": "Permission manifest (v1)",
+  "description": "An app's permission catalog. Cross-field rules (unique ids, known areas, defaults naming known permissions) are checked by the loaders.",
+  "type": "object",
+  "required": ["app", "version", "title", "areas", "permissions", "defaults"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "app": { "enum": ["connect", "intelligence", "brain", "eyes", "hands", "fingers"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "areas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/areaId" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "description": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "area", "access", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/permissionId" },
+          "area": { "$ref": "#/$defs/areaId" },
+          "access": { "enum": ["read", "write"] },
+          "description": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "required": ["owner", "admin", "billing", "editor", "viewer"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "const": ["*"] },
+        "admin": { "$ref": "#/$defs/grantList" },
+        "billing": { "$ref": "#/$defs/grantList" },
+        "editor": { "$ref": "#/$defs/grantList" },
+        "viewer": { "$ref": "#/$defs/grantList" }
+      }
+    }
+  },
+  "$defs": {
+    "areaId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 60 },
+    "permissionId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*:[a-z][a-z0-9_-]*$", "maxLength": 100 },
+    "grantList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          { "const": "*" },
+          { "enum": ["access:read", "access:write"] },
+          { "type": "string", "pattern": "^area:[a-z][a-z0-9_-]*$" },
+          { "$ref": "#/$defs/permissionId" }
+        ]
+      }
+    }
+  }
+}
