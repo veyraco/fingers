@@ -102,11 +102,16 @@ export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<str
 	}
 }
 
-function patternMatches(pattern: string, tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
+function patternMatches(
+	pattern: string,
+	tool: ManagedToolDescriptor,
+	args: Record<string, unknown>,
+	shellPath: string | undefined,
+): boolean {
 	if (tool.kind !== "command") return pattern === allowAlwaysPattern(tool, args);
 	// A chained or redirected command (or PowerShell code in an argument) could run anything after an
-	// allowed prefix: always ask.
-	return commandMatchesPattern(pattern, commandOf(args), commandShellOf(tool.name));
+	// allowed prefix, and a shell that quotes unlike bash (shellPath) is not parsed: always ask.
+	return commandMatchesPattern(pattern, commandOf(args), commandShellOf(tool.name, shellPath));
 }
 
 interface PendingApproval {
@@ -120,6 +125,8 @@ export interface ApprovalBrokerOptions {
 	newId?: () => string;
 	now?: () => number;
 	warn?: (msg: string, fields?: Record<string, unknown>) => void;
+	/** The `shellPath` setting the bash tool runs commands with; a non-POSIX shell matches no allow pattern. */
+	shellPath?: () => string | undefined;
 }
 
 export class ApprovalBroker {
@@ -136,9 +143,12 @@ export class ApprovalBroker {
 	}
 
 	isAllowed(tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
+		const shellPath = this.options.shellPath?.();
 		return this.allowList.some(
 			(entry) =>
-				entry.server === tool.server && entry.kind === tool.kind && patternMatches(entry.pattern, tool, args),
+				entry.server === tool.server &&
+				entry.kind === tool.kind &&
+				patternMatches(entry.pattern, tool, args, shellPath),
 		);
 	}
 

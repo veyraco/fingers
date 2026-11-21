@@ -7,11 +7,18 @@
  * the forms it can prove literal and nothing else, so any shell syntax it does not know asks. The
  * built-in list is checked more strictly than a pattern people add themselves: a built-in command runs
  * without asking only when none of its arguments can make it run another program or write a file. The
- * built-in list is for bash only: PowerShell commands match only patterns people add.
+ * built-in list is for bash only: PowerShell commands match only patterns people add, and a command
+ * for any other shell (a `shellPath` such as fish, whose quoting differs) matches nothing and asks.
  */
 
-/** The shell a command runs in: `bash` (also sh/zsh) or `powershell`. */
-export type CommandShell = "bash" | "powershell";
+/**
+ * The shell a command runs in: `bash` (also sh, dash and zsh, which quote the same way), `powershell`,
+ * or `other` for a configured shell whose quoting the parser does not know.
+ */
+export type CommandShell = "bash" | "powershell" | "other";
+
+/** Shells that quote like bash: the plain-words parser holds for them. */
+const POSIX_SHELLS = new Set(["bash", "sh", "dash", "zsh"]);
 
 /** A chained, piped, substituted or redirected PowerShell command could run anything after an allowed prefix. */
 const POWERSHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
@@ -164,24 +171,159 @@ function all(...checks: Array<(args: readonly string[]) => boolean>): (args: rea
 	return (args) => checks.every((check) => check(args));
 }
 
-/** `git rev-parse`: no writing a file and no other git programs. */
-const gitReadOnly = noLongOption(["output", "ext-diff", "exec-path"]);
-
-/** `git branch` lists branches only: no name (that would create one) and no delete, move or force. */
-const GIT_BRANCH_LISTING = new Set([
-	"--all",
-	"--remotes",
-	"--list",
-	"--verbose",
-	"--show-current",
-	"--color",
-	"--no-color",
-	"--column",
-	"--no-column",
-	"--no-abbrev",
+/**
+ * The git forms that run without asking, as exact argument lists. git runs programs named in the
+ * repository's config whenever it reads the index (`core.fsmonitor`) or needs an object it lacks (a
+ * lazy fetch from a promisor remote runs its transport: `ext::`, `core.sshCommand`). `git rev-parse
+ * :path`, `<rev>^{commit}`, `<rev>~N`, `git branch -v` and even a plain `git branch` (with `branch.sort`
+ * set) do that, and the write and edit tools can change `.git/config` and the refs without asking. These
+ * forms only read the repository's location and HEAD's name: none of them reads the index or an object.
+ */
+const GIT_READ_ONLY_FORMS: ReadonlyMap<string, readonly (readonly string[])[]> = new Map([
+	[
+		"git rev-parse",
+		[
+			["--show-toplevel"],
+			["--git-dir"],
+			["--git-common-dir"],
+			["--is-inside-work-tree"],
+			["--is-bare-repository"],
+			["--show-prefix"],
+			["--show-cdup"],
+			["--abbrev-ref", "HEAD"],
+		],
+	],
+	["git branch", [["--show-current"]]],
 ]);
-function gitBranchListsOnly(args: readonly string[]): boolean {
-	return args.every((arg) => GIT_BRANCH_LISTING.has(arg) || /^-[arvl]+$/.test(arg));
+
+function exactArguments(pattern: string): (args: readonly string[]) => boolean {
+	const forms = GIT_READ_ONLY_FORMS.get(pattern) ?? [];
+	return (args) =>
+		forms.some((form) => form.length === args.length && form.every((value, index) => args[index] === value));
+}
+
+/**
+ * rg options that only change what is searched or printed. Everything else asks: `--pre`/`--pre-glob`
+ * run a program on every file, `--hostname-bin` runs a program to name the host for hyperlinks,
+ * `-z`/`--search-zip` runs decompressors found on PATH, and any option rg adds later is unknown here.
+ */
+const RG_FLAGS = new Set("iSsFwxnNlcvoHIuUaLq0bph".split(""));
+/** Short options that take a value: the rest of a group (`-tpy`, `-A3`) or the next argument. */
+const RG_SHORT_WITH_VALUE = new Set("efgtTABCmdMjrE".split(""));
+const RG_LONG_OPTIONS = new Set([
+	// Patterns and what to search.
+	"regexp",
+	"file",
+	"glob",
+	"iglob",
+	"glob-case-insensitive",
+	"type",
+	"type-not",
+	"type-list",
+	"files",
+	"hidden",
+	"no-hidden",
+	"follow",
+	"no-follow",
+	"no-ignore",
+	"no-ignore-vcs",
+	"no-ignore-parent",
+	"no-ignore-dot",
+	"no-ignore-global",
+	"no-ignore-exclude",
+	"no-ignore-files",
+	"ignore",
+	"unrestricted",
+	"max-depth",
+	"max-filesize",
+	"one-file-system",
+	"text",
+	"binary",
+	"no-binary",
+	"no-config",
+	// How to match.
+	"ignore-case",
+	"smart-case",
+	"case-sensitive",
+	"fixed-strings",
+	"no-fixed-strings",
+	"word-regexp",
+	"line-regexp",
+	"invert-match",
+	"multiline",
+	"multiline-dotall",
+	"crlf",
+	"pcre2",
+	"no-pcre2",
+	"encoding",
+	"max-count",
+	// What to print.
+	"after-context",
+	"before-context",
+	"context",
+	"context-separator",
+	"line-number",
+	"no-line-number",
+	"column",
+	"no-column",
+	"byte-offset",
+	"files-with-matches",
+	"files-without-match",
+	"count",
+	"count-matches",
+	"only-matching",
+	"replace",
+	"passthru",
+	"with-filename",
+	"no-filename",
+	"heading",
+	"no-heading",
+	"vimgrep",
+	"json",
+	"no-json",
+	"trim",
+	"null",
+	"quiet",
+	"stats",
+	"pretty",
+	"color",
+	"colors",
+	"max-columns",
+	"max-columns-preview",
+	"no-messages",
+	"include-zero",
+	"sort",
+	"sortr",
+	"sort-files",
+	"threads",
+	"line-buffered",
+	"block-buffered",
+	"field-context-separator",
+	"field-match-separator",
+	"path-separator",
+	"help",
+	"version",
+]);
+
+/** One rg argument that starts with `-`: an option from the lists above, or `-`/`--`. */
+function rgOptionIsSafe(arg: string): boolean {
+	if (arg === "-" || arg === "--") return true;
+	if (arg.startsWith("--")) return RG_LONG_OPTIONS.has(arg.slice(2).split("=", 1)[0]);
+	for (const letter of arg.slice(1)) {
+		if (RG_SHORT_WITH_VALUE.has(letter)) return true;
+		if (!RG_FLAGS.has(letter)) return false;
+	}
+	return true;
+}
+
+/**
+ * Every argument that starts with `-` must be a known safe option, wherever it is: an option that
+ * takes a value can take the next argument (`-e --hostname-bin=x` searches for that text), but the
+ * check does not try to tell values from options, and `--` does not end it (in `-e -- -z` rg reads
+ * `--` as the pattern and `-z` as an option). Words without a leading `-` are patterns and paths.
+ */
+function rgArgumentsAreSafe(args: readonly string[]): boolean {
+	return args.every((arg) => !arg.startsWith("-") || rgOptionIsSafe(arg));
 }
 
 /** `date` prints the time only: `+FORMAT` and UTC/format flags, never `-s`/`--set` or a date to set. */
@@ -194,10 +336,13 @@ function datePrintsOnly(args: readonly string[]): boolean {
 /**
  * Commands that run without asking in the interactive shell. None of them can run another program or
  * write a file with the arguments allowed here. Left out on purpose: `fd` (`-x`/`-X` run programs),
- * `tree` (`-o` writes a file, and short options combine) and `git status`/`diff`/`log`/`show`: they run
- * programs named in the repository's config (`core.fsmonitor`, `diff.external`, a `textconv` driver),
- * and the write and edit tools can change `.git/config` and `.gitattributes` without asking.
- * `git rev-parse` and listing `git branch` never run those programs.
+ * `tree` (`-o` writes a file, and short options combine) and `git status`/`diff`/`log`/`show` and
+ * every other git form outside GIT_READ_ONLY_FORMS: they run programs named in the repository's config
+ * (`core.fsmonitor`, `diff.external`, a `textconv` driver, a promisor remote's transport), and the
+ * write and edit tools can change `.git/config`, `.gitattributes` and the refs without asking.
+ *
+ * The names resolve on the PATH bash commands get (getShellEnv), which leaves out the agent's own bin
+ * directory: Fingers downloads `rg` and `fd` there, and the write tool could replace them.
  */
 const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "ls" },
@@ -212,13 +357,13 @@ const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "stat" },
 	{ pattern: "du" },
 	{ pattern: "df" },
-	// `--pre`/`--pre-glob` run a program on every file searched.
-	{ pattern: "rg", literalArguments: true, argumentsAreSafe: noLongOption(["pre", "pre-glob"]) },
+	// Only known options: `--pre`, `--pre-glob`, `--hostname-bin` and `-z` run programs.
+	{ pattern: "rg", literalArguments: true, argumentsAreSafe: rgArgumentsAreSafe },
 	// `-C`/`--compile` writes a compiled magic file.
 	{ pattern: "file", literalArguments: true, argumentsAreSafe: all(noShortOption("C"), noLongOption(["compile"])) },
 	{ pattern: "date", literalArguments: true, argumentsAreSafe: datePrintsOnly },
-	{ pattern: "git rev-parse", literalArguments: true, argumentsAreSafe: gitReadOnly },
-	{ pattern: "git branch", literalArguments: true, argumentsAreSafe: gitBranchListsOnly },
+	{ pattern: "git rev-parse", literalArguments: true, argumentsAreSafe: exactArguments("git rev-parse") },
+	{ pattern: "git branch", literalArguments: true, argumentsAreSafe: exactArguments("git branch") },
 ];
 
 /** The built-in commands' patterns, for docs and messages. */
@@ -228,9 +373,15 @@ export function commandTokens(command: string): string[] {
 	return command.trim().split(/\s+/).filter(Boolean);
 }
 
-/** The shell a command tool runs in. */
-export function commandShellOf(toolName: string): CommandShell {
-	return toolName === "powershell" ? "powershell" : "bash";
+/**
+ * The shell a command tool runs in. `shellPath` is the `shellPath` setting the bash tool uses; when it
+ * names a shell other than bash, sh, dash or zsh, the command is `other` and no allow rule applies.
+ */
+export function commandShellOf(toolName: string, shellPath?: string): CommandShell {
+	if (toolName === "powershell") return "powershell";
+	if (!shellPath) return "bash";
+	const name = (shellPath.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
+	return POSIX_SHELLS.has(name) ? "bash" : "other";
 }
 
 /** What "always allow" adds for a command: its first two words (`pnpm vitest`). */
@@ -253,9 +404,10 @@ function startsWithPattern(pattern: string, words: readonly ShellWord[]): boolea
 /**
  * Whether `command` starts with every word of `pattern` and does nothing else. In bash it must be plain
  * words (parsePlainBashWords): no expansion, substitution, chaining or redirection. In PowerShell it must
- * not be chained or redirected nor carry code in its arguments.
+ * not be chained or redirected nor carry code in its arguments. In any other shell nothing matches.
  */
 export function commandMatchesPattern(pattern: string, command: string, shell: CommandShell = "bash"): boolean {
+	if (shell === "other") return false;
 	if (shell === "powershell") {
 		if (POWERSHELL_CHAINING.test(command) || POWERSHELL_CODE.test(command)) return false;
 		const wanted = commandTokens(pattern);
@@ -275,7 +427,8 @@ export function isCommandAllowed(command: string, patterns: Iterable<string>, sh
 
 /**
  * Whether `command` is a built-in command that runs without asking, with arguments that keep it
- * read-only. Always false for PowerShell, where the bash checks do not hold (`echo (Start-Process x)`).
+ * read-only. Always false for PowerShell and other shells, where the bash checks do not hold
+ * (`echo (Start-Process x)`, fish's `\'` inside single quotes).
  */
 export function isBuiltInAllowedCommand(command: string, shell: CommandShell = "bash"): boolean {
 	if (shell !== "bash") return false;

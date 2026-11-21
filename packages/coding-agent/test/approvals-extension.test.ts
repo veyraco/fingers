@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	commandAllowPattern,
 	commandMatchesPattern,
+	commandShellOf,
 	isBuiltInAllowedCommand,
 	isCommandAllowed,
 	parsePlainBashWords,
@@ -233,12 +234,13 @@ describe("approvals extension", () => {
 			"cat package.json",
 			"rg -n rateLimit src/ --type ts",
 			"rg --no-ignore -tts rateLimit",
-			"git branch",
-			"git branch -a",
-			"git branch -vv",
+			"rg -iS -C3 --hidden -g '*.ts' --json rateLimit src",
+			"rg -gz rateLimit",
+			"rg -e -foo src",
 			"git branch --show-current",
-			"git branch --list",
 			"git rev-parse --show-toplevel",
+			"git rev-parse --abbrev-ref HEAD",
+			"git rev-parse --is-inside-work-tree",
 			"date",
 			"date -u +%Y-%m-%dT%H:%M:%S",
 			'date "+%Y %m"',
@@ -402,6 +404,87 @@ describe("approvals extension", () => {
 		await call("git rev-parse HEAD && rm -rf build");
 		await call("cat secrets.txt > /tmp/out");
 		expect(asked).toHaveLength(2);
+	});
+
+	it("asks for rg options that run a program, and for any rg option it does not know", async () => {
+		const dangerous = [
+			// --hostname-bin runs a program to name the host for hyperlinks (ripgrep 14+).
+			"rg --hostname-bin=./evil.sh x",
+			"rg --hostname-bin ./evil.sh x",
+			"rg x . --hostname-bin=node_modules/.bin/tsc",
+			// -z runs decompressors found on PATH, alone or in a short-option group.
+			"rg -z x .",
+			"rg -iz x .",
+			"rg -nzi x",
+			"rg --search-zip x",
+			// --pre and --pre-glob run a preprocessor.
+			"rg --pre=sh x",
+			"rg --pre-glob=* x",
+			// An option that takes a value does not hide the next argument, and -- does not end the check:
+			// in `-e -- -z` rg reads -- as the pattern and -z as an option.
+			"rg -e --hostname-bin=./evil.sh x",
+			"rg --glob --pre=sh x",
+			"rg -e -- -z x",
+			"rg -- --hostname-bin=./evil.sh x",
+			// Options that are not on the list, including ones rg may add later.
+			"rg --hyperlink-format=default x",
+			"rg --hostn=./evil.sh x",
+			"rg -P x",
+			"rg --some-future-option x",
+		];
+		expect(await ranWithoutAsking(dangerous)).toEqual([]);
+	});
+
+	it("runs git rev-parse and git branch without asking only in forms that read no index or object", async () => {
+		// git runs core.fsmonitor when it reads the index, and a promisor remote's transport (ext::,
+		// core.sshCommand) when an object is missing; the write tool can set both in .git/config.
+		const dangerous = [
+			"git rev-parse :a.txt",
+			"git rev-parse --verify :a.txt",
+			"git rev-parse :0:a.txt",
+			"git rev-parse 0123abc~0",
+			"git rev-parse ghost~1",
+			"git rev-parse HEAD",
+			"git rev-parse --verify HEAD",
+			"git rev-parse --show-toplevel :a.txt",
+			"git rev-parse --abbrev-ref ghost",
+			// Listing reads commits for -v, and for any branch.sort a plain listing does too.
+			"git branch",
+			"git branch -v",
+			"git branch -vv",
+			"git branch -a",
+			"git branch --list",
+			"git branch --show-current -v",
+		];
+		expect(await ranWithoutAsking(dangerous)).toEqual([]);
+	});
+
+	it("uses no allow rule when shellPath names a shell that quotes unlike bash", async () => {
+		// fish reads \' as an escape inside single quotes, so `;touch P;` below is not quoted there; bash
+		// sees two quoted words.
+		const fishPayload = "echo 'a\\'X' ;touch P; echo \\'";
+		expect(parsePlainBashWords(fishPayload)).toBeDefined();
+		for (const shellPath of ["/opt/homebrew/bin/fish", "/usr/bin/nu", "C:\\tools\\elvish.exe"]) {
+			const { asked, call } = setup([{ decision: "deny" }, { decision: "deny" }, { decision: "deny" }], {
+				shellPath,
+				approvals: { allow: ["echo"] },
+			});
+			await call("ls");
+			await call(fishPayload);
+			await call("echo hi");
+			expect(asked).toHaveLength(3);
+			expect(asked[0]).toContain("Your shellPath is not bash, sh, dash or zsh");
+		}
+		for (const shellPath of ["/bin/zsh", "/usr/bin/dash", "/bin/sh", "C:\\Program Files\\Git\\bin\\bash.exe"]) {
+			const { asked, call } = setup([], { shellPath });
+			expect(await call("ls")).toBeUndefined();
+			expect(asked).toEqual([]);
+		}
+		expect(commandShellOf("bash", "/opt/homebrew/bin/fish")).toBe("other");
+		expect(commandShellOf("bash", "/bin/BASH")).toBe("bash");
+		expect(commandShellOf("powershell", "/opt/homebrew/bin/fish")).toBe("powershell");
+		expect(commandMatchesPattern("echo", "echo hi", "other")).toBe(false);
+		expect(isBuiltInAllowedCommand("ls", "other")).toBe(false);
 	});
 
 	it("asks only in the terminal", async () => {

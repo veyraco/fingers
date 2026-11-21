@@ -252,7 +252,8 @@ export const SettingsSchema = Type.Object(
 		),
 		shellPath: Type.Optional(
 			Type.String({
-				description: "Custom shell path, for example for Cygwin on Windows, with support for leading ~ expansion.",
+				description:
+					"Custom shell path, for example for Cygwin on Windows, with support for leading ~ expansion. Built-in commands and approvals.allow apply only to bash, sh, dash or zsh; any other shell asks for every command. Global setting only.",
 			}),
 		),
 		approvals: Type.Optional(
@@ -261,18 +262,18 @@ export const SettingsSchema = Type.Object(
 					commands: Type.Optional(
 						Type.Union([Type.Literal("ask"), Type.Literal("never")], {
 							description:
-								'"ask" shows the approval box before a shell command the allow list does not cover (interactive mode only); "never" runs every command without asking.',
+								'"ask" shows the approval box before a shell command the allow list does not cover, and before the write and edit tools change a file in the agent directory or the project\'s .fingers directory (interactive mode only); "never" runs every command and write without asking.',
 							default: SETTINGS_DEFAULTS.approvals.commands,
 						}),
 					),
 					allow: Type.Optional(
 						Type.Array(Type.String(), {
 							description:
-								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only bash commands (ls, cat, rg, git rev-parse, ...), which run without asking only with arguments that cannot run a program or write a file. git status/diff/log/show are not built in: they run programs named in the repository config, which the write and edit tools can change. A pattern added here matches any plain arguments. A bash command with shell syntax beyond plain words, quotes and * ? globs (such as $x and every other parameter expansion, $(...), backticks, <(...), here-strings, {...} or [...]) always asks, as do chained or redirected commands and PowerShell commands with code in an argument ((), {}, $, @, []).',
+								'Command prefixes that run without asking, such as "pnpm vitest", besides the built-in read-only bash commands (ls, cat, rg, git rev-parse --show-toplevel, ...), which run without asking only with arguments that cannot run a program or write a file: rg only with options known to be safe (--pre, --pre-glob, --hostname-bin and -z/--search-zip run programs), git rev-parse only with --show-toplevel, --git-dir, --git-common-dir, --is-inside-work-tree, --is-bare-repository, --show-prefix, --show-cdup or --abbrev-ref HEAD, and git branch only with --show-current. Other git commands are not built in: they run programs named in the repository config (core.fsmonitor, diff.external, textconv, a promisor remote\'s transport), which the write and edit tools can change. A pattern added here matches any plain arguments. A bash command with shell syntax beyond plain words, quotes and * ? globs (such as $x and every other parameter expansion, $(...), backticks, <(...), here-strings, {...} or [...]) always asks, as do chained or redirected commands and PowerShell commands with code in an argument ((), {}, $, @, []).',
 						}),
 					),
 				},
-				{ description: "Approvals for shell commands in the interactive terminal." },
+				{ description: "Approvals in the interactive terminal. Global setting only." },
 			),
 		),
 		quietStartup: Type.Optional(
@@ -288,7 +289,10 @@ export const SettingsSchema = Type.Object(
 			}),
 		),
 		shellCommandPrefix: Type.Optional(
-			Type.String({ description: "Prefix prepended to every bash command, for example to enable shell aliases." }),
+			Type.String({
+				description:
+					"Prefix prepended to every bash command, for example to enable shell aliases. Global setting only.",
+			}),
 		),
 		npmCommand: Type.Optional(
 			Type.Array(Type.String(), {

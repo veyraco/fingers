@@ -1,5 +1,5 @@
 import { accessSync, constants } from "node:fs";
-import { delimiter, join, win32 } from "node:path";
+import { delimiter, join, resolve, win32 } from "node:path";
 import { spawn, spawnSync } from "child_process";
 import { getBinDir } from "../config.ts";
 
@@ -168,18 +168,32 @@ export function getPowerShellConfig(): ShellConfig {
 	return { shell, args: [...POWERSHELL_ARGS] };
 }
 
+/**
+ * The environment shell commands run with: the process environment, with the agent's bin directory
+ * taken off PATH. Fingers downloads `rg` and `fd` there, and the write tool, which does not ask, could
+ * replace them; a built-in command such as `rg foo` runs without asking, so it must not resolve to a
+ * file there. Fingers' own grep and find tools call those binaries by absolute path (getToolPath).
+ */
 export function getShellEnv(): NodeJS.ProcessEnv {
 	const binDir = getBinDir();
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
-	const currentPath = process.env[pathKey] ?? "";
-	const pathEntries = currentPath.split(delimiter).filter(Boolean);
-	const hasBinDir = pathEntries.includes(binDir);
-	const updatedPath = hasBinDir ? currentPath : [binDir, currentPath].filter(Boolean).join(delimiter);
-
+	const currentPath = process.env[pathKey];
+	if (currentPath === undefined) return { ...process.env };
+	const updatedPath = currentPath
+		.split(delimiter)
+		.filter((entry) => !isSameDirectory(entry, binDir))
+		.join(delimiter);
 	return {
 		...process.env,
 		[pathKey]: updatedPath,
 	};
+}
+
+function isSameDirectory(entry: string, directory: string): boolean {
+	if (!entry) return false;
+	const a = resolve(entry);
+	const b = resolve(directory);
+	return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 /**

@@ -348,6 +348,25 @@ describe("approvals", () => {
 		expect(b.isAllowed(bash, { command: "pnpm vitest <(touch P)" })).toBe(false);
 	});
 
+	it("never lets an allow_always pattern match when shellPath names a shell that quotes unlike bash", async () => {
+		let shellPath: string | undefined = "/opt/homebrew/bin/fish";
+		const b = new ApprovalBroker({
+			emit: () => {},
+			timeoutMs: 1000,
+			newId: () => "apr_1",
+			shellPath: () => shellPath,
+		});
+		const bash = describeManagedTool("bash", servers);
+		const pending = b.request({ toolCallId: "t1", tool: bash, args: { command: "echo a" }, reason: "x" });
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		// fish reads \' inside single quotes as an escape: `;touch P;` is not quoted there.
+		expect(b.isAllowed(bash, { command: "echo a '\\'X' ;touch P; echo \\'" })).toBe(false);
+		expect(b.isAllowed(bash, { command: "echo a b" })).toBe(false);
+		shellPath = "/bin/zsh";
+		expect(b.isAllowed(bash, { command: "echo a b" })).toBe(true);
+	});
+
 	it("expires unanswered requests and cancels on abort", async () => {
 		const { b, records } = broker(20);
 		const bash = describeManagedTool("bash", servers);

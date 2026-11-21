@@ -350,6 +350,7 @@ export class ManagedRpcServer {
 				timeoutMs: configure.approvals?.timeout_ms ?? 30 * 60 * 1000,
 				now: () => this.now(),
 				warn: (msg, fields) => this.logger.warn(msg, fields),
+				shellPath: () => this.session?.settingsManager.getShellPath(),
 			});
 			this.runtime = await this.options.createRuntime({ configure, extension: this.createManagedExtension() });
 			this.runtime.setRebindSession(async () => {
