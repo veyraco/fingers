@@ -221,6 +221,10 @@ jobs:
             printed=$(docker run --rm --platform "$platform" fingers:smoke --version)
             [ "$printed" = "$VERSION" ] || { echo "::error::$platform image printed '$printed', expected $VERSION"; exit 1; }
             [ "$(docker run --rm --platform "$platform" --entrypoint id fingers:smoke -u)" = 1000 ] || { echo "::error::$platform image does not run as uid 1000"; exit 1; }
+            docker run --rm --platform "$platform" \
+              -v "$PWD/docker/fingers/browser-smoke.mjs:/opt/smoke/browser-smoke.mjs:ro" \
+              --entrypoint node fingers:smoke /opt/smoke/browser-smoke.mjs \
+              || { echo "::error::$platform image: the browser tool smoke test failed"; exit 1; }
             echo "$platform: fingers $printed as uid 1000"
           done
 

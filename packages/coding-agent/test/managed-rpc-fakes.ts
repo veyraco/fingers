@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 
 type Rec = Record<string, any>;
 
-const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "browser"]);
 
 /** The golden transcripts name an MCP tool `<server>__<tool>`; Fingers declares it as `mcp__<server>__<tool>`. */
 export function toolName(name: string): string {

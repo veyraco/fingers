@@ -13,8 +13,11 @@ import type { AgentTurnDecision } from "@veyraco/fingers-agent";
 import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
+import { findBrowserExecutable } from "../../../core/browser/browser-session.ts";
+import { HostPolicy, type NetworkConfig } from "../../../core/browser/host-policy.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
+import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
 import { toJsonEvent } from "../../json-event.ts";
 import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
 import {
@@ -62,6 +65,8 @@ export interface ManagedConfigure {
 	limits?: { max_cost_usd?: number; max_output_tokens?: number; max_duration_ms?: number; max_turns?: number };
 	tools?: { builtin?: string[]; approval?: ApprovalMode };
 	mcp_servers?: ManagedMcpServer[];
+	/** Hosts the traffic Fingers carries itself (the browser tool) may reach. Absent: `open`. */
+	network?: NetworkConfig;
 	approvals?: { timeout_ms?: number };
 	memory?: { mode?: string };
 	telemetry?: { mode?: string; capture_content?: boolean };
@@ -199,7 +204,7 @@ export class ManagedRpcServer {
 			protocol: FINGERS_RPC_PROTOCOL,
 			fingers_version: this.options.version,
 			managed: true,
-			capabilities: [...MANAGED_CAPABILITIES],
+			capabilities: [...MANAGED_CAPABILITIES, ...(findBrowserExecutable() ? ["browser"] : [])],
 		});
 		this.logger.info("managed rpc started", { protocol: FINGERS_RPC_PROTOCOL });
 	}
@@ -353,6 +358,13 @@ export class ManagedRpcServer {
 			for (const server of configure.mcp_servers ?? []) {
 				for (const value of secretHeaderValues(server.headers)) this.secrets.add(value);
 			}
+			// Throws on a host pattern the policy cannot use, before anything starts.
+			new HostPolicy(configure.network);
+			if (configure.tools?.builtin?.includes(BROWSER_TOOL_NAME) && !findBrowserExecutable()) {
+				throw new Error(
+					"tools.builtin names browser, but no Chromium-based browser was found (FINGERS_BROWSER_PATH or a standard install)",
+				);
+			}
 			this.policy = await preparePathPolicy({
 				workspaceRoot: configure.workspace.root,
 				protectedPaths: configure.workspace.protected_paths ?? [],
@@ -390,6 +402,8 @@ export class ManagedRpcServer {
 			model: configure.model.model_id,
 			approval: configure.tools?.approval ?? "write_tools",
 			mcp_servers: (configure.mcp_servers ?? []).map((server) => server.name),
+			builtin_tools: configure.tools?.builtin,
+			network_mode: configure.network?.mode ?? "open",
 			session_id: this.session.sessionId,
 		});
 		this.respond(configure.id, "configure", { session_id: this.session.sessionId });
@@ -402,6 +416,12 @@ export class ManagedRpcServer {
 			factory: (fingers: ExtensionAPI) => {
 				for (const { name, config } of mcpServerEntries(this.configure?.mcp_servers ?? [])) {
 					fingers.registerMcpServer(name, config);
+				}
+				if (this.configure?.tools?.builtin?.includes(BROWSER_TOOL_NAME)) {
+					createBrowserExtension({
+						network: this.configure.network,
+						log: (level, msg, fields) => this.logger[level](msg, fields),
+					})(fingers);
 				}
 				fingers.on("before_provider_headers", (event) => {
 					this.addCorrelationHeaders(event.headers);
@@ -464,7 +484,7 @@ export class ManagedRpcServer {
 			return { block: true, reason: blocked };
 		}
 		const servers = (configure.mcp_servers ?? []).map((server) => server.name);
-		const tool = describeManagedTool(toolName, servers);
+		const tool = describeManagedTool(toolName, servers, input);
 		const serverMode = configure.mcp_servers?.find((server) => server.name === tool.server)?.approval;
 		const mode: ApprovalMode =
 			(tool.kind === "mcp_tool" ? serverMode : undefined) ?? configure.tools?.approval ?? "write_tools";

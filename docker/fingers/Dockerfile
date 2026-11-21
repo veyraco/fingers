@@ -12,6 +12,10 @@
 #
 # Runs as uid 1000 (the image's `node` user) in /workspace. Fingers makes no request of its own at
 # start (no version check here, git/ripgrep/fd are installed, so no tool download).
+#
+# Chromium is installed for the `browser` built-in tool (managed RPC `tools.builtin`). Its own sandbox
+# needs user namespaces, which a Kubernetes pod usually does not grant, so FINGERS_BROWSER_NO_SANDBOX=1
+# runs it without; the pod is the sandbox. docker/fingers/browser-smoke.mjs checks it in the image.
 
 FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS install
 WORKDIR /opt/fingers
@@ -27,7 +31,7 @@ LABEL org.opencontainers.image.title="Veyra Fingers" \
 	org.opencontainers.image.licenses="MIT" \
 	org.opencontainers.image.version="${FINGERS_VERSION}"
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates git ripgrep fd-find tini \
+	&& apt-get install -y --no-install-recommends ca-certificates git ripgrep fd-find tini chromium fonts-liberation \
 	&& ln -s /usr/bin/fdfind /usr/local/bin/fd \
 	&& rm -rf /var/lib/apt/lists/*
 COPY --from=install /opt/fingers /opt/fingers
@@ -36,6 +40,8 @@ RUN ln -s /opt/fingers/node_modules/.bin/fingers /usr/local/bin/fingers \
 	&& chown 1000:1000 /workspace
 ENV HOME=/home/node \
 	FINGERS_SKIP_VERSION_CHECK=1 \
+	FINGERS_BROWSER_PATH=/usr/bin/chromium \
+	FINGERS_BROWSER_NO_SANDBOX=1 \
 	NODE_ENV=production
 USER 1000:1000
 WORKDIR /workspace

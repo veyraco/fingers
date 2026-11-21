@@ -55,6 +55,11 @@ describe("release workflow", () => {
 		const smoke = steps("image").find((step) => step.name === "Smoke test each platform").run;
 		assert.match(smoke, /linux\/amd64 linux\/arm64/);
 		assert.match(smoke, /--version/);
+		// The browser built-in tool runs in each platform's image before anything is pushed.
+		assert.match(smoke, /--entrypoint node fingers:smoke \/opt\/smoke\/browser-smoke\.mjs/);
+		const dockerfile = readFileSync(join(root, "docker/fingers/Dockerfile"), "utf8");
+		assert.match(dockerfile, /apt-get install[^\n]* chromium/);
+		assert.match(dockerfile, /FINGERS_BROWSER_PATH=\/usr\/bin\/chromium/);
 		const push = steps("image").find((step) => step.name === "Push");
 		assert.equal(push.if, "needs.prepare.outputs.publish == 'true'");
 		assert.equal(push.with.platforms, "linux/amd64,linux/arm64");

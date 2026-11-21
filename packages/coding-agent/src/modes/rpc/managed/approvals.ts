@@ -25,13 +25,23 @@ export interface ApprovalOutcome {
 
 const COMMAND_TOOLS = new Set(["bash", "powershell"]);
 const FILE_WRITE_TOOLS = new Set(["edit", "write"]);
+/** Browser actions that can reach the network (navigate, or page script a click, typing or evaluate runs). */
+const BROWSER_NETWORK_ACTIONS = new Set(["navigate", "click", "type", "evaluate"]);
 
 function mcpPrefix(server: string): string {
 	return `mcp__${server.replace(/[^A-Za-z0-9_]/g, "_")}__`;
 }
 
-export function describeManagedTool(toolName: string, mcpServers: readonly string[]): ManagedToolDescriptor {
+export function describeManagedTool(
+	toolName: string,
+	mcpServers: readonly string[],
+	args: Record<string, unknown> = {},
+): ManagedToolDescriptor {
 	if (COMMAND_TOOLS.has(toolName)) return { server: "builtin", name: toolName, kind: "command" };
+	if (toolName === "browser") {
+		const network = BROWSER_NETWORK_ACTIONS.has(String(args.action));
+		return { server: "builtin", name: toolName, kind: network ? "network" : "other" };
+	}
 	if (FILE_WRITE_TOOLS.has(toolName)) return { server: "builtin", name: toolName, kind: "file_write" };
 	if (toolName.startsWith("mcp__")) {
 		const server = [...mcpServers]
@@ -83,8 +93,36 @@ export function approvalSummary(tool: ManagedToolDescriptor, args: Record<string
 			const label = firstLabel(args);
 			return truncate(`${tool.server}: ${tool.name}${label ? ` ${label}` : ""}`, 400);
 		}
+		case "network":
+			return truncate(browserSummary(tool.name, args), 400);
 		default:
 			return truncate(tool.name, 400);
+	}
+}
+
+function browserSummary(name: string, args: Record<string, unknown>): string {
+	const action = typeof args.action === "string" ? args.action : "";
+	const text = (key: string) => (typeof args[key] === "string" ? (args[key] as string) : "");
+	switch (action) {
+		case "navigate":
+			return `${name} navigate ${text("url")}`;
+		case "click":
+			return `${name} click ${text("selector")}`;
+		case "type":
+			return `${name} type ${text("selector")}: ${text("text")}${args.submit === true ? " (Enter)" : ""}`;
+		case "evaluate":
+			return `${name} evaluate ${text("expression")}`;
+		default:
+			return `${name} ${action}`.trim();
+	}
+}
+
+/** The host of a navigation URL for `allow_always` (any path and port on that host). */
+function urlHost(value: unknown): string {
+	try {
+		return new URL(String(value)).hostname.toLowerCase();
+	} catch {
+		return "";
 	}
 }
 
@@ -97,6 +135,10 @@ export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<str
 			return `${tool.name}:${typeof args.path === "string" ? args.path : ""}`;
 		case "mcp_tool":
 			return `${tool.server}/${tool.name}`;
+		case "network":
+			return args.action === "navigate"
+				? `${tool.name} navigate ${urlHost(args.url)}`
+				: `${tool.name} ${String(args.action ?? "")}`.trim();
 		default:
 			return tool.name;
 	}
