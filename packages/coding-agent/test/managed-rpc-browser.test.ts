@@ -21,10 +21,11 @@ const usage = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0 };
 const realBrowser = findBrowserExecutable();
 
 const cleanups: Array<() => Promise<void> | void> = [];
+// Cleanup shuts a browser down: Browser.close, then SIGTERM, then SIGKILL, each bounded (about 9 s).
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 	vi.unstubAllEnvs();
-});
+}, 30_000);
 
 async function startManaged(responses: ScriptedResponse[]) {
 	vi.stubEnv("ANTHROPIC_API_KEY", "");
@@ -58,8 +59,9 @@ async function startManaged(responses: ScriptedResponse[]) {
 		return outs.find((out) => out.type === "response" && out.id === id)!;
 	};
 	const waitFor = async (type: string, count = 1) => {
+		// Long enough for a cold browser start (the session's start timeout is 60 s) and a page load.
 		await vi.waitFor(() => expect(outs.filter((out) => out.type === type).length).toBeGreaterThanOrEqual(count), {
-			timeout: 45_000,
+			timeout: 75_000,
 			interval: 20,
 		});
 		return outs.filter((out) => out.type === type);
@@ -228,5 +230,5 @@ describe.skipIf(!realBrowser)("managed RPC browser run with a real browser", () 
 		const started = logs.find((line) => line.msg === "browser started");
 		expect(started).toMatchObject({ run_id: "run_browser", request_id: "req_browser", network_mode: "allow_list" });
 		expect(logs.find((line) => line.msg === "browser request blocked")).toMatchObject({ run_id: "run_browser" });
-	}, 90_000);
+	}, 120_000);
 });

@@ -12,7 +12,8 @@
  * never searched, so a program planted in the project cannot stand in for the browser.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { accessSync, constants, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -142,6 +143,13 @@ export interface ActionReport {
 
 const SHOWN_SCHEMES = new Set(["http:", "https:", "about:"]);
 
+/**
+ * How long a starting browser may take to answer. A first start on a fresh machine or pod (cold disk
+ * cache, font cache built on first use) under load can pass 20 s; a CI runner with the test suite
+ * running beside it did.
+ */
+const START_TIMEOUT_MS = 60_000;
+
 /** `host:port` a request URL goes to (http, https, ws, wss), as the proxy names it. */
 function requestTarget(url: string): string | undefined {
 	try {
@@ -231,7 +239,11 @@ export class BrowserSession {
 		const noSandbox =
 			env.FINGERS_BROWSER_NO_SANDBOX === "1" || (process.platform === "linux" && process.getuid?.() === 0);
 		const args = browserArguments({ userDataDir: this.userDataDir, proxyUrl: proxy.url, noSandbox });
-		const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
+		// Its own process group (POSIX), so close() can stop the helpers (zygote, renderers, GPU) too.
+		const child = spawn(executable, args, {
+			stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
+			detached: process.platform !== "win32",
+		});
 		this.child = child;
 		this.stderrTail = "";
 		this.stderrFatal = undefined;
@@ -291,7 +303,7 @@ export class BrowserSession {
 	}
 
 	private async attach(cdp: CdpPipe): Promise<void> {
-		await withTimeout(cdp.send("Browser.getVersion"), 20_000, "the browser did not answer");
+		await withTimeout(cdp.send("Browser.getVersion"), START_TIMEOUT_MS, "the browser did not answer");
 		await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" });
 		const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
 		const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
@@ -548,30 +560,38 @@ export class BrowserSession {
 		this.sessionId = undefined;
 		if (cdp && !cdp.closed) await withTimeout(cdp.send("Browser.close"), 2_000, "close").catch(() => {});
 		if (child && child.exitCode === null && child.signalCode === null) {
-			await new Promise<void>((resolve) => {
-				const timer = setTimeout(() => {
-					child.kill("SIGKILL");
-					resolve();
-				}, 3_000);
-				child.once("exit", () => {
-					clearTimeout(timer);
-					resolve();
-				});
-				child.kill("SIGTERM");
-			});
+			const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+			child.kill("SIGTERM");
+			if (
+				!(await withTimeout(exited, 3_000, "exit").then(
+					() => true,
+					() => false,
+				))
+			) {
+				child.kill("SIGKILL");
+				await withTimeout(exited, 2_000, "exit").catch(() => {});
+			}
+		}
+		// Helpers can outlive the browser process and keep writing the profile; stop the whole group.
+		if (child?.pid && process.platform !== "win32") {
+			try {
+				process.kill(-child.pid, "SIGKILL");
+			} catch {
+				// The group is already gone.
+			}
 		}
 		if (this.proxy) {
 			await this.proxy.close();
 			this.proxy = undefined;
 		}
 		if (this.userDataDir) {
-			// Browser helper processes can still write the profile for a moment after the browser exits.
-			try {
-				rmSync(this.userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-			} catch (error) {
-				this.log("warn", "browser profile not removed", { code: (error as NodeJS.ErrnoException).code });
-			}
+			const userDataDir = this.userDataDir;
 			this.userDataDir = undefined;
+			// Asynchronous: a profile that is slow to remove must not stall the event loop (in managed
+			// mode that is the RPC server's).
+			await rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch((error) => {
+				this.log("warn", "browser profile not removed", { code: (error as NodeJS.ErrnoException).code });
+			});
 		}
 		if (child) this.log("info", "browser closed", { pid: child.pid });
 	}

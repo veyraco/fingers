@@ -3,7 +3,7 @@
  * workflow runs docker/fingers/browser-smoke.mjs inside the image). Two local servers: `site` is in the
  * network allow list, `outside` is not and must never see a request.
  */
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -122,6 +122,93 @@ kill -ABRT $$
 			rmSync(dir, { recursive: true, force: true });
 		}
 	}, 30_000);
+
+	/**
+	 * A fake browser that leaves a helper behind, as Chrome's zygote, renderer and GPU processes can
+	 * outlive the browser process: the helper keeps writing files into the profile until it is killed
+	 * (or for 8 s at most), and the browser itself aborts. `outsideGroup` puts the helper in its own session,
+	 * out of the browser's process group, for 3 s.
+	 */
+	async function startBrowserLeavingAHelper(outsideGroup: boolean) {
+		const dir = mkdtempSync(join(tmpdir(), "fingers-dying-browser-"));
+		const fake = join(dir, "chrome");
+		const perl = [
+			outsideGroup ? "use POSIX; POSIX::setsid();" : "",
+			`my ($d) = @ARGV; my $end = time + ${outsideGroup ? 3 : 8}; my $i = 0;`,
+			'while (time < $end) { open(my $f, ">", "$d/Cache/f" . $i++) or do { mkdir $d; mkdir "$d/Cache" };',
+			"select(undef, undef, undef, 0.001); }",
+		].join(" ");
+		const helper = `perl -e '${perl}' "$profile"`;
+		writeFileSync(
+			fake,
+			`#!/bin/sh
+here=$(dirname "$0")
+for arg in "$@"; do case "$arg" in --user-data-dir=*) profile="\${arg#--user-data-dir=}" ;; esac; done
+mkdir -p "$profile/Cache"
+echo "$profile" > "$here/profile.path"
+${helper} </dev/null >/dev/null 2>&1 3>&- 4>&- &
+echo $! > "$here/helper.pid"
+sleep 0.3
+echo "[1:1:1121/000000.000000:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!" >&2
+kill -ABRT $$
+`,
+		);
+		chmodSync(fake, 0o755);
+		const session = new BrowserSession({ env: { FINGERS_BROWSER_PATH: fake } });
+		let maxGap = 0;
+		let last = Date.now();
+		const ticker = setInterval(() => {
+			const now = Date.now();
+			maxGap = Math.max(maxGap, now - last);
+			last = now;
+		}, 20);
+		const error = await session.start().then(
+			() => undefined,
+			(failure: Error) => failure,
+		);
+		clearInterval(ticker);
+		maxGap = Math.max(maxGap, Date.now() - last);
+		const helperPid = Number(readFileSync(join(dir, "helper.pid"), "utf8"));
+		const alive = () => {
+			try {
+				process.kill(helperPid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		const profile = readFileSync(join(dir, "profile.path"), "utf8").trim();
+		const cleanup = async () => {
+			if (alive()) process.kill(helperPid, "SIGKILL");
+			await session.close();
+			rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+			rmSync(dir, { recursive: true, force: true });
+		};
+		return { error, maxGap, alive, profile, cleanup };
+	}
+
+	it("stops the browser's helper processes with it and removes the profile", async () => {
+		const run = await startBrowserLeavingAHelper(false);
+		try {
+			expect(run.error?.message).toContain("No usable sandbox!");
+			expect(run.alive()).toBe(false);
+			expect(existsSync(run.profile)).toBe(false);
+			expect(run.maxGap).toBeLessThan(1_000);
+		} finally {
+			await run.cleanup();
+		}
+	}, 30_000);
+
+	it("never stalls the event loop on a profile something outside the browser keeps writing", async () => {
+		const run = await startBrowserLeavingAHelper(true);
+		try {
+			expect(run.error?.message).toContain("No usable sandbox!");
+			// The helper is out of reach of close(), so removing the profile is retried while it writes.
+			expect(run.maxGap).toBeLessThan(1_000);
+		} finally {
+			await run.cleanup();
+		}
+	}, 30_000);
 });
 
 describe.skipIf(!executable)("browser tool with a real browser", () => {
@@ -189,7 +276,8 @@ try { new WebSocket("ws://127.0.0.1:${outside.port}/socket"); } catch (e) {}
 		expect(textOf(res)).toMatch(/Could not open/);
 		expect(textOf(res)).toContain(`127.0.0.1:${outside.port}`);
 		expect(outside.hits).toEqual([]);
-	});
+		// This test starts the browser; a cold first start may take up to the session's start timeout.
+	}, 120_000);
 
 	it("an https navigation outside the allow list fails as blocked, and only the page's requests are listed", async () => {
 		const res = await call({ action: "navigate", url: "https://blocked.example.org/" });
