@@ -4,7 +4,7 @@
  */
 import type { McpServerConfig } from "../../../core/mcp-servers.ts";
 import type { ModelRuntime } from "../../../core/model-runtime.ts";
-import type { SecretSet } from "./secrets.ts";
+import { type SecretSet, secretHeaderValues } from "./secrets.ts";
 
 /** Escape a literal so config-value resolution returns it unchanged: `$` -> `$$`, a leading `!` -> `$!`. */
 export function escapeConfigValue(value: string): string {
@@ -61,7 +61,7 @@ export async function applyCredentials(
 	secrets: SecretSet,
 ): Promise<void> {
 	secrets.add(message.credential);
-	for (const value of Object.values(message.headers ?? {})) secrets.add(value);
+	for (const value of secretHeaderValues(message.headers)) secrets.add(value);
 	const headers = escapeHeaders(message.headers);
 	modelRuntime.registerProvider(message.provider, { baseUrl: message.base_url, ...(headers ? { headers } : {}) });
 	await modelRuntime.setRuntimeApiKey(message.provider, message.credential);

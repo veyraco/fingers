@@ -59,9 +59,16 @@ async function startManaged(responses: ScriptedResponse[]) {
 	cleanups.push(() => new Promise<void>((resolve) => anthropic.server.close(() => resolve())));
 	const outs: Rec[] = [];
 	const stderr: string[] = [];
+	const invalidStdout: string[] = [];
 	const server = new ManagedRpcServer({
 		io: {
-			writeStdout: (line) => outs.push(JSON.parse(line)),
+			writeStdout: (line) => {
+				try {
+					outs.push(JSON.parse(line));
+				} catch {
+					invalidStdout.push(line);
+				}
+			},
 			writeStderr: (line) => stderr.push(line),
 		},
 		createRuntime: createManagedRuntimeFactory({ agentDir: join(root, "agent"), sessionDir: join(root, "sessions") }),
@@ -92,7 +99,7 @@ async function startManaged(responses: ScriptedResponse[]) {
 			model: { provider: "anthropic", model_id: "claude-sonnet-4-5" },
 			...extra,
 		});
-	const credentials = () =>
+	const credentials = (extra: Rec = {}) =>
 		command({
 			type: "credentials",
 			provider: "anthropic",
@@ -100,6 +107,7 @@ async function startManaged(responses: ScriptedResponse[]) {
 			credential_kind: "proxy_token",
 			credential: TOKEN,
 			expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+			...extra,
 		});
 	const waitFor = async (type: string, count = 1) => {
 		await vi.waitFor(() => expect(outs.filter((out) => out.type === type).length).toBeGreaterThanOrEqual(count), {
@@ -108,7 +116,20 @@ async function startManaged(responses: ScriptedResponse[]) {
 		});
 		return outs.filter((out) => out.type === type);
 	};
-	return { root, workspace, server, outs, stderr, send, command, configure, credentials, waitFor, anthropic };
+	return {
+		root,
+		workspace,
+		server,
+		outs,
+		stderr,
+		invalidStdout,
+		send,
+		command,
+		configure,
+		credentials,
+		waitFor,
+		anthropic,
+	};
 }
 
 describe("managed RPC handshake", () => {
@@ -271,6 +292,62 @@ describe("managed RPC secrets", () => {
 				.map((file) => readFileSync(file, "utf8"))
 				.join(""),
 		).not.toContain(TOKEN);
+	});
+});
+
+describe("managed RPC secret scrubbing keeps records valid", () => {
+	const HEADERS = {
+		"x-flag": "true",
+		"anthropic-version": "2023-06-01",
+		"x-api-key-extra": "short",
+		"x-conformance-secret": "header-secret-value",
+		"proxy-authorization": "Bearer abcdefghijklmnop",
+	};
+
+	it("answers credentials with short non-secret header values as valid JSON", async () => {
+		const m = await startManaged([]);
+		expect(await m.configure()).toMatchObject({ success: true });
+		const response = await m.credentials({ headers: HEADERS });
+		expect(response).toMatchObject({ type: "response", command: "credentials", success: true });
+		expect(m.invalidStdout).toEqual([]);
+		expect(await m.command({ type: "get_state" })).toMatchObject({ success: true });
+		expect(m.invalidStdout).toEqual([]);
+	});
+
+	it("still redacts the credential and credential-named header values a provider echoes", async () => {
+		const m = await startManaged([
+			{
+				content: [],
+				usage,
+				stopReason: "error",
+				error: {
+					status: 400,
+					body: JSON.stringify({
+						type: "error",
+						error: {
+							type: "invalid_request_error",
+							message: `bad ${TOKEN} / header-secret-value / Bearer abcdefghijklmnop / flag true / 2023-06-01`,
+						},
+					}),
+				},
+			},
+		]);
+		await m.configure();
+		await m.credentials({ headers: HEADERS });
+		await m.command({ type: "prompt", message: "hello" });
+		await m.waitFor("result");
+		expect(m.invalidStdout).toEqual([]);
+		const stdout = JSON.stringify(m.outs);
+		// The echo reached Fingers; only the secrets were replaced, the plain header values stay readable.
+		expect(stdout).toContain("bad [redacted] / [redacted] / [redacted] / flag true / 2023-06-01");
+		for (const secret of [TOKEN, "header-secret-value", "Bearer abcdefghijklmnop"]) {
+			expect(stdout).not.toContain(secret);
+			expect(m.stderr.join("")).not.toContain(secret);
+		}
+		// Every header still went to the provider.
+		const sent = m.anthropic.requests[0]!.headers;
+		expect(sent["x-flag"]).toBe("true");
+		expect(sent["x-conformance-secret"]).toBe("header-secret-value");
 	});
 });
 

@@ -16,3 +16,4 @@
 - First-run provider list and local detection (environment keys, AWS profiles, gcloud application default credentials), and OpenAI-compatible endpoints saved with their key in the keychain.
 - `fingers --mode rpc --managed`: managed RPC mode for hosts such as Veyra Hands (Fingers RPC v1): `hello`/`configure`/`credentials` handshake, `seq` and `traceparent` correlation, JSON logs on stderr, the managed path policy, approvals, MCP servers from `configure`, `usage`, `file_changed`, limits and `result` records. See [docs/rpc-managed.md](docs/rpc-managed.md).
 - Managed RPC mode sends the run's trace on every model request: a child `traceparent` of the command that started the run and the run's `X-Request-Id`.
+- Managed RPC mode treats only the credential and credential-named header values (8+ characters) as secrets and removes them from string values only, so a short header value such as `x-flag: true` no longer turns a response into invalid JSON.

@@ -1,9 +1,35 @@
 /**
- * Secrets a host hands Fingers in managed mode (the model credential and every header value). They stay in
- * memory; every stdout record and log line passes through `redact` so none of them can leave the process.
+ * Secrets a host hands Fingers in managed mode: the model credential and the values of the headers that carry a
+ * credential (by name, 8+ characters; the same rule as the Hands runner). They stay in memory; every stdout record,
+ * log line, session entry and checkpoint line has them replaced. Replacement works on a record's string values and
+ * keys, never on its serialized text, so a value can never change a record's JSON structure.
  */
 
 const REDACTED = "[redacted]";
+
+/** A header value shorter than this is not a secret: replacing a short value everywhere rewrites unrelated text. */
+export const MIN_SECRET_HEADER_LENGTH = 8;
+/** Header names (lowercase) that carry a credential. */
+const CREDENTIAL_HEADERS = new Set(["authorization", "proxy-authorization", "cookie", "x-api-key", "api-key"]);
+/** Parts of a header name that mark it as carrying a credential. */
+const CREDENTIAL_HEADER_PARTS = ["auth", "token", "secret", "key", "password", "session", "signature", "credential"];
+
+/** Whether a header with this name carries a credential. */
+export function isCredentialHeader(name: string): boolean {
+	const lower = name.toLowerCase();
+	return CREDENTIAL_HEADERS.has(lower) || CREDENTIAL_HEADER_PARTS.some((part) => lower.includes(part));
+}
+
+/**
+ * The header values to treat as secrets: those of credential-named headers, 8 characters or more. Other values
+ * (`anthropic-version: 2023-06-01`, `x-flag: true`) are not secrets and stay readable.
+ */
+export function secretHeaderValues(headers: Record<string, string> | undefined): string[] {
+	return Object.entries(headers ?? {})
+		.filter(([name, value]) => isCredentialHeader(name) && typeof value === "string")
+		.map(([, value]) => value)
+		.filter((value) => value.length >= MIN_SECRET_HEADER_LENGTH);
+}
 
 export class SecretSet {
 	private readonly values = new Set<string>();
@@ -33,7 +59,22 @@ export class SecretSet {
 		return result;
 	}
 
-	/** A copy of `value` with every secret replaced in its strings. */
+	/**
+	 * A JSON line with every secret replaced in its string values and keys; the structure is untouched. A line
+	 * that is not JSON is redacted as text.
+	 */
+	redactJsonLine(line: string): string {
+		if (!this.containsSecret(line)) return line;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			return this.redact(line);
+		}
+		return JSON.stringify(this.redactValue(parsed));
+	}
+
+	/** A copy of `value` with every secret replaced in its strings and object keys. */
 	redactValue<T>(value: T): T {
 		if (this.patterns.length === 0) return value;
 		return this.redactAny(value, new WeakMap()) as T;
@@ -52,7 +93,15 @@ export class SecretSet {
 		}
 		const copy: Record<string, unknown> = {};
 		seen.set(value, copy);
-		for (const [key, item] of Object.entries(value)) copy[key] = this.redactAny(item, seen);
+		for (const [key, item] of Object.entries(value)) {
+			// defineProperty: a `__proto__` key from JSON.parse stays a plain key.
+			Object.defineProperty(copy, this.redact(key), {
+				value: this.redactAny(item, seen),
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			});
+		}
 		return copy;
 	}
 }

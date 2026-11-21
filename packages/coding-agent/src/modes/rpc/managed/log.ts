@@ -80,9 +80,9 @@ export class ManagedLogger {
 			if (value === undefined) continue;
 			record[key] = key === "err" ? serializeError(value) : value;
 		}
-		const safe = this.options.secrets.redactValue(redactKeys(record));
 		try {
-			this.options.write(`${this.options.secrets.redact(JSON.stringify(safe))}\n`);
+			// Values only: the line stays valid JSON however short a secret is.
+			this.options.write(`${this.options.secrets.redactJsonLine(JSON.stringify(redactKeys(record)))}\n`);
 		} catch {
 			// Logging must never break the run.
 		}

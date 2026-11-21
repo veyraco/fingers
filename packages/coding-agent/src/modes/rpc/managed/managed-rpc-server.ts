@@ -40,7 +40,7 @@ import { applyCredentials, type CredentialsMessage, type ManagedMcpServer, mcpSe
 import { FileChangeTracker } from "./file-changes.ts";
 import { ManagedLogger } from "./log.ts";
 import { checkManagedToolPaths, type PathPolicy, preparePathPolicy } from "./path-policy.ts";
-import { SecretSet } from "./secrets.ts";
+import { SecretSet, secretHeaderValues } from "./secrets.ts";
 import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "./trace.ts";
 
 type JsonRecord = Record<string, any>;
@@ -219,7 +219,8 @@ export class ManagedRpcServer {
 		let line = JSON.stringify(out);
 		if (this.secrets.containsSecret(line)) {
 			this.logger.warn("secret value removed from a protocol record", { record_type: type });
-			line = this.secrets.redact(line);
+			// Values only: the record stays valid JSON with the same structure.
+			line = this.secrets.redactJsonLine(line);
 		}
 		this.options.io.writeStdout(`${line}\n`);
 	}
@@ -350,7 +351,7 @@ export class ManagedRpcServer {
 		this.logger.setRun({ runId: configure.run_id, requestId: configure.request_id });
 		try {
 			for (const server of configure.mcp_servers ?? []) {
-				for (const value of Object.values(server.headers ?? {})) this.secrets.add(value);
+				for (const value of secretHeaderValues(server.headers)) this.secrets.add(value);
 			}
 			this.policy = await preparePathPolicy({
 				workspaceRoot: configure.workspace.root,
@@ -539,7 +540,7 @@ export class ManagedRpcServer {
 		const session = runtime.session;
 		this.session = session;
 		// Secrets a provider echoes (an error body, a header) must not reach the session file either.
-		session.sessionManager.setSerializedEntryFilter((line) => this.secrets.redact(line));
+		session.sessionManager.setSerializedEntryFilter((line) => this.secrets.redactJsonLine(line));
 		// A replaced session has a new model runtime: give it the credentials the host sent.
 		for (const message of this.credentialMessages.values()) await this.applyCredentialsTo(session, message);
 		this.unsubscribe?.();
@@ -987,7 +988,7 @@ export class ManagedRpcServer {
 		const sessionManager = session.sessionManager;
 		const entryId = sessionManager.getLeafId();
 		if (!entryId) throw new CheckpointError("not_found", "The session has no entries to checkpoint yet");
-		const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redact(line));
+		const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redactJsonLine(line));
 		const { sha256, sizeBytes } = await writeCheckpointFile(path, content);
 		const checkpoint = {
 			id: checkpointId(path, sha256),
