@@ -13,6 +13,8 @@ export interface SelectItem {
 	value: string;
 	label: string;
 	description?: string;
+	/** Short marker after the description, such as `ee`; styled with `SelectListTheme.tag`. */
+	tag?: string;
 }
 
 export interface SelectListTheme {
@@ -21,6 +23,22 @@ export interface SelectListTheme {
 	description: (text: string) => string;
 	scrollInfo: (text: string) => string;
 	noMatch: (text: string) => string;
+	/** Item tags (SelectItem.tag); plain when omitted. */
+	tag?: (text: string) => string;
+	/** Frame border and title (SelectListLayoutOptions.frame); plain when omitted. */
+	frameBorder?: (text: string) => string;
+	frameTitle?: (text: string) => string;
+	/** Frame legend and key-hint lines; `scrollInfo` when omitted. */
+	frameHint?: (text: string) => string;
+}
+
+/** A titled box around the list, with legends for the tags shown and a key-hint line below it. */
+export interface SelectListFrame {
+	title: string;
+	/** Legend per tag, shown below the items when a visible item carries that tag. */
+	tagLegends?: Readonly<Record<string, string>>;
+	/** Key hints shown under the box. */
+	hint?: string;
 }
 
 export interface SelectListTruncatePrimaryContext {
@@ -35,7 +53,15 @@ export interface SelectListLayoutOptions {
 	minPrimaryColumnWidth?: number;
 	maxPrimaryColumnWidth?: number;
 	truncatePrimary?: (context: SelectListTruncatePrimaryContext) => string;
+	/** Draw the list inside a titled box (rounded corners). */
+	frame?: SelectListFrame;
+	/** Marker in front of the selected item; "→ " when omitted. Must be two cells wide. */
+	selectedMarker?: string;
+	/** Shown before every label, e.g. "/" for slash commands. */
+	labelPrefix?: string;
 }
+
+const FRAME_SIDE_WIDTH = 2;
 
 export class SelectList implements Component {
 	readonly capturesViewportInput: boolean = true;
@@ -74,6 +100,56 @@ export class SelectList implements Component {
 	}
 
 	render(width: number): string[] {
+		const frame = this.layout.frame;
+		if (!frame || width < FRAME_SIDE_WIDTH * 2 + 12) return this.renderItems(width);
+		return this.renderFramed(frame, width);
+	}
+
+	/** Rows above the first item row in `render()`'s output (the frame's top border). */
+	private get itemRowOffset(): number {
+		return this.layout.frame ? 1 : 0;
+	}
+
+	private renderFramed(frame: SelectListFrame, width: number): string[] {
+		const border = (text: string) => (this.theme.frameBorder ? this.theme.frameBorder(text) : text);
+		const title = (text: string) => (this.theme.frameTitle ? this.theme.frameTitle(text) : text);
+		const hintStyle = (text: string) =>
+			this.theme.frameHint ? this.theme.frameHint(text) : this.theme.scrollInfo(text);
+		const innerWidth = width - FRAME_SIDE_WIDTH * 2;
+		const body = this.renderItems(innerWidth);
+
+		const { startIndex, endIndex } = this.getVisibleRange();
+		const shownTags = new Set(
+			this.filteredItems
+				.slice(startIndex, endIndex)
+				.map((item) => item.tag)
+				.filter((tag): tag is string => !!tag),
+		);
+		const legends = Object.entries(frame.tagLegends ?? {}).filter(([tag]) => shownTags.has(tag));
+		if (legends.length > 0) {
+			body.push("");
+			for (const [tag, legend] of legends) {
+				const styledTag = this.theme.tag ? this.theme.tag(tag) : tag;
+				body.push(truncateToWidth(`${styledTag}${hintStyle(` ${legend}`)}`, innerWidth, ""));
+			}
+		}
+
+		const titleText = truncateToWidth(frame.title, Math.max(1, width - 6), "");
+		const topFill = Math.max(0, width - visibleWidth(titleText) - 5);
+		const lines = [`${border("╭─ ")}${title(titleText)}${border(` ${"─".repeat(topFill)}╮`)}`];
+		for (const line of body) {
+			const pad = " ".repeat(Math.max(0, innerWidth - visibleWidth(line)));
+			lines.push(`${border("│ ")}${line}${pad}${border(" │")}`);
+		}
+		lines.push(border(`╰${"─".repeat(Math.max(0, width - 2))}╯`));
+		if (frame.hint) {
+			lines.push("");
+			lines.push(truncateToWidth(hintStyle(`  ${frame.hint}`), width, ""));
+		}
+		return lines;
+	}
+
+	private renderItems(width: number): string[] {
 		const lines: string[] = [];
 
 		// If no items match filter, show message
@@ -119,7 +195,7 @@ export class SelectList implements Component {
 		// Hover must not change selection: the visible range is centered on it.
 		if (event.button !== "left" || (event.type !== "press" && event.type !== "click")) return undefined;
 		const { startIndex, endIndex } = this.getVisibleRange();
-		const itemIndex = startIndex + event.y;
+		const itemIndex = startIndex + event.y - this.itemRowOffset;
 		if (itemIndex < startIndex || itemIndex >= endIndex) return undefined;
 
 		if (event.type === "press") {
@@ -195,8 +271,10 @@ export class SelectList implements Component {
 		descriptionSingleLine: string | undefined,
 		primaryColumnWidth: number,
 	): string {
-		const prefix = isSelected ? "→ " : "  ";
+		const prefix = isSelected ? (this.layout.selectedMarker ?? "→ ") : "  ";
 		const prefixWidth = visibleWidth(prefix);
+		const tagText = item.tag ? `   ${item.tag}` : "";
+		const styledTag = tagText ? (this.theme.tag ? this.theme.tag(tagText) : tagText) : "";
 
 		if (descriptionSingleLine && width > 40) {
 			const effectivePrimaryColumnWidth = Math.max(1, Math.min(primaryColumnWidth, width - prefixWidth - 4));
@@ -205,26 +283,26 @@ export class SelectList implements Component {
 			const truncatedValueWidth = visibleWidth(truncatedValue);
 			const spacing = " ".repeat(Math.max(1, effectivePrimaryColumnWidth - truncatedValueWidth));
 			const descriptionStart = prefixWidth + truncatedValueWidth + spacing.length;
-			const remainingWidth = width - descriptionStart - 2; // -2 for safety
+			const remainingWidth = width - descriptionStart - 2 - visibleWidth(tagText); // -2 for safety
 
 			if (remainingWidth > MIN_DESCRIPTION_WIDTH) {
 				const truncatedDesc = truncateToWidth(descriptionSingleLine, remainingWidth, "");
 				if (isSelected) {
-					return this.theme.selectedText(`${prefix}${truncatedValue}${spacing}${truncatedDesc}`);
+					return this.theme.selectedText(`${prefix}${truncatedValue}${spacing}${truncatedDesc}`) + styledTag;
 				}
 
 				const descText = this.theme.description(spacing + truncatedDesc);
-				return prefix + truncatedValue + descText;
+				return prefix + truncatedValue + descText + styledTag;
 			}
 		}
 
-		const maxWidth = width - prefixWidth - 2;
-		const truncatedValue = this.truncatePrimary(item, isSelected, maxWidth, maxWidth);
+		const maxWidth = width - prefixWidth - 2 - visibleWidth(tagText);
+		const truncatedValue = this.truncatePrimary(item, isSelected, Math.max(1, maxWidth), Math.max(1, maxWidth));
 		if (isSelected) {
-			return this.theme.selectedText(`${prefix}${truncatedValue}`);
+			return this.theme.selectedText(`${prefix}${truncatedValue}`) + styledTag;
 		}
 
-		return prefix + truncatedValue;
+		return prefix + truncatedValue + styledTag;
 	}
 
 	private getPrimaryColumnWidth(): number {
@@ -264,7 +342,7 @@ export class SelectList implements Component {
 	}
 
 	private getDisplayValue(item: SelectItem): string {
-		return item.label || item.value;
+		return `${this.layout.labelPrefix ?? ""}${item.label || item.value}`;
 	}
 
 	private notifySelectionChange(): void {

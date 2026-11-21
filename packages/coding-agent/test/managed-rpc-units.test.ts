@@ -10,7 +10,7 @@ import { FileChangeTracker } from "../src/modes/rpc/managed/file-changes.ts";
 import { ManagedLogger } from "../src/modes/rpc/managed/log.ts";
 import { checkManagedToolPaths, preparePathPolicy } from "../src/modes/rpc/managed/path-policy.ts";
 import { SecretSet } from "../src/modes/rpc/managed/secrets.ts";
-import { continueTrace, parseTraceparent } from "../src/modes/rpc/managed/trace.ts";
+import { childSpan, continueTrace, formatTraceparent, parseTraceparent } from "../src/modes/rpc/managed/trace.ts";
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -51,6 +51,20 @@ describe("traceparent", () => {
 			expect(next.context.traceId).toMatch(/^[0-9a-f]{32}$/);
 			expect(next.context.parentSpanId).toBeUndefined();
 		}
+	});
+
+	it("makes a child span per outgoing call with the parent's trace id and flags", () => {
+		const parent = continueTrace("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90200-00").context;
+		const first = childSpan(parent);
+		const second = childSpan(parent);
+		expect(first).toMatchObject({ traceId: parent.traceId, parentSpanId: parent.spanId, flags: "00" });
+		expect(first.spanId).toMatch(/^[0-9a-f]{16}$/);
+		expect(new Set([parent.spanId, first.spanId, second.spanId]).size).toBe(3);
+		expect(parseTraceparent(formatTraceparent(first))).toEqual({
+			traceId: parent.traceId,
+			parentId: first.spanId,
+			flags: "00",
+		});
 	});
 });
 
@@ -311,6 +325,60 @@ describe("approvals", () => {
 		expect(warnings).toHaveLength(1);
 		expect(b.isAllowed(bash, { command: "pnpm vitest run b.test.ts" })).toBe(true);
 		expect(b.isAllowed(bash, { command: "pnpm install" })).toBe(false);
+	});
+
+	it("never lets an allow_always pattern match PowerShell code in the arguments", async () => {
+		const { b } = broker();
+		const powershell = describeManagedTool("powershell", servers);
+		const pending = b.request({
+			toolCallId: "t1",
+			tool: powershell,
+			args: { command: "pnpm vitest run a.test.ts" },
+			reason: "Not in your allow list",
+		});
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		expect(b.isAllowed(powershell, { command: "pnpm vitest run b.test.ts" })).toBe(true);
+		expect(b.isAllowed(powershell, { command: "pnpm vitest (Start-Process calc)" })).toBe(false);
+		expect(b.isAllowed(powershell, { command: "pnpm vitest $env:TOKEN" })).toBe(false);
+	});
+
+	it("never lets an allow_always pattern match a bash expansion that runs a program", async () => {
+		const { b } = broker();
+		const bash = describeManagedTool("bash", servers);
+		const pending = b.request({
+			toolCallId: "t1",
+			tool: bash,
+			args: { command: "pnpm vitest run a.test.ts" },
+			reason: "Not in your allow list",
+		});
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		expect(b.isAllowed(bash, { command: "pnpm vitest run 'b c.test.ts'" })).toBe(true);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+		expect(b.isAllowed(bash, { command: "pnpm vitest ${y:=$'a[\\x24(touch P)]'} ${a[y]}" })).toBe(false);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a template
+		expect(b.isAllowed(bash, { command: "pnpm vitest ${x@P}" })).toBe(false);
+		expect(b.isAllowed(bash, { command: "pnpm vitest <(touch P)" })).toBe(false);
+	});
+
+	it("never lets an allow_always pattern match when shellPath names a shell that quotes unlike bash", async () => {
+		let shellPath: string | undefined = "/opt/homebrew/bin/fish";
+		const b = new ApprovalBroker({
+			emit: () => {},
+			timeoutMs: 1000,
+			newId: () => "apr_1",
+			shellPath: () => shellPath,
+		});
+		const bash = describeManagedTool("bash", servers);
+		const pending = b.request({ toolCallId: "t1", tool: bash, args: { command: "echo a" }, reason: "x" });
+		b.respond({ type: "approval_response", id: "apr_1", decision: "allow_always" });
+		await pending;
+		// fish reads \' inside single quotes as an escape: `;touch P;` is not quoted there.
+		expect(b.isAllowed(bash, { command: "echo a '\\'X' ;touch P; echo \\'" })).toBe(false);
+		expect(b.isAllowed(bash, { command: "echo a b" })).toBe(false);
+		shellPath = "/bin/zsh";
+		expect(b.isAllowed(bash, { command: "echo a b" })).toBe(true);
 	});
 
 	it("expires unanswered requests and cancels on abort", async () => {

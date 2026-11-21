@@ -62,6 +62,11 @@ export const THEME_TOKENS = defineThemeTokens({
 	toolPendingBg: { slot: "background", description: "Tool execution box (pending state)" },
 	toolSuccessBg: { slot: "background", description: "Tool execution box (success state)" },
 	toolErrorBg: { slot: "background", description: "Tool execution box (error state)" },
+	statusBarBg: {
+		slot: "background",
+		description: "Status line background under the editor (falls back to toolPendingBg when omitted)",
+		fallback: "toolPendingBg",
+	},
 	toolTitle: { slot: "foreground", description: "Tool execution box title color" },
 	toolOutput: { slot: "foreground", description: "Tool execution box output text color" },
 	mdHeading: { slot: "foreground", description: "Markdown heading text" },

@@ -8,7 +8,7 @@
  *
  * Steps:
  * 1. Check the npm version and for uncommitted changes
- * 2. Verify every public workspace package is registered on npm
+ * 2. List the public workspace packages that are not on npm yet (the release creates them)
  * 3. Bump version via npm run version:xxx or set an explicit version
  * 4. Update CHANGELOG.md files: [Unreleased] -> [version] - date
  * 5. Regenerate release artifacts
@@ -76,8 +76,11 @@ function assertPackagesAreRegisteredWithNpm() {
 		throw new Error(output ? `Failed to query npm registration for ${packageName}\n${output}` : `Failed to query npm registration for ${packageName}`);
 	}
 
+	// The release workflow publishes with the @veyraco org's automation token (NPM_TOKEN), so the
+	// first release creates a package that is not on npm yet; nothing has to be registered by hand.
 	if (unregisteredPackages.length > 0) {
-		throw new Error(`The following public workspace packages are not registered on npm:\n${unregisteredPackages.map((packageName) => `  ${packageName}`).join("\n")}\nRegister them before running a release.`);
+		console.log(`  Not on npm yet, the release creates them:\n${unregisteredPackages.map((packageName) => `    ${packageName}`).join("\n")}\n`);
+		return;
 	}
 
 	console.log("  All public workspace packages are registered on npm\n");

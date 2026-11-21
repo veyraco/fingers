@@ -191,8 +191,12 @@ describe("openai-completions cacheControlFormat", () => {
 			},
 		]);
 
+		// The prompt keeps its text-part form and now holds the previous turn's breakpoint (where the
+		// previous request wrote its cache entry).
 		const userMessage = params.messages.find((message) => message.role === "user");
-		expect(userMessage?.content).toBe("Read the file");
+		expect(userMessage?.content).toEqual([
+			{ type: "text", text: "Read the file", cache_control: { type: "ephemeral" } },
+		]);
 
 		const toolMessage = params.messages[params.messages.length - 1];
 		expect(toolMessage.role).toBe("tool");

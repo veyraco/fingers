@@ -87,7 +87,7 @@ These variables are read by Fingers itself:
 | `FINGERS_SELF_UPDATE_COMMAND` | Command `fingers update` runs to update Fingers itself, split on whitespace, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. Takes precedence over the `selfUpdateCommand` setting. See [Custom update command](cli.md#custom-update-command) |
 | `FINGERS_TELEMETRY` | Override provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
 | `FINGERS_CODEMODE_MAX_WORKERS` | Maximum codemode workers alive at once across all sessions in the process; default `2`. Each worker's script may use up to 256 MB. Raise it when one process runs several sessions, such as in-process subagents. Further scripts wait for a free worker. See [Codemode](codemode.md) |
-| `FINGERS_CACHE_RETENTION` | Set to `long` for extended provider prompt caching where supported |
+| `FINGERS_CACHE_RETENTION` | Set to `long` for extended provider prompt caching where supported (Anthropic and Bedrock 1 h TTL, OpenAI 24 h retention, an explicit Gemini context cache for the system prompt and tools). The status line shows the session's share of prompt tokens read from the cache as `cache NN%` |
 | `FINGERS_SHARE_VIEWER_URL` | Base URL of a viewer that `/share` links a gist to; without it `/share` prints only the gist URL |
 | `FINGERS_MODEL_CATALOG_URL` | Base URL of a model catalog service that refreshes the built-in models; without it Fingers uses the models it ships with |
 | `FINGERS_MCP_CLIENT_METADATA_URL` | Base URL of hosted OAuth Client ID Metadata Documents for MCP sign-in; without it Fingers registers with each MCP server dynamically |

@@ -39,7 +39,8 @@
 	},
 	"files": [
 		"dist",
-		"README.md"
+		"README.md",
+		"!**/*.map"
 	],
 	"scripts": {
 		"clean": "node ../../scripts/package-files.mjs clean dist",

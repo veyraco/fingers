@@ -4,8 +4,9 @@ import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
+import { addUsageToTotals, createUsageTotals, formatCacheHit, type UsageTotals } from "../../../core/usage-totals.ts";
 import { theme } from "../theme/theme.ts";
+import { editorHintLine } from "./keybinding-hints.ts";
 
 /**
  * Sanitize text for display in a single-line status.
@@ -44,6 +45,37 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
+/** Token counts as on the canvas status line: 950, 2.1k, 18.4k, 412.0k, 1.21M. */
+export function formatTokenCount(count: number): string {
+	if (count < 1000) return Math.round(count).toString();
+	if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`;
+	return `${(count / 1_000_000).toFixed(2)}M`;
+}
+
+/** Dollar amounts on the status line: two decimals, three below one cent so small spends are not $0.00. */
+export function formatCost(usd: number): string {
+	return usd > 0 && usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`;
+}
+
+/** The Veyra account as the status line shows it. Filled by `fingers login` and the ee gate. */
+export interface FingersAccountStatus {
+	signedIn: boolean;
+	email?: string;
+	/** ee features are on for this account's organization tier. */
+	eeOn?: boolean;
+	org?: string;
+}
+
+/** Status the shell shows besides the session's own numbers. Every getter is optional. */
+export interface FingersShellStatus {
+	/** Undefined or `signedIn: false`: "core only · not signed in". */
+	getAccount?(): FingersAccountStatus | undefined;
+	/** The task budget, when one is set. */
+	getBudget?(): { spentUsd: number; capUsd: number } | undefined;
+	/** The memory provider's label, e.g. `Brain "acme-web"`. */
+	getMemory?(): string | undefined;
+}
+
 interface SessionStats {
 	session: AgentSession;
 	sessionId: string;
@@ -51,12 +83,13 @@ interface SessionStats {
 	entryCount: number;
 	limitsModel: unknown;
 	usageTotals: UsageTotals;
-	latestCacheHitRate: number | undefined;
 	contextUsage: ContextUsage | undefined;
 }
 
 /**
- * Footer component that shows pwd, token stats, and context usage.
+ * Footer component: the editor key hints and the status line (canvas FingersTuiSession). The location
+ * line (cwd, branch, session, org, memory) is the session's first line on the artboard, so it is a
+ * separate component, `location`, that interactive mode puts at the top of the session.
  * Computes token/context stats from session, gets git branch and extension statuses from provider.
  */
 export class FooterComponent implements Component {
@@ -64,10 +97,22 @@ export class FooterComponent implements Component {
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
 	private sessionStats?: SessionStats;
+	private shell: FingersShellStatus | undefined;
 
-	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
+	/** The location line, `~/acme/web  ·  main  ·  org …  ·  memory: …`, for the top of the session. */
+	readonly location: Component = {
+		render: (width: number) => [this.renderLocationLine(width)],
+		invalidate: () => {},
+	};
+
+	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider, shell?: FingersShellStatus) {
 		this.session = session;
 		this.footerData = footerData;
+		this.shell = shell;
+	}
+
+	setShellStatus(shell: FingersShellStatus | undefined): void {
+		this.shell = shell;
 	}
 
 	setSession(session: AgentSession): void {
@@ -119,18 +164,12 @@ export class FooterComponent implements Component {
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
 		const usageTotals = createUsageTotals();
-		let latestCacheHitRate: number | undefined;
 
 		for (const entry of sessionManager.getEntries()) {
 			if (entry.type === "usage") {
 				addUsageToTotals(usageTotals, entry.usage);
 			} else if (entry.type === "message" && entry.message.role === "assistant") {
 				addUsageToTotals(usageTotals, entry.message.usage);
-
-				const latestPromptTokens =
-					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
-				latestCacheHitRate =
-					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
 			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
 				addUsageToTotals(usageTotals, entry.message.usage);
 			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
@@ -148,143 +187,17 @@ export class FooterComponent implements Component {
 			entryCount,
 			limitsModel,
 			usageTotals,
-			latestCacheHitRate,
 			contextUsage,
 		};
 		return this.sessionStats;
 	}
 
 	render(width: number): string[] {
-		const state = this.session.state;
-		const { usageTotals, latestCacheHitRate, contextUsage } = this.getSessionStats();
-		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const contextPercentValue = contextUsage?.percent ?? 0;
-		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
-
-		// Replace home directory with ~
-		let pwd = formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
-
-		// Add git branch if available
-		const branch = this.footerData.getGitBranch();
-		if (branch) {
-			pwd = `${pwd} (${branch})`;
-		}
-
-		// Add session name if set
-		const sessionName = this.session.sessionManager.getSessionName();
-		if (sessionName) {
-			pwd = `${pwd} • ${sessionName}`;
-		}
-
-		// Build stats line
-		const statsParts = [];
-		if (usageTotals.input) statsParts.push(`↑${formatTokens(usageTotals.input)}`);
-		if (usageTotals.output) statsParts.push(`↓${formatTokens(usageTotals.output)}`);
-		if (usageTotals.cacheRead) statsParts.push(`R${formatTokens(usageTotals.cacheRead)}`);
-		if (usageTotals.cacheWrite) statsParts.push(`W${formatTokens(usageTotals.cacheWrite)}`);
-		if ((usageTotals.cacheRead > 0 || usageTotals.cacheWrite > 0) && latestCacheHitRate !== undefined) {
-			statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
-		}
-
-		// Kimi Coding is subscription-backed despite using API-key authentication.
-		const usingSubscription = state.model
-			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingSubscription(state.model.provider)
-			: false;
-		if (usageTotals.cost || usingSubscription) {
-			const costStr = `$${usageTotals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
-			statsParts.push(costStr);
-		}
-
-		// Colorize context percentage based on usage
-		let contextPercentStr: string;
-		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
-		const contextPercentDisplay =
-			contextPercent === "?"
-				? `?/${formatTokens(contextWindow)}${autoIndicator}`
-				: `${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`;
-		if (contextPercentValue > 90) {
-			contextPercentStr = theme.fg("error", contextPercentDisplay);
-		} else if (contextPercentValue > 70) {
-			contextPercentStr = theme.fg("warning", contextPercentDisplay);
-		} else {
-			contextPercentStr = contextPercentDisplay;
-		}
-		statsParts.push(contextPercentStr);
-		if (areExperimentalFeaturesEnabled()) {
-			statsParts.push(`${theme.fg("dim", "•")} ${theme.bold(theme.fg("warning", "xp"))}`);
-		}
-
-		let statsLeft = statsParts.join(" ");
-
-		// Add model name on the right side, plus thinking level if model supports it
-		const modelName = state.model?.id || "no-model";
-
-		let statsLeftWidth = visibleWidth(statsLeft);
-
-		// If statsLeft is too wide, truncate it
-		if (statsLeftWidth > width) {
-			statsLeft = truncateToWidth(statsLeft, width, "...");
-			statsLeftWidth = visibleWidth(statsLeft);
-		}
-
-		// Calculate available space for padding (minimum 2 spaces between stats and model)
-		const minPadding = 2;
-
-		// Add thinking level indicator if model supports reasoning
-		let rightSideWithoutProvider = modelName;
-		if (state.model?.reasoning) {
-			const thinkingLevel = state.thinkingLevel || "off";
-			rightSideWithoutProvider =
-				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
-		}
-		// A virtual model routes each request; show where the latest response went.
-		const routed = this.session.routedModel;
-		if (routed) {
-			const level = routed.thinkingLevel ? ` • ${routed.thinkingLevel}` : "";
-			rightSideWithoutProvider += ` → ${routed.model.id}${level}`;
-		}
-
-		// Prepend the provider in parentheses if there are multiple providers and there's enough room
-		let rightSide = rightSideWithoutProvider;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
-			rightSide = `(${state.model!.provider}) ${rightSideWithoutProvider}`;
-			if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) {
-				// Too wide, fall back
-				rightSide = rightSideWithoutProvider;
-			}
-		}
-
-		const rightSideWidth = visibleWidth(rightSide);
-		const totalNeeded = statsLeftWidth + minPadding + rightSideWidth;
-
-		let statsLine: string;
-		if (totalNeeded <= width) {
-			// Both fit - add padding to right-align model
-			const padding = " ".repeat(width - statsLeftWidth - rightSideWidth);
-			statsLine = statsLeft + padding + rightSide;
-		} else {
-			// Need to truncate right side
-			const availableForRight = width - statsLeftWidth - minPadding;
-			if (availableForRight > 0) {
-				const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
-				const truncatedRightWidth = visibleWidth(truncatedRight);
-				const padding = " ".repeat(Math.max(0, width - statsLeftWidth - truncatedRightWidth));
-				statsLine = statsLeft + padding + truncatedRight;
-			} else {
-				// Not enough space for right side at all
-				statsLine = statsLeft;
-			}
-		}
-
-		// Apply dim to each part separately. statsLeft may contain color codes (for context %)
-		// that end with a reset, which would clear an outer dim wrapper. So we dim the parts
-		// before and after the colored section independently.
-		const dimStatsLeft = theme.fg("dim", statsLeft);
-		const remainder = statsLine.slice(statsLeft.length); // padding + rightSide
-		const dimRemainder = theme.fg("dim", remainder);
-
-		const pwdLine = truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "..."));
-		const lines = [pwdLine, dimStatsLeft + dimRemainder];
+		const lines = [
+			truncateToWidth(theme.fg("dim", `  ${editorHintLine()}`), width, ""),
+			"",
+			this.renderStatusBar(width),
+		];
 
 		// Add extension statuses on a single line, sorted by key alphabetically
 		const extensionStatuses = this.footerData.getExtensionStatuses();
@@ -298,5 +211,99 @@ export class FooterComponent implements Component {
 		}
 
 		return lines;
+	}
+
+	/** `~/acme/web  ·  main  ·  session name  ·  org …  ·  memory: …` (canvas FingersTuiSession, first line). */
+	private renderLocationLine(width: number): string {
+		const separator = theme.fg("dim", "  ·  ");
+		const home = process.env.HOME || process.env.USERPROFILE;
+		const parts = [theme.fg("accent", formatCwdForFooter(this.session.sessionManager.getCwd(), home))];
+		const branch = this.footerData.getGitBranch();
+		if (branch) parts.push(theme.fg("success", branch));
+		const sessionName = this.session.sessionManager.getSessionName();
+		if (sessionName) parts.push(theme.fg("muted", sanitizeStatusText(sessionName)));
+		const account = this.shell?.getAccount?.();
+		if (account?.org) parts.push(theme.fg("muted", `org ${account.org}`));
+		const memory = this.shell?.getMemory?.();
+		if (memory) parts.push(theme.fg("muted", `memory: ${memory}`));
+		return truncateToWidth(parts.join(separator), width, theme.fg("dim", "..."));
+	}
+
+	/**
+	 * The status line (canvas FingersTui): model, provider, tokens, cost, cache, budget, then the Veyra
+	 * account and ee state, on the status bar background across the full width.
+	 */
+	private renderStatusBar(width: number): string {
+		const state = this.session.state;
+		const { usageTotals, contextUsage } = this.getSessionStats();
+		const bar = theme.fg("dim", "│");
+		const segments: string[] = [];
+
+		// Without any configured model the session holds an "unknown" placeholder.
+		const hasModel = !!state.model && !(state.model.id === "unknown" && state.model.provider === "unknown");
+		let model = hasModel ? state.model!.id : "no model";
+		if (state.model?.reasoning && state.thinkingLevel && state.thinkingLevel !== "off") {
+			model += ` · ${state.thinkingLevel}`;
+		}
+		// A virtual model routes each request; show where the latest response went.
+		const routed = this.session.routedModel;
+		if (routed) model += ` → ${routed.model.id}${routed.thinkingLevel ? ` · ${routed.thinkingLevel}` : ""}`;
+		const modelHead = theme.bold(theme.fg("accent", ` ${model} `));
+		const provider = hasModel ? theme.fg("muted", ` ${state.model!.provider} `) : "";
+		segments.push(modelHead + provider);
+
+		const promptTokens = usageTotals.input + usageTotals.cacheRead + usageTotals.cacheWrite;
+		segments.push(
+			theme.fg("text", ` ${formatTokenCount(promptTokens)} in · ${formatTokenCount(usageTotals.output)} out `),
+		);
+
+		// Kimi Coding is subscription-backed despite using API-key authentication.
+		const usingSubscription = state.model
+			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingSubscription(state.model.provider)
+			: false;
+		segments.push(theme.fg("text", ` ${formatCost(usageTotals.cost)}${usingSubscription ? " (sub)" : ""} `));
+
+		const cacheHit = formatCacheHit(usageTotals);
+		if (cacheHit) segments.push(theme.fg("success", ` ${cacheHit} `));
+
+		const budget = this.shell?.getBudget?.();
+		let budgetIndex = -1;
+		if (budget) {
+			const left = Math.max(0, budget.capUsd - budget.spentUsd);
+			budgetIndex = segments.length;
+			segments.push(theme.fg("warning", ` budget ${formatCost(left)} left of ${formatCost(budget.capUsd)} `));
+		}
+
+		// The context window only shows once it fills up: compaction is near.
+		const contextPercent = contextUsage?.percent;
+		if (typeof contextPercent === "number" && contextPercent > 70) {
+			const color = contextPercent > 90 ? "error" : "warning";
+			const auto = this.autoCompactEnabled ? " (auto)" : "";
+			segments.push(theme.fg(color, ` context ${Math.floor(contextPercent)}%${auto} `));
+		}
+		if (areExperimentalFeaturesEnabled()) segments.push(theme.bold(theme.fg("warning", " xp ")));
+
+		const account = this.shell?.getAccount?.();
+		segments.push(
+			account?.signedIn
+				? theme.fg("accent", ` ${account.eeOn ? "ee on" : "core only"} · ${account.email ?? "signed in"} `)
+				: theme.fg("muted", " core only · not signed in "),
+		);
+
+		// Too wide: drop the provider name, then shorten the budget, then truncate.
+		let joined = segments.join(bar);
+		if (visibleWidth(joined) > width && provider) {
+			segments[0] = modelHead;
+			joined = segments.join(bar);
+		}
+		if (visibleWidth(joined) > width && budget && budgetIndex >= 0) {
+			const left = Math.max(0, budget.capUsd - budget.spentUsd);
+			segments[budgetIndex] = theme.fg("warning", ` budget ${formatCost(left)}/${formatCost(budget.capUsd)} `);
+			joined = segments.join(bar);
+		}
+		const line = truncateToWidth(joined, width, theme.fg("dim", "…"));
+		const fill = " ".repeat(Math.max(0, width - visibleWidth(line)));
+		// Truncation may end in a full reset; the fill re-applies the bar background after it.
+		return theme.bg("statusBarBg", `${line}${theme.getBgAnsi("statusBarBg")}${fill}`);
 	}
 }

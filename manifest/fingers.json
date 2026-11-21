@@ -1,0 +1,30 @@
+{
+  "$schema": "https://veyra.so/schemas/platform/v1/permission-manifest.schema.json",
+  "app": "fingers",
+  "version": 1,
+  "title": "Fingers",
+  "areas": [
+    {"id": "use", "title": "Using Fingers"},
+    {"id": "features", "title": "Features"},
+    {"id": "reports", "title": "Reports"},
+    {"id": "policy", "title": "Organization policy"}
+  ],
+  "permissions": [
+    {"id": "cli:use", "area": "use", "access": "write", "description": "Sign in with fingers login and use Fingers in the organization, with its model connections and the features of its tier."},
+    {"id": "subagents:use", "area": "features", "access": "write", "description": "Start, watch, steer and stop sub-agents."},
+    {"id": "checkpoints:write", "area": "features", "access": "write", "description": "Save checkpoints to Hands and resume from them (Hands checks its own permissions too)."},
+    {"id": "memory:use", "area": "features", "access": "write", "description": "Use Brain as Fingers' memory provider (Brain checks its own permissions too)."},
+    {"id": "telemetry:send", "area": "features", "access": "write", "description": "Send session traces to Eyes."},
+    {"id": "savings:read", "area": "reports", "access": "read", "description": "See the organization's token-saving reports."},
+    {"id": "sessions:read", "area": "reports", "access": "read", "description": "See who has Fingers signed in and their recent sessions."},
+    {"id": "hooks:manage", "area": "policy", "access": "write", "description": "Manage the hooks and policies every Fingers session in the organization enforces."},
+    {"id": "skills:manage", "area": "policy", "access": "write", "description": "Publish organization skills to Fingers."}
+  ],
+  "defaults": {
+    "owner": ["*"],
+    "admin": ["*"],
+    "billing": [],
+    "editor": ["cli:use", "subagents:use", "checkpoints:write", "memory:use", "telemetry:send", "savings:read", "sessions:read"],
+    "viewer": ["access:read"]
+  }
+}

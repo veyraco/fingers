@@ -10,11 +10,14 @@
  * approvals, `usage`, `file_changed`, limits, checkpoints and a `result` after every `agent_settled`.
  */
 import type { AgentTurnDecision } from "@veyraco/fingers-agent";
-import type { AssistantMessage } from "@veyraco/fingers-ai";
+import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
+import { findBrowserExecutable } from "../../../core/browser/browser-session.ts";
+import { HostPolicy, type NetworkConfig } from "../../../core/browser/host-policy.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
+import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
 import { toJsonEvent } from "../../json-event.ts";
 import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
 import {
@@ -40,10 +43,16 @@ import { applyCredentials, type CredentialsMessage, type ManagedMcpServer, mcpSe
 import { FileChangeTracker } from "./file-changes.ts";
 import { ManagedLogger } from "./log.ts";
 import { checkManagedToolPaths, type PathPolicy, preparePathPolicy } from "./path-policy.ts";
-import { SecretSet } from "./secrets.ts";
-import { continueTrace } from "./trace.ts";
+import { SecretSet, secretHeaderValues } from "./secrets.ts";
+import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "./trace.ts";
 
 type JsonRecord = Record<string, any>;
+
+/** Commands that start model work: when the agent is idle, the run they start continues their trace. */
+const WORK_COMMANDS = new Set(["prompt", "steer", "follow_up", "compact"]);
+
+/** Correlation headers Fingers sets on model requests; a provider or host value with any casing is replaced. */
+const CORRELATION_HEADER = /^(traceparent|x-request-id)$/i;
 
 export interface ManagedConfigure {
 	id: string;
@@ -56,6 +65,8 @@ export interface ManagedConfigure {
 	limits?: { max_cost_usd?: number; max_output_tokens?: number; max_duration_ms?: number; max_turns?: number };
 	tools?: { builtin?: string[]; approval?: ApprovalMode };
 	mcp_servers?: ManagedMcpServer[];
+	/** Hosts the traffic Fingers carries itself (the browser tool) may reach. Absent: `open`. */
+	network?: NetworkConfig;
 	approvals?: { timeout_ms?: number };
 	memory?: { mode?: string };
 	telemetry?: { mode?: string; capture_content?: boolean };
@@ -166,6 +177,10 @@ export class ManagedRpcServer {
 	private limitStop?: LimitStop;
 	private run?: RunState;
 	private shuttingDown = false;
+	/** The trace of the latest command. */
+	private commandTrace?: TraceContext;
+	/** The trace of the command that started the current (or last) run: model requests are its child spans. */
+	private workTrace?: TraceContext;
 
 	constructor(options: ManagedRpcServerOptions) {
 		this.options = options;
@@ -189,7 +204,7 @@ export class ManagedRpcServer {
 			protocol: FINGERS_RPC_PROTOCOL,
 			fingers_version: this.options.version,
 			managed: true,
-			capabilities: [...MANAGED_CAPABILITIES],
+			capabilities: [...MANAGED_CAPABILITIES, ...(findBrowserExecutable() ? ["browser"] : [])],
 		});
 		this.logger.info("managed rpc started", { protocol: FINGERS_RPC_PROTOCOL });
 	}
@@ -209,7 +224,8 @@ export class ManagedRpcServer {
 		let line = JSON.stringify(out);
 		if (this.secrets.containsSecret(line)) {
 			this.logger.warn("secret value removed from a protocol record", { record_type: type });
-			line = this.secrets.redact(line);
+			// Values only: the record stays valid JSON with the same structure.
+			line = this.secrets.redactJsonLine(line);
 		}
 		this.options.io.writeStdout(`${line}\n`);
 	}
@@ -280,6 +296,7 @@ export class ManagedRpcServer {
 			return;
 		}
 		const trace = continueTrace(record.traceparent);
+		this.commandTrace = trace.context;
 		this.logger.setTrace(trace.context);
 		if (!trace.valid)
 			this.logger.warn("command without a valid traceparent; started a new trace", {
@@ -295,6 +312,8 @@ export class ManagedRpcServer {
 			this.fail(id, type, "not_configured", "The first command must be configure");
 			return;
 		}
+		// A command that joins a running run (a steer, a queued prompt) leaves the run on its own trace.
+		if (WORK_COMMANDS.has(type) && !this.session.isStreaming) this.workTrace = trace.context;
 		try {
 			await this.handleCommand(type, id, record);
 		} catch (error) {
@@ -337,7 +356,14 @@ export class ManagedRpcServer {
 		this.logger.setRun({ runId: configure.run_id, requestId: configure.request_id });
 		try {
 			for (const server of configure.mcp_servers ?? []) {
-				for (const value of Object.values(server.headers ?? {})) this.secrets.add(value);
+				for (const value of secretHeaderValues(server.headers)) this.secrets.add(value);
+			}
+			// Throws on a host pattern the policy cannot use, before anything starts.
+			new HostPolicy(configure.network);
+			if (configure.tools?.builtin?.includes(BROWSER_TOOL_NAME) && !findBrowserExecutable()) {
+				throw new Error(
+					"tools.builtin names browser, but no Chromium-based browser was found (FINGERS_BROWSER_PATH or a standard install)",
+				);
 			}
 			this.policy = await preparePathPolicy({
 				workspaceRoot: configure.workspace.root,
@@ -350,6 +376,7 @@ export class ManagedRpcServer {
 				timeoutMs: configure.approvals?.timeout_ms ?? 30 * 60 * 1000,
 				now: () => this.now(),
 				warn: (msg, fields) => this.logger.warn(msg, fields),
+				shellPath: () => this.session?.settingsManager.getShellPath(),
 			});
 			this.runtime = await this.options.createRuntime({ configure, extension: this.createManagedExtension() });
 			this.runtime.setRebindSession(async () => {
@@ -375,6 +402,8 @@ export class ManagedRpcServer {
 			model: configure.model.model_id,
 			approval: configure.tools?.approval ?? "write_tools",
 			mcp_servers: (configure.mcp_servers ?? []).map((server) => server.name),
+			builtin_tools: configure.tools?.builtin,
+			network_mode: configure.network?.mode ?? "open",
 			session_id: this.session.sessionId,
 		});
 		this.respond(configure.id, "configure", { session_id: this.session.sessionId });
@@ -388,6 +417,15 @@ export class ManagedRpcServer {
 				for (const { name, config } of mcpServerEntries(this.configure?.mcp_servers ?? [])) {
 					fingers.registerMcpServer(name, config);
 				}
+				if (this.configure?.tools?.builtin?.includes(BROWSER_TOOL_NAME)) {
+					createBrowserExtension({
+						network: this.configure.network,
+						log: (level, msg, fields) => this.logger[level](msg, fields),
+					})(fingers);
+				}
+				fingers.on("before_provider_headers", (event) => {
+					this.addCorrelationHeaders(event.headers);
+				});
 				fingers.on("tool_call", async (event) => {
 					try {
 						return await this.gateToolCall(
@@ -402,6 +440,29 @@ export class ManagedRpcServer {
 				});
 			},
 		};
+	}
+
+	/**
+	 * Every model request (turns, compaction, summaries) carries a new child span of the run's trace as
+	 * `traceparent` and the run's `X-Request-Id` (contracts/v1/logging.md, Correlation headers).
+	 */
+	private addCorrelationHeaders(headers: ProviderHeaders): void {
+		const parent = this.workTrace ?? this.commandTrace;
+		if (!parent) return;
+		const span = childSpan(parent);
+		const requestId = this.configure?.request_id;
+		for (const key of Object.keys(headers)) {
+			if (!CORRELATION_HEADER.test(key)) continue;
+			if (key.toLowerCase() === "x-request-id" && !requestId) continue;
+			delete headers[key];
+		}
+		headers.traceparent = formatTraceparent(span);
+		if (requestId) headers["x-request-id"] = requestId;
+		this.logger.debug("model request", {
+			trace_id: span.traceId,
+			span_id: span.spanId,
+			parent_span_id: span.parentSpanId,
+		});
 	}
 
 	/** Path policy, then approval; null result lets the call run. */
@@ -423,7 +484,7 @@ export class ManagedRpcServer {
 			return { block: true, reason: blocked };
 		}
 		const servers = (configure.mcp_servers ?? []).map((server) => server.name);
-		const tool = describeManagedTool(toolName, servers);
+		const tool = describeManagedTool(toolName, servers, input);
 		const serverMode = configure.mcp_servers?.find((server) => server.name === tool.server)?.approval;
 		const mode: ApprovalMode =
 			(tool.kind === "mcp_tool" ? serverMode : undefined) ?? configure.tools?.approval ?? "write_tools";
@@ -499,7 +560,7 @@ export class ManagedRpcServer {
 		const session = runtime.session;
 		this.session = session;
 		// Secrets a provider echoes (an error body, a header) must not reach the session file either.
-		session.sessionManager.setSerializedEntryFilter((line) => this.secrets.redact(line));
+		session.sessionManager.setSerializedEntryFilter((line) => this.secrets.redactJsonLine(line));
 		// A replaced session has a new model runtime: give it the credentials the host sent.
 		for (const message of this.credentialMessages.values()) await this.applyCredentialsTo(session, message);
 		this.unsubscribe?.();
@@ -947,7 +1008,7 @@ export class ManagedRpcServer {
 		const sessionManager = session.sessionManager;
 		const entryId = sessionManager.getLeafId();
 		if (!entryId) throw new CheckpointError("not_found", "The session has no entries to checkpoint yet");
-		const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redact(line));
+		const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redactJsonLine(line));
 		const { sha256, sizeBytes } = await writeCheckpointFile(path, content);
 		const checkpoint = {
 			id: checkpointId(path, sha256),

@@ -137,6 +137,26 @@ function resolveDefaultTools(entries: string[]): string[] {
 	return applyToolModifiers(plain.length > 0 || entries.length === 0 ? plain : DEFAULT_TOOL_NAMES, entries);
 }
 
+/**
+ * Settings read only from the agent directory's settings.json, never from a project's
+ * `.fingers/settings.json`: the approval policy and the shell every command runs in. The write tool can
+ * create the project file without asking, so a project must not be able to switch approvals off, allow
+ * a command, prepend code to every command or swap the shell. (`selfUpdateCommand` and
+ * `defaultProjectTrust` are also global only; their getters read the global settings.)
+ */
+export const AGENT_DIR_ONLY_SETTINGS = [
+	"approvals",
+	"shellCommandPrefix",
+	"shellPath",
+] as const satisfies readonly (keyof Settings)[];
+
+/** The effective settings: global, then the project's, without the keys a project may not set. */
+function mergeScopes(global: Settings, project: Settings): Settings {
+	const allowed = { ...project };
+	for (const key of AGENT_DIR_ONLY_SETTINGS) delete allowed[key];
+	return deepMergeSettings(global, allowed);
+}
+
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
 function deepMergeSettings(base: Settings, overrides: Settings): Settings {
 	const merged = deepMergeObjects(base as Record<string, unknown>, overrides as Record<string, unknown>) as Settings;
@@ -301,7 +321,7 @@ export class SettingsManager {
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
 		this.settingsPaths = settingsPaths;
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -482,7 +502,7 @@ export class SettingsManager {
 		if (!trusted) {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
-			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 			return;
 		}
 
@@ -492,7 +512,7 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 	}
 
 	async reload(): Promise<void> {
@@ -520,7 +540,7 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 	}
 
 	/** Apply additional overrides on top of current settings */
@@ -625,7 +645,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -643,7 +663,7 @@ export class SettingsManager {
 	private saveProjectSettings(settings: Settings): void {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = mergeScopes(this.globalSettings, this.projectSettings);
 
 		if (this.projectSettingsLoadError) {
 			return;

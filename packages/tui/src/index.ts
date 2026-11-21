@@ -61,6 +61,7 @@ export {
 export {
 	type SelectItem,
 	SelectList,
+	type SelectListFrame,
 	type SelectListLayoutOptions,
 	type SelectListTheme,
 	type SelectListTruncatePrimaryContext,

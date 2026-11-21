@@ -71,6 +71,7 @@ const TOKEN_FAMILIES: Record<ThemeToken, FamilyName> = {
 	userMessageBg: "blue",
 	customMessageBg: "violet",
 	toolPendingBg: "neutral",
+	statusBarBg: "neutral",
 	toolSuccessBg: "green",
 	toolErrorBg: "red",
 
@@ -256,11 +257,13 @@ interface Rule {
 	level: Level;
 }
 
-const TOOL_PANELS: Surface[] = ["toolPendingBg", "toolSuccessBg", "toolErrorBg"];
+// The status bar is a neutral panel like a pending tool box, with the same text tokens on it.
+const TOOL_PANELS: Surface[] = ["toolPendingBg", "statusBarBg", "toolSuccessBg", "toolErrorBg"];
 const MESSAGE_PANELS: Surface[] = ["userMessageBg", "customMessageBg"];
 const PANELS: ThemeBg[] = [
 	"userMessageBg",
 	"toolPendingBg",
+	"statusBarBg",
 	"toolSuccessBg",
 	"toolErrorBg",
 	"selectedBg",

@@ -1,6 +1,6 @@
 # Run Fingers safely
 
-Treat model-generated commands and code as untrusted. Fingers can read, change, and execute files with the permissions of the account that started it, and it does not ask for approval before every tool call. Extensions, package installers, language servers, and other child processes run with those same permissions unless an operating-system or virtualization boundary restricts them.
+Treat model-generated commands and code as untrusted. Fingers can read, change, and execute files with the permissions of the account that started it, and it does not ask for approval before every tool call: in the interactive terminal it asks before shell commands outside its allow list (the `approvals` setting), and file edits and other tools run without asking. Extensions, package installers, language servers, and other child processes run with those same permissions unless an operating-system or virtualization boundary restricts them.
 
 Files, comments, instructions, command output, and model responses can steer the model through prompt injection. Project trust controls which project resources load at startup, but it does not make that content or the resulting actions safe.
 

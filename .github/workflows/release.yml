@@ -1,0 +1,363 @@
+name: Release
+
+# Publishes a Fingers release from one set of tarballs, packed and checked once:
+#   - npm: every public @veyraco/fingers* package, with provenance (secret NPM_TOKEN, an
+#     automation token of the @veyraco npm org); stable versions under `latest`, prereleases
+#     under `next`;
+#   - image: ghcr.io/veyraco/fingers:<version> for linux/amd64 and linux/arm64 (the base of
+#     Hands sandbox images; pin it by the digest in the job summary), smoke-tested with
+#     `fingers --version` on both platforms before the push;
+#   - binaries: standalone `fingers` for macOS, Linux and Windows (bun), attached to the
+#     GitHub release with SHA256SUMS.
+#
+# Triggers:
+#   - a tag vX.Y.Z or vX.Y.Z-pre.N on a main commit: the full release. The committed versions
+#     must already say X.Y.Z (`npm run release:<bump>` commits them and pushes the tag);
+#     scripts/release-check.mjs refuses the tag otherwise.
+#   - a push to main: a prerelease X.Y.Z-next.<run> under `next` (npm and image, no GitHub
+#     release), only while the repository variable FINGERS_PRERELEASE_ON_MAIN is "true".
+#   - workflow_dispatch: a dry run by default (everything except publishing: npm publish
+#     --dry-run, images built and smoke-tested but not pushed, no GitHub release).
+#
+# Re-running a failed release is safe: publish.mjs skips versions npm already holds and the
+# image tags are overwritten with the same contents. No event text reaches a shell: run steps
+# read GITHUB_* variables and the outputs of the prepare job, which scripts/release-check.mjs
+# limits to a version.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (publish nothing)"
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/veyraco/fingers
+  NODE_VERSION: "24"
+
+jobs:
+  prepare:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || vars.FINGERS_PRERELEASE_ON_MAIN == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.mode.outputs.version }}
+      tag: ${{ steps.mode.outputs.tag }}
+      dist_tag: ${{ steps.mode.outputs.dist_tag }}
+      publish: ${{ steps.mode.outputs.publish }}
+      github_release: ${{ steps.mode.outputs.github_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Release mode
+        id: mode
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          github_release=false
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+            tag="$GITHUB_REF_NAME"
+            github_release=true
+          else
+            tag="v$(node scripts/release-check.mjs next-version --run "$GITHUB_RUN_NUMBER")"
+          fi
+          version="${tag#v}"
+          publish=true
+          [ "$DRY_RUN" = true ] && publish=false && github_release=false
+          dist_tag=$(node scripts/release-check.mjs dist-tag "$version")
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "dist_tag=$dist_tag"
+            echo "publish=$publish"
+            echo "github_release=$github_release"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release $version (npm $dist_tag, publish $publish, GitHub release $github_release)"
+
+      - name: Prerelease version
+        if: github.ref_type != 'tag'
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --workspace packages --no-git-tag-version --no-workspaces-update
+          node scripts/sync-versions.js
+
+      - name: Build
+        run: npm run build
+
+      # A tag's commit is a main commit CI already checked in full; this run checks the tagged
+      # tree once more. Prereleases skip it: their version bump is not committed, so the
+      # committed install lock no longer matches (CI checked the same commit on main).
+      - name: Check (biome, deps, imports, typecheck, browser smoke)
+        if: github.ref_type == 'tag'
+        run: npm run check
+
+      - name: Repository script tests
+        run: npm run test:scripts
+
+      - name: Release check
+        env:
+          TAG: ${{ steps.mode.outputs.tag }}
+        run: node scripts/release-check.mjs check --tag "$TAG"
+
+      - name: Pack
+        run: node scripts/pack-packages.mjs --skip-build --out .artifacts/release
+
+      - name: Tarball contents
+        run: node scripts/check-package-tarballs.mjs --manifest .artifacts/release/manifest.json
+
+      - name: Consumer install
+        run: npm run check:package-install
+
+      - name: Image build context
+        run: node scripts/image-install-root.mjs --manifest .artifacts/release/manifest.json --out .artifacts/image
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: |
+            .artifacts/release
+            .artifacts/image
+          retention-days: 7
+          if-no-files-found: error
+
+  npm:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: .artifacts
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PUBLISH: ${{ needs.prepare.outputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH" = true ]; then
+            node scripts/publish.mjs --manifest .artifacts/release/manifest.json
+          else
+            node scripts/publish.mjs --manifest .artifacts/release/manifest.json --dry-run
+          fi
+
+  image:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: .artifacts
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Smoke test each platform
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          for platform in linux/amd64 linux/arm64; do
+            docker buildx build --platform "$platform" --load \
+              --build-arg FINGERS_VERSION="$VERSION" \
+              --cache-to type=local,dest="$RUNNER_TEMP/buildx-cache-${platform#linux/}",mode=max \
+              -f docker/fingers/Dockerfile -t fingers:smoke .artifacts/image
+            printed=$(docker run --rm --platform "$platform" fingers:smoke --version)
+            [ "$printed" = "$VERSION" ] || { echo "::error::$platform image printed '$printed', expected $VERSION"; exit 1; }
+            [ "$(docker run --rm --platform "$platform" --entrypoint id fingers:smoke -u)" = 1000 ] || { echo "::error::$platform image does not run as uid 1000"; exit 1; }
+            docker run --rm --platform "$platform" \
+              -v "$PWD/docker/fingers/browser-smoke.mjs:/opt/smoke/browser-smoke.mjs:ro" \
+              --entrypoint node fingers:smoke /opt/smoke/browser-smoke.mjs \
+              || { echo "::error::$platform image: the browser tool smoke test failed"; exit 1; }
+            echo "$platform: fingers $printed as uid 1000"
+          done
+
+      - name: Log in to GHCR
+        if: needs.prepare.outputs.publish == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        id: push
+        if: needs.prepare.outputs.publish == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .artifacts/image
+          file: docker/fingers/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: FINGERS_VERSION=${{ needs.prepare.outputs.version }}
+          cache-from: |
+            type=local,src=${{ runner.temp }}/buildx-cache-amd64
+            type=local,src=${{ runner.temp }}/buildx-cache-arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.prepare.outputs.version }}
+            ${{ env.IMAGE }}:${{ needs.prepare.outputs.dist_tag }}
+
+      - name: Digest
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: echo "Pin \`$IMAGE:$VERSION@$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prerelease version
+        if: github.ref_type != 'tag'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --workspace packages --no-git-tag-version --no-workspaces-update
+          node scripts/sync-versions.js
+
+      - name: Build binaries
+        run: ./scripts/build-binaries.sh --skip-install --out .artifacts/binaries
+
+      - name: Smoke test the linux-x64 binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          printed=$(HOME="$RUNNER_TEMP" FINGERS_SKIP_VERSION_CHECK=1 .artifacts/binaries/linux-x64/fingers --version)
+          [ "$printed" = "$VERSION" ] || { echo "::error::the binary printed '$printed', expected $VERSION"; exit 1; }
+
+      - name: Checksums
+        working-directory: .artifacts/binaries
+        run: sha256sum fingers-*.tar.gz fingers-*.zip > SHA256SUMS && cat SHA256SUMS
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binaries
+          path: |
+            .artifacts/binaries/fingers-*.tar.gz
+            .artifacts/binaries/fingers-*.zip
+            .artifacts/binaries/SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
+
+  github-release:
+    needs: [prepare, npm, image, binaries]
+    if: needs.prepare.outputs.github_release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: binaries
+          path: binaries
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "- npm: \`npm install -g --ignore-scripts @veyraco/fingers@$VERSION\` (dist-tag \`$DIST_TAG\`)"
+            echo "- Image: \`$IMAGE:$VERSION\` (linux/amd64, linux/arm64)"
+            echo "- Binaries: below, with SHA256SUMS"
+            echo
+            awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {found=1; next} found && /^## \[/ {exit} found {print}' packages/coding-agent/CHANGELOG.md
+          } > "$notes"
+          prerelease=()
+          [ "$DIST_TAG" = next ] && prerelease=(--prerelease)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" binaries/* --clobber
+          else
+            gh release create "$TAG" binaries/* --title "Fingers $VERSION" --notes-file "$notes" --verify-tag "${prerelease[@]}"
+          fi

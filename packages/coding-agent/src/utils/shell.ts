@@ -1,5 +1,5 @@
 import { accessSync, constants } from "node:fs";
-import { delimiter, join, win32 } from "node:path";
+import { delimiter, join, resolve, win32 } from "node:path";
 import { spawn, spawnSync } from "child_process";
 import { getBinDir } from "../config.ts";
 
@@ -23,8 +23,19 @@ function isLegacyWslBashPath(path: string): boolean {
 	return /^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$/.test(normalized);
 }
 
+function isZsh(shell: string): boolean {
+	const name = (shell.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
+	return name === "zsh";
+}
+
+/**
+ * zsh runs with `-f` (no startup files): a plain `zsh -c` reads `~/.zshenv` (or `$ZDOTDIR/.zshenv`)
+ * first, so a planted one would run behind every command, built-in ones included. bash and sh read no
+ * startup file for `-c` once getShellEnv has taken out BASH_ENV and ENV.
+ */
 function getBashShellConfig(shell: string): ShellConfig {
-	return isLegacyWslBashPath(shell) ? { shell, args: ["-s"], commandTransport: "stdin" } : { shell, args: ["-c"] };
+	if (isLegacyWslBashPath(shell)) return { shell, args: ["-s"], commandTransport: "stdin" };
+	return { shell, args: isZsh(shell) ? ["-f", "-c"] : ["-c"] };
 }
 
 // Matches harness-v2's pathExists (packages/durable/src/env/node.ts).
@@ -168,18 +179,38 @@ export function getPowerShellConfig(): ShellConfig {
 	return { shell, args: [...POWERSHELL_ARGS] };
 }
 
-export function getShellEnv(): NodeJS.ProcessEnv {
-	const binDir = getBinDir();
-	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
-	const currentPath = process.env[pathKey] ?? "";
-	const pathEntries = currentPath.split(delimiter).filter(Boolean);
-	const hasBinDir = pathEntries.includes(binDir);
-	const updatedPath = hasBinDir ? currentPath : [binDir, currentPath].filter(Boolean).join(delimiter);
+/** Variables that name a startup file a shell runs before the command: bash `-c` runs BASH_ENV, sh runs ENV. */
+const SHELL_STARTUP_VARIABLES = new Set(["BASH_ENV", "ENV"]);
 
-	return {
-		...process.env,
-		[pathKey]: updatedPath,
-	};
+/**
+ * The environment shell commands run with: the process environment without BASH_ENV and ENV (the
+ * startup files they name would run before every command, built-in ones included), and with the
+ * agent's bin directory taken off PATH. Fingers downloads `rg` and `fd` there, and a built-in command
+ * such as `rg foo` runs without asking, so it must not resolve to a file there. Fingers' own grep and
+ * find tools call those binaries by absolute path (getToolPath).
+ */
+export function getShellEnv(): NodeJS.ProcessEnv {
+	const caseInsensitive = process.platform === "win32";
+	const env: NodeJS.ProcessEnv = {};
+	for (const [key, value] of Object.entries(process.env)) {
+		if (!SHELL_STARTUP_VARIABLES.has(caseInsensitive ? key.toUpperCase() : key)) env[key] = value;
+	}
+	const binDir = getBinDir();
+	const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+	const currentPath = env[pathKey];
+	if (currentPath === undefined) return env;
+	env[pathKey] = currentPath
+		.split(delimiter)
+		.filter((entry) => !isSameDirectory(entry, binDir))
+		.join(delimiter);
+	return env;
+}
+
+function isSameDirectory(entry: string, directory: string): boolean {
+	if (!entry) return false;
+	const a = resolve(entry);
+	const b = resolve(directory);
+	return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 /**

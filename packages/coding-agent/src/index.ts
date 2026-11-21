@@ -24,6 +24,14 @@ export {
 	type SessionStats,
 } from "./core/agent-session.ts";
 export { readStoredCredential } from "./core/auth-storage.ts";
+// The browser tool (managed mode's `browser` built-in) and its network gate
+export {
+	BrowserSession,
+	type BrowserSessionOptions,
+	browserArguments,
+	findBrowserExecutable,
+} from "./core/browser/browser-session.ts";
+export { HostPolicy, type NetworkConfig } from "./core/browser/host-policy.ts";
 export type { CacheWarmingDecision, CacheWarmingStatus } from "./core/cache-warmer.ts";
 // Compaction
 export {
@@ -411,6 +419,11 @@ export {
 	type VirtualModelDefinition,
 	type VirtualModelStateData,
 } from "./core/virtual-models.ts";
+export {
+	BROWSER_TOOL_NAME,
+	createBrowserExtension,
+	createBrowserToolDefinition,
+} from "./extensions/browser/index.ts";
 // Built-in extensions. The CLI loads them; SDK sessions add them to their extension factories.
 export { type CodemodeExtensionOptions, createCodemodeExtension } from "./extensions/codemode/index.ts";
 export type { CodemodeStoreEntryData, CodemodeToolDetails } from "./extensions/codemode/tool.ts";
@@ -439,7 +452,6 @@ export {
 } from "./modes/index.ts";
 // UI components for extensions
 export {
-	ArminComponent,
 	AssistantMessageComponent,
 	BashExecutionComponent,
 	BorderedLoader,

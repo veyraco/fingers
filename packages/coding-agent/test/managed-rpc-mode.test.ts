@@ -59,9 +59,16 @@ async function startManaged(responses: ScriptedResponse[]) {
 	cleanups.push(() => new Promise<void>((resolve) => anthropic.server.close(() => resolve())));
 	const outs: Rec[] = [];
 	const stderr: string[] = [];
+	const invalidStdout: string[] = [];
 	const server = new ManagedRpcServer({
 		io: {
-			writeStdout: (line) => outs.push(JSON.parse(line)),
+			writeStdout: (line) => {
+				try {
+					outs.push(JSON.parse(line));
+				} catch {
+					invalidStdout.push(line);
+				}
+			},
 			writeStderr: (line) => stderr.push(line),
 		},
 		createRuntime: createManagedRuntimeFactory({ agentDir: join(root, "agent"), sessionDir: join(root, "sessions") }),
@@ -92,7 +99,7 @@ async function startManaged(responses: ScriptedResponse[]) {
 			model: { provider: "anthropic", model_id: "claude-sonnet-4-5" },
 			...extra,
 		});
-	const credentials = () =>
+	const credentials = (extra: Rec = {}) =>
 		command({
 			type: "credentials",
 			provider: "anthropic",
@@ -100,6 +107,7 @@ async function startManaged(responses: ScriptedResponse[]) {
 			credential_kind: "proxy_token",
 			credential: TOKEN,
 			expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+			...extra,
 		});
 	const waitFor = async (type: string, count = 1) => {
 		await vi.waitFor(() => expect(outs.filter((out) => out.type === type).length).toBeGreaterThanOrEqual(count), {
@@ -108,7 +116,20 @@ async function startManaged(responses: ScriptedResponse[]) {
 		});
 		return outs.filter((out) => out.type === type);
 	};
-	return { root, workspace, server, outs, stderr, send, command, configure, credentials, waitFor, anthropic };
+	return {
+		root,
+		workspace,
+		server,
+		outs,
+		stderr,
+		invalidStdout,
+		send,
+		command,
+		configure,
+		credentials,
+		waitFor,
+		anthropic,
+	};
 }
 
 describe("managed RPC handshake", () => {
@@ -182,6 +203,60 @@ describe("managed RPC handshake", () => {
 	});
 });
 
+describe("managed RPC correlation on model requests", () => {
+	const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+	const header = (value: string | string[] | undefined) => (Array.isArray(value) ? value.join(",") : value);
+
+	it("sends a child traceparent of the command's trace and the run's X-Request-Id on every model request", async () => {
+		const m = await startManaged([
+			{ content: [{ type: "toolCall", id: "toolu_l", name: "ls", arguments: {} }], usage, stopReason: "toolUse" },
+			{ content: [{ type: "text", text: "Done." }], usage, stopReason: "stop" },
+		]);
+		await m.configure({ tools: { builtin: ["read", "ls"], approval: "never" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "look around" });
+		await m.waitFor("result");
+		expect(m.anthropic.requests).toHaveLength(2);
+		const spans = m.anthropic.requests.map((request) => {
+			const traceparent = header(request.headers.traceparent) ?? "";
+			const match = traceparent.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-01$/);
+			expect(match, `traceparent ${traceparent}`).not.toBeNull();
+			expect(match![1]).toBe(TRACE_ID);
+			expect(header(request.headers["x-request-id"])).toBe("req_test");
+			return match![2];
+		});
+		// Each model request is a new child span, never the host's span itself.
+		expect(new Set(spans).size).toBe(2);
+		expect(spans).not.toContain("00f067aa0ba90200");
+	});
+
+	it("keeps the trace of the command that started the run; a new run takes its own command's trace", async () => {
+		const TRACE_B = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+		const TRACE_C = "00-11111111111111111111111111111111-2222222222222222-00";
+		const m = await startManaged([
+			{
+				content: [{ type: "toolCall", id: "toolu_w", name: "write", arguments: { path: "a.txt", content: "a" } }],
+				usage,
+				stopReason: "toolUse",
+			},
+			{ content: [{ type: "text", text: "Written." }], usage, stopReason: "stop" },
+			{ content: [{ type: "text", text: "Second run." }], usage, stopReason: "stop" },
+		]);
+		await m.configure({ tools: { approval: "write_tools" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "write a" });
+		const [request] = await m.waitFor("approval_request");
+		// A command that starts no work, sent mid-run, does not move the run's model requests to its trace.
+		await m.command({ type: "get_state", traceparent: TRACE_C });
+		await m.send({ type: "approval_response", id: request.id, decision: "allow_once" });
+		await m.waitFor("result");
+		await m.command({ type: "prompt", message: "again", traceparent: TRACE_B });
+		await m.waitFor("result", 2);
+		const traces = m.anthropic.requests.map((r) => header(r.headers.traceparent)?.split("-")[1]);
+		expect(traces).toEqual([TRACE_ID, TRACE_ID, "0af7651916cd43dd8448eb211c80319c"]);
+	});
+});
+
 describe("managed RPC secrets", () => {
 	it("keeps a credential the provider echoes out of stdout, logs and session files", async () => {
 		const m = await startManaged([
@@ -217,6 +292,62 @@ describe("managed RPC secrets", () => {
 				.map((file) => readFileSync(file, "utf8"))
 				.join(""),
 		).not.toContain(TOKEN);
+	});
+});
+
+describe("managed RPC secret scrubbing keeps records valid", () => {
+	const HEADERS = {
+		"x-flag": "true",
+		"anthropic-version": "2023-06-01",
+		"x-api-key-extra": "short",
+		"x-conformance-secret": "header-secret-value",
+		"proxy-authorization": "Bearer abcdefghijklmnop",
+	};
+
+	it("answers credentials with short non-secret header values as valid JSON", async () => {
+		const m = await startManaged([]);
+		expect(await m.configure()).toMatchObject({ success: true });
+		const response = await m.credentials({ headers: HEADERS });
+		expect(response).toMatchObject({ type: "response", command: "credentials", success: true });
+		expect(m.invalidStdout).toEqual([]);
+		expect(await m.command({ type: "get_state" })).toMatchObject({ success: true });
+		expect(m.invalidStdout).toEqual([]);
+	});
+
+	it("still redacts the credential and credential-named header values a provider echoes", async () => {
+		const m = await startManaged([
+			{
+				content: [],
+				usage,
+				stopReason: "error",
+				error: {
+					status: 400,
+					body: JSON.stringify({
+						type: "error",
+						error: {
+							type: "invalid_request_error",
+							message: `bad ${TOKEN} / header-secret-value / Bearer abcdefghijklmnop / flag true / 2023-06-01`,
+						},
+					}),
+				},
+			},
+		]);
+		await m.configure();
+		await m.credentials({ headers: HEADERS });
+		await m.command({ type: "prompt", message: "hello" });
+		await m.waitFor("result");
+		expect(m.invalidStdout).toEqual([]);
+		const stdout = JSON.stringify(m.outs);
+		// The echo reached Fingers; only the secrets were replaced, the plain header values stay readable.
+		expect(stdout).toContain("bad [redacted] / [redacted] / [redacted] / flag true / 2023-06-01");
+		for (const secret of [TOKEN, "header-secret-value", "Bearer abcdefghijklmnop"]) {
+			expect(stdout).not.toContain(secret);
+			expect(m.stderr.join("")).not.toContain(secret);
+		}
+		// Every header still went to the provider.
+		const sent = m.anthropic.requests[0]!.headers;
+		expect(sent["x-flag"]).toBe("true");
+		expect(sent["x-conformance-secret"]).toBe("header-secret-value");
 	});
 });
 

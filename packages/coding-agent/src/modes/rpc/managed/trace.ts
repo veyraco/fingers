@@ -47,3 +47,11 @@ export function continueTrace(traceparent: unknown): { context: TraceContext; va
 export function formatTraceparent(context: TraceContext): string {
 	return `00-${context.traceId}-${context.spanId}-${context.flags}`;
 }
+
+/**
+ * A new child span of `parent` for one outgoing call (a model request): same trace id and flags, a new span
+ * id, and the parent's span as its parent.
+ */
+export function childSpan(parent: TraceContext): TraceContext {
+	return { traceId: parent.traceId, spanId: newSpanId(), parentSpanId: parent.spanId, flags: parent.flags };
+}

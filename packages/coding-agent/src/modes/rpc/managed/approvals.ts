@@ -3,6 +3,7 @@
  * `approval`), the `approval_request` sent to the host, and the host's `approval_response`.
  */
 import { randomBytes } from "node:crypto";
+import { commandAllowPattern, commandMatchesPattern, commandShellOf } from "../../../core/command-allow-list.ts";
 
 export type ApprovalMode = "never" | "write_tools" | "always";
 export type ApprovalKind = "command" | "file_write" | "mcp_tool" | "network" | "other";
@@ -24,13 +25,23 @@ export interface ApprovalOutcome {
 
 const COMMAND_TOOLS = new Set(["bash", "powershell"]);
 const FILE_WRITE_TOOLS = new Set(["edit", "write"]);
+/** Browser actions that can reach the network (navigate, or page script a click, typing or evaluate runs). */
+const BROWSER_NETWORK_ACTIONS = new Set(["navigate", "click", "type", "evaluate"]);
 
 function mcpPrefix(server: string): string {
 	return `mcp__${server.replace(/[^A-Za-z0-9_]/g, "_")}__`;
 }
 
-export function describeManagedTool(toolName: string, mcpServers: readonly string[]): ManagedToolDescriptor {
+export function describeManagedTool(
+	toolName: string,
+	mcpServers: readonly string[],
+	args: Record<string, unknown> = {},
+): ManagedToolDescriptor {
 	if (COMMAND_TOOLS.has(toolName)) return { server: "builtin", name: toolName, kind: "command" };
+	if (toolName === "browser") {
+		const network = BROWSER_NETWORK_ACTIONS.has(String(args.action));
+		return { server: "builtin", name: toolName, kind: network ? "network" : "other" };
+	}
 	if (FILE_WRITE_TOOLS.has(toolName)) return { server: "builtin", name: toolName, kind: "file_write" };
 	if (toolName.startsWith("mcp__")) {
 		const server = [...mcpServers]
@@ -57,10 +68,8 @@ export function approvalNeed(tool: ManagedToolDescriptor, mode: ApprovalMode): {
 	}
 }
 
-const SHELL_CHAINING = /[;&|`\n\r<>]|\$\(/;
-
-function commandTokens(args: Record<string, unknown>): string[] {
-	return typeof args.command === "string" ? args.command.trim().split(/\s+/).filter(Boolean) : [];
+function commandOf(args: Record<string, unknown>): string {
+	return typeof args.command === "string" ? args.command : "";
 }
 
 function firstLabel(args: Record<string, unknown>): string | undefined {
@@ -84,8 +93,36 @@ export function approvalSummary(tool: ManagedToolDescriptor, args: Record<string
 			const label = firstLabel(args);
 			return truncate(`${tool.server}: ${tool.name}${label ? ` ${label}` : ""}`, 400);
 		}
+		case "network":
+			return truncate(browserSummary(tool.name, args), 400);
 		default:
 			return truncate(tool.name, 400);
+	}
+}
+
+function browserSummary(name: string, args: Record<string, unknown>): string {
+	const action = typeof args.action === "string" ? args.action : "";
+	const text = (key: string) => (typeof args[key] === "string" ? (args[key] as string) : "");
+	switch (action) {
+		case "navigate":
+			return `${name} navigate ${text("url")}`;
+		case "click":
+			return `${name} click ${text("selector")}`;
+		case "type":
+			return `${name} type ${text("selector")}: ${text("text")}${args.submit === true ? " (Enter)" : ""}`;
+		case "evaluate":
+			return `${name} evaluate ${text("expression")}`;
+		default:
+			return `${name} ${action}`.trim();
+	}
+}
+
+/** The host of a navigation URL for `allow_always` (any path and port on that host). */
+function urlHost(value: unknown): string {
+	try {
+		return new URL(String(value)).hostname.toLowerCase();
+	} catch {
+		return "";
 	}
 }
 
@@ -93,24 +130,30 @@ export function approvalSummary(tool: ManagedToolDescriptor, args: Record<string
 export function allowAlwaysPattern(tool: ManagedToolDescriptor, args: Record<string, unknown>): string {
 	switch (tool.kind) {
 		case "command":
-			return commandTokens(args).slice(0, 2).join(" ") || tool.name;
+			return commandAllowPattern(commandOf(args)) || tool.name;
 		case "file_write":
 			return `${tool.name}:${typeof args.path === "string" ? args.path : ""}`;
 		case "mcp_tool":
 			return `${tool.server}/${tool.name}`;
+		case "network":
+			return args.action === "navigate"
+				? `${tool.name} navigate ${urlHost(args.url)}`
+				: `${tool.name} ${String(args.action ?? "")}`.trim();
 		default:
 			return tool.name;
 	}
 }
 
-function patternMatches(pattern: string, tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
+function patternMatches(
+	pattern: string,
+	tool: ManagedToolDescriptor,
+	args: Record<string, unknown>,
+	shellPath: string | undefined,
+): boolean {
 	if (tool.kind !== "command") return pattern === allowAlwaysPattern(tool, args);
-	const command = typeof args.command === "string" ? args.command : "";
-	// A chained or redirected command could run anything after an allowed prefix: always ask.
-	if (SHELL_CHAINING.test(command)) return false;
-	const wanted = pattern.split(" ");
-	const tokens = commandTokens(args);
-	return wanted.length > 0 && wanted.every((token, index) => tokens[index] === token);
+	// A chained or redirected command (or PowerShell code in an argument) could run anything after an
+	// allowed prefix, and a shell that quotes unlike bash (shellPath) is not parsed: always ask.
+	return commandMatchesPattern(pattern, commandOf(args), commandShellOf(tool.name, shellPath));
 }
 
 interface PendingApproval {
@@ -124,6 +167,8 @@ export interface ApprovalBrokerOptions {
 	newId?: () => string;
 	now?: () => number;
 	warn?: (msg: string, fields?: Record<string, unknown>) => void;
+	/** The `shellPath` setting the bash tool runs commands with; a non-POSIX shell matches no allow pattern. */
+	shellPath?: () => string | undefined;
 }
 
 export class ApprovalBroker {
@@ -140,9 +185,12 @@ export class ApprovalBroker {
 	}
 
 	isAllowed(tool: ManagedToolDescriptor, args: Record<string, unknown>): boolean {
+		const shellPath = this.options.shellPath?.();
 		return this.allowList.some(
 			(entry) =>
-				entry.server === tool.server && entry.kind === tool.kind && patternMatches(entry.pattern, tool, args),
+				entry.server === tool.server &&
+				entry.kind === tool.kind &&
+				patternMatches(entry.pattern, tool, args, shellPath),
 		);
 	}
 

@@ -1082,9 +1082,51 @@ function applyAnthropicCacheControl(
 	tools: OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
 	cacheControl: OpenAICompatCacheControl,
 ): void {
+	useTextPartsForConversation(messages);
 	addCacheControlToSystemPrompt(messages, cacheControl);
 	addCacheControlToLastTool(tools, cacheControl);
 	addCacheControlToLastConversationMessage(messages, cacheControl);
+	addCacheControlToPreviousTurn(messages, cacheControl);
+}
+
+/**
+ * A breakpoint needs a text part, so a marked string message is sent as parts. Every user and tool
+ * message is sent that way, so a message keeps its wire form when the breakpoint moves on to a newer one.
+ */
+function useTextPartsForConversation(messages: ChatCompletionMessageParam[]): void {
+	for (const message of messages) {
+		if ((message.role === "user" || message.role === "tool") && typeof message.content === "string") {
+			if (message.content.length > 0) {
+				message.content = [{ type: "text", text: message.content }];
+			}
+		}
+	}
+}
+
+/**
+ * Keeps a breakpoint on the message the previous request ended with (the last user or tool message
+ * before the newest assistant reply), where that request wrote its cache entry. Anthropic only looks
+ * 20 blocks back from a breakpoint, so a turn with many parallel tool calls would otherwise miss it.
+ * With the system prompt, the last tool and the newest message that makes Anthropic's maximum of 4.
+ */
+function addCacheControlToPreviousTurn(
+	messages: ChatCompletionMessageParam[],
+	cacheControl: OpenAICompatCacheControl,
+): void {
+	let lastAssistant = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === "assistant") {
+			lastAssistant = i;
+			break;
+		}
+	}
+	for (let i = lastAssistant - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role === "user" || message.role === "tool") {
+			addCacheControlToMessage(message, cacheControl);
+			return;
+		}
+	}
 }
 
 function addCacheControlToSystemPrompt(
