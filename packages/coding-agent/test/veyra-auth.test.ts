@@ -576,6 +576,36 @@ describe("logout", () => {
 		},
 	);
 
+	it.skipIf(process.getuid?.() === 0)(
+		"a sign-out without the lock that can neither write nor remove the marker logs it as an error",
+		async () => {
+			const connect = await startFake();
+			const s = setup(connect, { lockWaitMs: 300 });
+			await signIn(s);
+			expect(existsSync(join(agentDir, "veyra.log"))).toBe(true);
+			const release = await holdSignInLock();
+			// Read-only marker and directory: the write fails and so does the removal, so the old marker stays.
+			const marker = markerFile();
+			chmodSync(marker, 0o400);
+			chmodSync(agentDir, 0o500);
+			try {
+				const result = await s.auth.logout();
+				expect(result).toMatchObject({ signedIn: true, revocation: "revoked" });
+				expect(result.lockProblem).toBeDefined();
+			} finally {
+				chmodSync(agentDir, 0o700);
+				chmodSync(marker, 0o600);
+				await release();
+			}
+			expect(existsSync(marker)).toBe(true);
+			expect(storedSession(s.store)).toBeUndefined();
+			expect(s.auth.account()).toBeUndefined();
+			expect(logRecords()).toContainEqual(
+				expect.objectContaining({ level: "error", msg: "sign-out marker not written", marker_removed: false }),
+			);
+		},
+	);
+
 	it("a fresh sign-in that a lock-free sign-out overtakes is not kept, and its refresh token is revoked", async () => {
 		const connect = await startFake();
 		const store = new RacingStore();
