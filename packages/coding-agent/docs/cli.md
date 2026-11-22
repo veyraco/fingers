@@ -307,17 +307,17 @@ export FINGERS_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
 
 ## Veyra account commands
 
-`fingers login` signs in to your Veyra account with a device code (RFC 8628), like `/login` in a session. Fingers asks Veyra Connect for a code, opens the browser at Connect's device page, and shows the code; you check that the page shows the same code, pick the organization, and allow the device. In a terminal, `c` copies the code, `o` opens the link again, and `Esc` or `Ctrl+C` cancels. Signing in again replaces the sign-in, which is also how you switch organizations.
+`fingers login` signs in to your Veyra account with a device code (RFC 8628), like `/login` in a session. Fingers asks Veyra Connect for a code, opens the browser at Connect's device page, and shows the code; you check that the page shows the same code, pick the organization, and allow the device. In a terminal, `c` copies the code, `o` opens the link again, and `Esc` or `Ctrl+C` cancels. Signing in again replaces the sign-in, which is also how you switch organizations. Fingers shows and opens only a device page on the address of the Connect you sign in to; an answer that points anywhere else ends the sign-in before any code is shown. Over SSH, or on Linux without a display, it prints the address to open instead of opening a browser.
 
 The sign-in is kept only in the OS keychain (macOS Keychain, Secret Service on Linux, Windows Credential Manager): the refresh token and the short-lived access tokens never go to a file. Without a usable keychain, or with `FINGERS_CREDENTIAL_STORE=file`, `fingers login` refuses; `/login` in a session then keeps the sign-in in memory for that session only. Model provider credentials are separate and stay under `fingers auth`.
 
-`fingers whoami` prints the account, the organization with its tier, your group, which ee features are on (or why Fingers is core only), the Connect address, and where the sign-in is stored. It exits with status `1` when you are not signed in. `--json` prints the same facts as JSON (`ee.on`, `ee.features`, `ee.reason`), never a token. `fingers login` ends with the same ee line. See [Open core](slash-commands.md#open-core).
+`fingers whoami` prints the account, the organization with its tier, your group, which ee features are on (or why Fingers is core only), the Connect address, and where the sign-in is stored. It exits with status `1` when you are not signed in. `--json` prints the same facts as JSON (`ee.on`, `ee.features`, `ee.reason`), never a token, with control and bidi characters escaped as `\uXXXX`. `fingers login` ends with the same ee line. See [Open core](slash-commands.md#open-core).
 
-`fingers logout` revokes the device's refresh token at Connect (RFC 7009) and removes the sign-in from the keychain. When Connect can't be reached or can't revoke it, the sign-in is still removed here and the command names the Connected apps page where you remove the device; it exits with status `1` when the revocation failed.
+`fingers logout` revokes the device's refresh token at Connect (RFC 7009) and removes the sign-in from the keychain. When Connect can't be reached or can't revoke it, the sign-in is still removed here and the command names the Connected apps page where you remove the device; it exits with status `1` when the revocation failed. When another fingers process holds the sign-in's lock for more than 30 seconds, `fingers logout` says so and signs out without the lock, since signing out is safe to repeat; a refresh that process was running then cannot bring the sign-in back. The revocation request gets 15 seconds from when it is sent.
 
 | Option | Applies to | Description |
 |---|---|---|
-| `--no-browser` | `login` | Print the address to open instead of opening the browser, for example over SSH |
+| `--no-browser` | `login` | Print the address to open instead of opening the browser (automatic over SSH or without a display) |
 | `--connect <url>` | All | Use another Veyra Connect; the default is `https://connect.veyra.so` or `FINGERS_CONNECT_URL`. The local stack is `https://connect.veyra.localhost` |
 | `--json` | `whoami` | Print JSON |
 

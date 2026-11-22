@@ -2,6 +2,27 @@
  * The texts of the sign-in screen (canvas "Fingers · CLI & web", FingersTuiLogin), shared by `fingers login` in the
  * shell and `/login` in the terminal app.
  */
+import { replaceControlCharacters } from "@veyraco/fingers-tui";
+
+/** Bidirectional embedding, override and isolate controls: they reorder what follows them on the line. */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]+/g;
+
+/**
+ * A string Connect controls (organization, tier, group, person name and email, error descriptions) made safe to print
+ * in a terminal: each run of control characters (C0 and C1: ESC, OSC, CSI, BEL, newlines) or bidi controls becomes one
+ * space, so it cannot move the cursor, set the clipboard (OSC 52), retitle the window, fake another line or reorder
+ * the text around it.
+ */
+export function connectText(value: string): string;
+export function connectText(value: string | undefined): string | undefined;
+export function connectText(value: string | undefined): string | undefined {
+	return value === undefined ? undefined : replaceControlCharacters(value).replace(BIDI_CONTROLS, " ");
+}
+
+/** An error's message for the screen; errors about Connect carry its error_description. */
+export function connectErrorText(error: unknown): string {
+	return connectText(error instanceof Error ? error.message : String(error));
+}
 
 export const SIGN_IN_SUBTITLE = "Sign in with your Veyra account";
 export const SIGN_IN_LEAD = "Sign in to Veyra Connect to use your organization’s model connections and ee features.";
@@ -23,10 +44,21 @@ export interface SignedInFacts {
 	tier?: string;
 }
 
-/** "Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium". */
+/** The facts with every string made safe to print (connectText). */
+export function safeSignedInFacts(facts: SignedInFacts): SignedInFacts {
+	return {
+		email: connectText(facts.email),
+		subject: connectText(facts.subject),
+		orgName: connectText(facts.orgName),
+		tier: connectText(facts.tier),
+	};
+}
+
+/** "Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium". */
 export function signedInSummary(facts: SignedInFacts): string {
-	let text = `Signed in as ${facts.email ?? facts.subject ?? "your Veyra account"}`;
-	if (facts.orgName) text += `  ·  org ${facts.orgName}`;
-	if (facts.tier) text += `  ·  tier ${facts.tier}`;
+	const safe = safeSignedInFacts(facts);
+	let text = `Signed in as ${safe.email ?? safe.subject ?? "your Veyra account"}`;
+	if (safe.orgName) text += `  ·  org ${safe.orgName}`;
+	if (safe.tier) text += `  ·  tier ${safe.tier}`;
 	return text;
 }

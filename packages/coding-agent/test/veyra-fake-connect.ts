@@ -28,6 +28,18 @@ export interface FakeConnectOptions {
 	issuerOverride?: string;
 	/** Discovery token endpoint (default: on the server's own origin). */
 	tokenEndpointOverride?: string;
+	/** `verification_uri` in the device authorization answer (default: `<issuer>/device`). */
+	verificationUriOverride?: string;
+	/** `verification_uri_complete` in the device authorization answer (default: `<issuer>/device?user_code=…`). */
+	verificationUriCompleteOverride?: string;
+	/** Fields of the organization lookup answer (default: FAKE_ORG). */
+	orgOverride?: Partial<{ name: string; code: string; tier: string }>;
+	/** The member's group name in the organization lookup (default: Editor). */
+	groupNameOverride?: string;
+	/** Claims of the ID token (default: Ada Lovelace, ada@example.com). */
+	idTokenClaimsOverride?: Record<string, unknown>;
+	/** A scripted OAuth error for the revocation request (default: 200, RFC 7009 2.2). */
+	revokeError?: { status: number; error: string; description?: string };
 }
 
 export interface RecordedRequest {
@@ -75,6 +87,8 @@ export class FakeConnect {
 	private sessionCounter = 0;
 	/** Delay before answering a refresh, to make two refreshes overlap. */
 	refreshDelayMs = 0;
+	/** Delay before answering a revocation. */
+	revokeDelayMs = 0;
 	/** The organization's tier and apps as the lookup answers them (the ee gate's facts). */
 	orgTier: string = ORG.tier;
 	orgApps: string[] = ["connect", "fingers", "brain"];
@@ -151,6 +165,7 @@ export class FakeConnect {
 		if (req.method === "POST" && url.pathname === "/oauth2/device_authorization") this.deviceAuthorization(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/token") await this.token(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/revoke" && this.options.revocation !== false) {
+			if (this.revokeDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.revokeDelayMs));
 			this.revoke(res, form);
 		} else if (req.method === "GET" && orgMatch) this.organization(res, req, orgMatch[1]!);
 		else json(res, 404, { error: "not_found" });
@@ -172,8 +187,9 @@ export class FakeConnect {
 		json(res, 200, {
 			device_code: deviceCode,
 			user_code: "WDJB-MJHT",
-			verification_uri: `${this.origin}/device`,
-			verification_uri_complete: `${this.origin}/device?user_code=WDJB-MJHT`,
+			verification_uri: this.options.verificationUriOverride ?? `${this.origin}/device`,
+			verification_uri_complete:
+				this.options.verificationUriCompleteOverride ?? `${this.origin}/device?user_code=WDJB-MJHT`,
 			expires_in: this.options.expiresIn ?? 600,
 			interval: this.options.interval ?? 5,
 		});
@@ -255,6 +271,11 @@ export class FakeConnect {
 	}
 
 	private revoke(res: ServerResponse, form: Record<string, string>): void {
+		if (this.options.revokeError) {
+			const { status, error, description } = this.options.revokeError;
+			json(res, status, { error, error_description: description ?? error });
+			return;
+		}
 		const token = form.token ?? "";
 		this.revoked.push(token);
 		const record = this.refreshTokens.get(token);
@@ -285,8 +306,13 @@ export class FakeConnect {
 			code: ORG.code,
 			name: ORG.name,
 			tier: this.orgTier,
+			...this.options.orgOverride,
 			apps_enabled: this.orgApps,
-			my_membership: { member_id: "mem_9", group_id: "grp_editor", group_name: "Editor" },
+			my_membership: {
+				member_id: "mem_9",
+				group_id: "grp_editor",
+				group_name: this.options.groupNameOverride ?? "Editor",
+			},
 		});
 	}
 
@@ -337,11 +363,12 @@ export class FakeConnect {
 					sid,
 					auth_time: now,
 					org: ORG.id,
-					email: "ada@acme.dev",
+					email: "ada@example.com",
 					email_verified: true,
 					name: "Ada Lovelace",
 					iat: now,
 					exp: now + 300,
+					...this.options.idTokenClaimsOverride,
 				},
 			);
 			this.issuedSecrets.push(idToken);

@@ -6,7 +6,7 @@
  * later interval; `access_denied` and `expired_token` end the sign-in. The client also stops once the code's lifetime
  * is over. A server error or dropped connection doubles the interval (up to a minute) and keeps polling.
  */
-import type { TraceContext } from "../../modes/rpc/managed/trace.ts";
+import type { TraceContext } from "../trace-context.ts";
 import { FINGERS_SCOPE } from "./connect-config.ts";
 import {
 	type ConnectOidcClient,

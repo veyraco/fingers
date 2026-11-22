@@ -37,7 +37,7 @@ import { listModels } from "./cli/list-models.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
-import { createProcessVeyraTerminal, runVeyraAccountCommand } from "./cli/veyra-account.ts";
+import { createProcessVeyraTerminal, isVeyraAccountCommand, runVeyraAccountCommand } from "./cli/veyra-account.ts";
 import { APP_NAME, ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
@@ -660,8 +660,9 @@ export async function main(args: string[], options?: MainOptions) {
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
 
-	// `fingers login|logout|whoami`: the Veyra account (provider credentials are `fingers auth`).
-	if (args[0] === "login" || args[0] === "logout" || args[0] === "whoami") {
+	// `fingers login|logout|whoami`: the Veyra account (provider credentials are `fingers auth`). Only the first
+	// argument counts, so `fingers -p login` or a first message "login to …" still starts a session.
+	if (isVeyraAccountCommand(args)) {
 		process.exitCode = await runVeyraAccountCommandInProcess(args, agentDir);
 		return;
 	}

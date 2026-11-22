@@ -6,7 +6,7 @@
  * 5xx), the kept answer counts for 72 hours after Connect gave it; after that every ee feature is off until Connect
  * answers again. A refusal (HTTP 4xx, a token Connect no longer takes) is final: nothing kept is used.
  */
-import { replaceControlCharacters } from "@veyraco/fingers-tui";
+import { connectText } from "../veyra/login-text.ts";
 import { ConnectUnavailableError, VeyraApiError } from "../veyra/oidc-client.ts";
 import type { VeyraAccount } from "../veyra/session-vault.ts";
 import { VeyraAudienceError, type VeyraOrganization, VeyraSignedOutError } from "../veyra/veyra-auth.ts";
@@ -18,9 +18,9 @@ export const EE_OFFLINE_GRACE_MS = 72 * 60 * 60 * 1000;
 /** A cached answer stamped further ahead than this (a clock moved back) is not trusted. */
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-/** Strings from Connect end up in the terminal (locked box, /org, whoami): no control characters. */
+/** Strings from Connect end up in the terminal (locked box, /org, whoami): no control or bidi characters. */
 function shown(value: string | undefined): string | undefined {
-	return value === undefined ? undefined : replaceControlCharacters(value);
+	return connectText(value);
 }
 
 /** The part of VeyraAuth the gate needs (tests pass a fake). */

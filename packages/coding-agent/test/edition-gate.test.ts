@@ -126,7 +126,7 @@ function account(overrides: Partial<VeyraAccount> = {}): VeyraAccount {
 	return {
 		issuer: "https://connect.veyra.localhost",
 		subject: "usr_ada",
-		email: "ada@acme.dev",
+		email: "ada@example.com",
 		org: "org_1",
 		orgName: "Acme",
 		tier: "medium",

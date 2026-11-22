@@ -252,11 +252,11 @@ describe("/agents in the terminal app", () => {
 
 	it("says ee on in the status line only while an ee feature is on", async () => {
 		const m = mode(MEDIUM);
-		m.instance.veyraAccount = { subject: "usr_ada", email: "ada@acme.dev", orgName: "Acme Robotics" };
+		m.instance.veyraAccount = { subject: "usr_ada", email: "ada@example.com", orgName: "Acme Robotics" };
 		await m.ready();
 		expect(m.instance.getVeyraAccountStatus()).toEqual({
 			signedIn: true,
-			email: "ada@acme.dev",
+			email: "ada@example.com",
 			org: "Acme Robotics",
 			eeOn: true,
 		});

@@ -1,6 +1,7 @@
 /**
- * W3C Trace Context for managed RPC: every command carries a `traceparent`; the work it starts continues
- * that trace with a new span id, and log lines carry the ids (contracts/v1/logging.md).
+ * W3C Trace Context (contracts/v1/logging.md): managed RPC continues each command's `traceparent` with a new span id,
+ * and the Veyra sign-in starts one trace per operation with a child span per request to Connect. Log lines carry the
+ * ids.
  */
 import { randomBytes } from "node:crypto";
 

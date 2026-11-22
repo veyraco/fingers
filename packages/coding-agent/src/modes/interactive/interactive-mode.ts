@@ -142,17 +142,19 @@ import {
 	connectedAppsUrl,
 	createVeyraAuth,
 	DeviceFlowError,
+	VEYRA_REVOKE_TIMEOUT_MS,
 	type VeyraAccount,
 	type VeyraAuth,
 	VeyraSignedOutError,
 } from "../../core/veyra/index.ts";
+import { connectErrorText, connectText } from "../../core/veyra/login-text.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { flushStdout } from "../../utils/flush-stdout.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { ensurePngTranscoder } from "../../utils/image-convert.ts";
-import { openBrowser } from "../../utils/open-browser.ts";
+import { browserIsLocal, openBrowser } from "../../utils/open-browser.ts";
 import { getCwdRelativePath, shortenHomePath } from "../../utils/paths.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
@@ -6351,10 +6353,11 @@ export class InteractiveMode {
 	private getVeyraAccountStatus(): FingersAccountStatus | undefined {
 		const account = this.veyraAccount;
 		if (!account) return undefined;
+		// From Connect: no terminal escapes on the status line.
 		return {
 			signedIn: true,
-			email: account.email ?? account.subject,
-			org: account.orgName ?? account.org,
+			email: connectText(account.email ?? account.subject),
+			org: connectText(account.orgName ?? account.org),
 			eeOn: this.editionGate?.isOn() ?? false,
 		};
 	}
@@ -6476,7 +6479,7 @@ export class InteractiveMode {
 		const dialog = new VeyraLoginDialogComponent({
 			requestRender: () => this.ui.requestRender(),
 			onCancel: () => {},
-			openUrl: openBrowser,
+			openUrl: (url) => openBrowser(url),
 			copy: copyToClipboard,
 		});
 		this.editorContainer.clear();
@@ -6496,8 +6499,14 @@ export class InteractiveMode {
 			const account = await auth.login({
 				signal: dialog.signal,
 				onCode: (prompt) => {
-					openBrowser(prompt.verificationUriComplete ?? prompt.verificationUri);
-					dialog.showCode(prompt, { browserOpened: true });
+					// Say "Your browser opened" only when it can: not over SSH or without a display, nor after a failed launch.
+					const opening = browserIsLocal();
+					dialog.showCode(prompt, { browserOpened: opening });
+					if (opening) {
+						openBrowser(prompt.verificationUriComplete ?? prompt.verificationUri, {
+							onError: () => dialog.browserDidNotOpen(),
+						});
+					}
 				},
 			});
 			restoreEditor();
@@ -6547,7 +6556,7 @@ export class InteractiveMode {
 				this.showWarning("The sign-in was denied in the browser. Nothing was stored.");
 			} else if (error instanceof DeviceFlowError && error.reason === "expired") {
 				this.showWarning("The code expired before it was confirmed. Run /login again.");
-			} else this.showError(`Could not sign in to Veyra: ${error instanceof Error ? error.message : String(error)}`);
+			} else this.showError(`Could not sign in to Veyra: ${connectErrorText(error)}`);
 			return false;
 		} finally {
 			this.veyraSignInRunning = false;
@@ -6559,17 +6568,29 @@ export class InteractiveMode {
 	private async handleVeyraLogout(): Promise<void> {
 		const auth = this.getVeyraAuth();
 		if (!auth) return;
-		const result = await auth.logout({ signal: AbortSignal.timeout(15_000) });
+		let result: Awaited<ReturnType<VeyraAuth["logout"]>>;
+		try {
+			// The revoke's timeout starts when the revoke is sent, after any wait for the lock.
+			result = await auth.logout({ revokeTimeoutMs: VEYRA_REVOKE_TIMEOUT_MS });
+		} catch (error) {
+			this.showError(`Could not sign out of Veyra: ${connectErrorText(error)}`);
+			return;
+		}
 		this.veyraAccount = undefined;
 		if (this.editionTimer) clearInterval(this.editionTimer);
 		this.editionTimer = undefined;
 		await this.getEditionGate().setEntitlement(SIGNED_OUT);
 		this.ui.requestRender();
 		const apps = connectedAppsUrl(auth.issuer);
+		if (result.lockProblem) {
+			this.showWarning(
+				`Another fingers process held the sign-in's lock past the wait (${connectText(result.lockProblem)}); the sign-in was removed from the keychain without it.`,
+			);
+		}
 		if (!result.signedIn) this.showStatus("Not signed in to Veyra.");
 		else if (result.revocation === "failed") {
 			this.showWarning(
-				`Signed out of Veyra here, but Connect could not revoke the device (${result.detail ?? "unknown error"}). Remove it under Connected apps, ${apps}`,
+				`Signed out of Veyra here, but Connect could not revoke the device (${connectText(result.detail) ?? "unknown error"}). Remove it under Connected apps, ${apps}`,
 			);
 		} else if (result.revocation === "unsupported") {
 			this.showStatus(
@@ -6604,11 +6625,15 @@ export class InteractiveMode {
 			this.veyraAccount = auth.account() ?? account;
 			await this.startEdition({ askConnect: false });
 			const gate = this.getEditionGate();
+			// From Connect: no terminal escapes on screen.
+			const code = connectText(org.code);
+			const tier = connectText(org.tier);
+			const group = connectText(org.groupName);
 			line = [
-				`org ${org.name}${org.code ? ` (${org.code})` : ""}`,
-				org.tier ? `tier ${org.tier}` : undefined,
-				org.groupName ? `group ${org.groupName}` : undefined,
-				`Connect ${auth.issuer}`,
+				`org ${connectText(org.name)}${code ? ` (${code})` : ""}`,
+				tier ? `tier ${tier}` : undefined,
+				group ? `group ${group}` : undefined,
+				`Connect ${connectText(auth.issuer)}`,
 			]
 				.filter(Boolean)
 				.join(" · ");
@@ -6622,7 +6647,7 @@ export class InteractiveMode {
 				this.showWarning(`${error.message.replace("fingers login", "/login")}`);
 				return;
 			}
-			line = `org ${account.orgName ?? account.org ?? "unknown"} · not checked now: ${error instanceof Error ? error.message : String(error)}`;
+			line = `org ${connectText(account.orgName ?? account.org ?? "unknown")} · not checked now: ${connectErrorText(error)}`;
 		}
 		this.showStatus(`${line}\n/org switch signs in again and lets you pick another organization on Connect's page.`);
 	}

@@ -25,6 +25,7 @@ export { type DeviceCodePrompt, DeviceFlowError } from "./device-flow.ts";
 export { ConnectUnavailableError, VeyraApiError } from "./oidc-client.ts";
 export type { VeyraAccount, VeyraStorageInfo } from "./session-vault.ts";
 export {
+	VEYRA_REVOKE_TIMEOUT_MS,
 	VeyraAudienceError,
 	VeyraAuth,
 	type VeyraLogoutResult,
