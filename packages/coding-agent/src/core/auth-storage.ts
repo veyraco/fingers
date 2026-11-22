@@ -58,11 +58,18 @@ export interface AuthStorageBackend {
 	): Promise<T>;
 }
 
+export interface FileAuthStorageBackendOptions {
+	/** How long withLockAsync waits for another holder before it gives up (default 30 s, the lock's stale time). */
+	lockWaitMs?: number;
+}
+
 export class FileAuthStorageBackend implements AuthStorageBackend {
 	private authPath: string;
+	private readonly lockWaitMs: number | undefined;
 
-	constructor(authPath: string = join(getAgentDir(), "auth.json")) {
+	constructor(authPath: string = join(getAgentDir(), "auth.json"), options: FileAuthStorageBackendOptions = {}) {
 		this.authPath = normalizePath(authPath);
+		this.lockWaitMs = options.lockWaitMs;
 	}
 
 	private ensureParentDir(): void {
@@ -121,7 +128,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 	): Promise<() => Promise<void>> {
 		const staleMs = 30_000;
 		const maxDelayMs = 2_000;
-		const deadline = Date.now() + staleMs;
+		const deadline = Date.now() + (this.lockWaitMs ?? staleMs);
 		let retry = 0;
 		let epermRetries = 0;
 		while (true) {

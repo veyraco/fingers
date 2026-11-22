@@ -46,7 +46,7 @@ Type `/` to search the available commands. The commands you will use most often 
 
 - `/model` selects a model. Press `Ctrl+L` to open the same selector.
 - `/thinking` selects how much reasoning the current model uses. Press `Shift+Tab` to cycle through supported levels.
-- `/login` and `/logout` manage provider access.
+- `/login <provider>` and `/logout <provider>` manage provider access; `/login`, `/org` and `/logout` alone manage your Veyra account.
 - `/settings` changes common preferences.
 
 Prompt templates, skills, and extensions can add more commands to the same menu. See [Choose a Model](models.md), [Configuration](configuration.md), or the complete [Slash Commands reference](slash-commands.md).

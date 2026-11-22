@@ -29,7 +29,7 @@ cd /path/to/project
 fingers
 ```
 
-For a built-in AI provider, run `/login` inside Fingers to connect a subscription or API key. Then give Fingers a task.
+For a built-in AI provider, run `/login <provider>` inside Fingers (for example `/login anthropic`) to connect a subscription or API key; `/login` alone signs in to your Veyra account. Then give Fingers a task.
 
 See the [documentation](docs/index.md) for full setup and usage instructions.
 

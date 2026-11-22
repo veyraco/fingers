@@ -47,7 +47,8 @@ export function rawKeyHint(key: string, description: string): string {
 	return theme.fg("dim", formatKeyText(key)) + theme.fg("muted", ` ${description}`);
 }
 
-function shortKey(keybinding: Keybinding, fallback: string): string {
+/** The first key of an action, short as the canvas writes it (`esc`), or `fallback` when it has none. */
+export function shortKeyText(keybinding: Keybinding, fallback: string): string {
 	const first = getKeybindings().getKeys(keybinding)[0];
 	if (!first) return fallback;
 	return formatKeyText(first === "escape" ? "esc" : first);
@@ -56,10 +57,10 @@ function shortKey(keybinding: Keybinding, fallback: string): string {
 /** The hint line under the editor (canvas FingersTuiSession): enter send · shift+enter newline · … */
 export function editorHintLine(): string {
 	return [
-		`${shortKey("tui.input.submit", "enter")} send`,
-		`${shortKey("tui.input.newLine", "shift+enter")} newline`,
+		`${shortKeyText("tui.input.submit", "enter")} send`,
+		`${shortKeyText("tui.input.newLine", "shift+enter")} newline`,
 		"/ commands",
 		"@ files",
-		`${shortKey("app.interrupt", "esc")} interrupt`,
+		`${shortKeyText("app.interrupt", "esc")} interrupt`,
 	].join(" · ");
 }

@@ -82,7 +82,9 @@ These variables are read by Fingers itself:
 | `FINGERS_CODING_AGENT_SESSION_DIR` | Override session storage; overridden by `--session-dir` |
 | `FINGERS_PACKAGE_DIR` | Override the package directory, useful for Nix/Guix store paths |
 | `FINGERS_OFFLINE` | Disable automatic network activity, including model catalog refreshes |
-| `FINGERS_CREDENTIAL_STORE` | `keychain` (default) keeps saved credentials in the OS keychain; `file` keeps them in `auth.json` |
+| `FINGERS_CREDENTIAL_STORE` | `keychain` (default) keeps saved credentials in the OS keychain; `file` keeps provider credentials in `auth.json` (the Veyra sign-in then stays in memory for one session, never in a file) |
+| `FINGERS_CONNECT_URL` | Veyra Connect that `fingers login` and `/login` sign in to; default `https://connect.veyra.so`, the local stack is `https://connect.veyra.localhost` |
+| `FINGERS_API_URL` | Origin of the Veyra apps' APIs (`<origin>/<app>/v1`); default `api.<domain>` for a `connect.<domain>` Connect, else the Connect address itself |
 | `FINGERS_SKIP_VERSION_CHECK` | Disable the latest-version request to the npm registry |
 | `FINGERS_SELF_UPDATE_COMMAND` | Command `fingers update` runs to update Fingers itself, split on whitespace, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. Takes precedence over the `selfUpdateCommand` setting. See [Custom update command](cli.md#custom-update-command) |
 | `FINGERS_TELEMETRY` | Override provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |

@@ -64,6 +64,8 @@ const APP_KEYBINDINGS = {
 		defaultKeys: "ctrl+x",
 		description: "Copy selection or last assistant message",
 	},
+	"app.veyra.copyCode": { defaultKeys: "c", description: "Copy the code on the Veyra sign-in screen" },
+	"app.veyra.openLink": { defaultKeys: "o", description: "Open the Veyra sign-in link again" },
 	"app.message.followUp": {
 		defaultKeys: windowsKeybindings ? "ctrl+q" : "alt+enter",
 		description: "Queue follow-up message",
