@@ -12,7 +12,7 @@
  * kept in memory for this process only, and `storage.memoryReason` says why.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FileAuthStorageBackend } from "../auth-storage.ts";
 import { KeychainBlob } from "../keychain-auth-storage.ts";
@@ -107,8 +107,17 @@ export interface VeyraSessionVault {
 	readonly storage: VeyraStorageInfo;
 	/** The stored sign-in, without taking the lock. */
 	read(): StoredVeyraSession | undefined;
-	/** Read, change and write under the cross-process lock. */
+	/**
+	 * Read, change and write under the cross-process lock. `signal` ends only the wait for the lock: once `fn` runs,
+	 * the change finishes and is written, so a refresh Connect already answered is never dropped (Connect ends the
+	 * session when the spent refresh token comes back).
+	 */
 	update<T>(fn: VaultUpdate<T>, signal?: AbortSignal): Promise<T>;
+	/**
+	 * Delete the sign-in without the lock: sign out when another fingers process holds the lock past the wait.
+	 * Signing out is idempotent, so this is safe to repeat.
+	 */
+	clearWithoutLock(): void;
 }
 
 function parseSession(text: string | undefined, issuer: string): StoredVeyraSession | undefined {
@@ -135,7 +144,7 @@ class KeychainSessionVault implements VeyraSessionVault {
 	private readonly blob: KeychainBlob;
 	private readonly lock: FileAuthStorageBackend;
 
-	constructor(store: SecretStore, markerPath: string, issuer: string, service: string) {
+	constructor(store: SecretStore, markerPath: string, issuer: string, service: string, lockWaitMs?: number) {
 		this.store = store;
 		this.markerPath = markerPath;
 		this.issuer = issuer;
@@ -143,7 +152,7 @@ class KeychainSessionVault implements VeyraSessionVault {
 		this.storage = { persistent: true, location: store.name };
 		// One keychain account per Connect issuer.
 		this.blob = new KeychainBlob(store, `veyra:${issuerHash(issuer)}`);
-		this.lock = new FileAuthStorageBackend(markerPath);
+		this.lock = new FileAuthStorageBackend(markerPath, { lockWaitMs });
 	}
 
 	signedInByMarker(): boolean {
@@ -187,19 +196,36 @@ class KeychainSessionVault implements VeyraSessionVault {
 	}
 
 	update<T>(fn: VaultUpdate<T>, signal?: AbortSignal): Promise<T> {
-		return this.lock.withLockAsync(
-			async () => {
-				const { result, next } = await fn(this.readUnderLock());
-				if (next === undefined) return { result };
-				if (next === null) {
-					this.blob.delete();
-					return { result, next: this.marker(false) };
-				}
-				this.blob.write(JSON.stringify(next));
-				return { result, next: this.marker(true) };
-			},
-			signal ? { signal } : undefined,
-		);
+		// The lock helper also checks its signal after the change; this one follows the caller's only until `fn` starts.
+		const lockWait = new AbortController();
+		const forward = () => lockWait.abort(signal?.reason);
+		if (signal?.aborted) forward();
+		else signal?.addEventListener("abort", forward, { once: true });
+		return this.lock
+			.withLockAsync(
+				async () => {
+					signal?.removeEventListener("abort", forward);
+					const { result, next } = await fn(this.readUnderLock());
+					if (next === undefined) return { result };
+					if (next === null) {
+						this.blob.delete();
+						return { result, next: this.marker(false) };
+					}
+					this.blob.write(JSON.stringify(next));
+					return { result, next: this.marker(true) };
+				},
+				signal ? { signal: lockWait.signal } : undefined,
+			)
+			.finally(() => signal?.removeEventListener("abort", forward));
+	}
+
+	clearWithoutLock(): void {
+		this.blob.delete();
+		try {
+			writeFileSync(this.markerPath, this.marker(false), { encoding: "utf-8", mode: 0o600 });
+		} catch {
+			// The keychain is the record: without the blob, read() finds no sign-in whatever the marker says.
+		}
 	}
 }
 
@@ -226,6 +252,10 @@ class MemorySessionVault implements VeyraSessionVault {
 		this.queue = run.catch(() => {});
 		return run;
 	}
+
+	clearWithoutLock(): void {
+		this.session = undefined;
+	}
 }
 
 export interface OpenVeyraSessionVaultOptions {
@@ -235,6 +265,8 @@ export interface OpenVeyraSessionVaultOptions {
 	/** Defaults to the platform keychain. */
 	secretStore?: SecretStore;
 	service?: string;
+	/** How long a change waits for another fingers process' lock before it gives up (default 30 s). */
+	lockWaitMs?: number;
 }
 
 /**
@@ -260,7 +292,7 @@ export function openVeyraSessionVault(options: OpenVeyraSessionVaultOptions): Ve
 		const store = options.secretStore ?? platformSecretStore();
 		if (!store) resolved = new MemorySessionVault(`there is no OS keychain Fingers can use on ${process.platform}`);
 		else if (!store.available()) resolved = new MemorySessionVault(`the ${store.name} is not reachable`);
-		else resolved = new KeychainSessionVault(store, markerPath, options.issuer, service);
+		else resolved = new KeychainSessionVault(store, markerPath, options.issuer, service, options.lockWaitMs);
 		return resolved;
 	};
 	return {
@@ -273,6 +305,9 @@ export function openVeyraSessionVault(options: OpenVeyraSessionVaultOptions): Ve
 		},
 		update(fn, signal) {
 			return resolve().update(fn, signal);
+		},
+		clearWithoutLock() {
+			resolve().clearWithoutLock();
 		},
 	};
 }

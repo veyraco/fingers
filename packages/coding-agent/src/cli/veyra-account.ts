@@ -8,6 +8,8 @@ import { connectedAppsUrl } from "../core/veyra/connect-config.ts";
 import { type DeviceCodePrompt, DeviceFlowError } from "../core/veyra/device-flow.ts";
 import {
 	CHECK_CODE_STEP,
+	connectErrorText,
+	connectText,
 	formatCountdown,
 	KEY_HINTS,
 	SIGN_IN_LEAD,
@@ -19,7 +21,7 @@ import {
 import { ConnectUnavailableError } from "../core/veyra/oidc-client.ts";
 import { type VeyraAuth, type VeyraOrganization, VeyraSignedOutError } from "../core/veyra/veyra-auth.ts";
 import { copyToClipboard } from "../utils/clipboard.ts";
-import { openBrowser } from "../utils/open-browser.ts";
+import { browserIsLocal, openBrowser } from "../utils/open-browser.ts";
 
 export type VeyraLoginKey = "copy" | "open" | "cancel";
 
@@ -29,6 +31,8 @@ export interface VeyraCliTerminal {
 	write(line: string): void;
 	error(line: string): void;
 	openUrl(url: string): void;
+	/** False when a browser opened here would not reach the person (SSH, no display): the address is shown instead. */
+	canOpenUrl?: boolean;
 	copy?(text: string): Promise<void>;
 	/** Replace the live status line (a terminal only); undefined clears it. */
 	status?(line: string | undefined): void;
@@ -152,7 +156,7 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 	const onCode = (prompt: DeviceCodePrompt) => {
 		const deadline = now() + prompt.expiresInSeconds * 1000;
 		const target = prompt.verificationUriComplete ?? prompt.verificationUri;
-		const browser = !parsed.noBrowser;
+		const browser = !parsed.noBrowser && terminal.canOpenUrl !== false;
 		terminal.write("Veyra Fingers");
 		terminal.write(`v${VERSION} · ${SIGN_IN_SUBTITLE}`);
 		terminal.write("");
@@ -216,15 +220,28 @@ function loginErrorMessage(error: unknown): string {
 		if (error.reason === "denied") return "The sign-in was denied in the browser. Nothing was stored.";
 		if (error.reason === "expired") return `The code expired before it was confirmed. Run ${APP_NAME} login again.`;
 		if (error.reason === "cancelled") return "Sign-in cancelled.";
-		return error.message;
+		// May carry Connect's error_description.
+		return connectErrorText(error);
 	}
-	return `Could not sign in: ${error instanceof Error ? error.message : String(error)}`;
+	return `Could not sign in: ${connectErrorText(error)}`;
 }
 
 async function logout(auth: VeyraAuth, options: VeyraAccountCommandOptions): Promise<number> {
 	const { terminal } = options;
-	const result = await auth.logout({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) });
+	let result: Awaited<ReturnType<VeyraAuth["logout"]>>;
+	try {
+		result = await auth.logout({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) });
+	} catch (error) {
+		terminal.error(`Could not sign out of Veyra: ${connectErrorText(error)}`);
+		return 1;
+	}
 	const apps = connectedAppsUrl(auth.issuer);
+	if (result.lockProblem) {
+		terminal.error(
+			`Another ${APP_NAME} process held the sign-in's lock past the wait (${connectText(result.lockProblem)}). ` +
+				"Signing out is safe to repeat, so the sign-in was removed from the keychain without the lock.",
+		);
+	}
 	if (!result.signedIn) {
 		terminal.write("Not signed in to Veyra.");
 		return 0;
@@ -243,7 +260,7 @@ async function logout(auth: VeyraAuth, options: VeyraAccountCommandOptions): Pro
 			return 0;
 		case "failed":
 			terminal.error(
-				`Signed out of Veyra on this computer, but Connect could not revoke the device (${result.detail ?? "unknown error"}).`,
+				`Signed out of Veyra on this computer, but Connect could not revoke the device (${connectText(result.detail) ?? "unknown error"}).`,
 			);
 			terminal.error(`Remove it under Connected apps, ${apps}`);
 			return 1;
@@ -270,7 +287,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 			terminal.error(error.message);
 			return 1;
 		}
-		const detail = error instanceof Error ? error.message : String(error);
+		const detail = connectErrorText(error);
 		orgProblem =
 			error instanceof ConnectUnavailableError
 				? `Connect could not be reached: ${detail}`
@@ -314,14 +331,17 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 		return 0;
 	}
 
-	const who = account.email ?? account.subject;
-	terminal.write(`Signed in as ${who}${account.name ? ` (${account.name})` : ""}`);
+	// Names, codes and tiers come from Connect: no terminal escapes reach the screen (JSON above escapes them).
+	const who = connectText(account.email ?? account.subject);
+	const name = connectText(account.name);
+	const code = connectText(shown.code);
+	terminal.write(`Signed in as ${who}${name ? ` (${name})` : ""}`);
 	terminal.write(
-		`  Organization  ${shown.name}${shown.code ? ` (${shown.code})` : ""}${orgProblem ? ` · not checked now: ${orgProblem}` : ""}`,
+		`  Organization  ${connectText(shown.name)}${code ? ` (${code})` : ""}${orgProblem ? ` · not checked now: ${orgProblem}` : ""}`,
 	);
-	if (shown.tier) terminal.write(`  Tier          ${shown.tier}`);
-	if (shown.groupName) terminal.write(`  Group         ${shown.groupName}`);
-	terminal.write(`  Connect       ${account.issuer}`);
+	if (shown.tier) terminal.write(`  Tier          ${connectText(shown.tier)}`);
+	if (shown.groupName) terminal.write(`  Group         ${connectText(shown.groupName)}`);
+	terminal.write(`  Connect       ${connectText(account.issuer)}`);
 	terminal.write(`  Stored in     ${storage.location}`);
 	return 0;
 }
@@ -334,7 +354,8 @@ export function createProcessVeyraTerminal(): VeyraCliTerminal {
 		interactive: tty,
 		write: (line) => process.stdout.write(`${line}\n`),
 		error: (line) => process.stderr.write(`${line}\n`),
-		openUrl: openBrowser,
+		openUrl: (url) => openBrowser(url),
+		canOpenUrl: browserIsLocal(),
 		copy: copyToClipboard,
 	};
 	if (!tty) return terminal;

@@ -28,6 +28,16 @@ export interface FakeConnectOptions {
 	issuerOverride?: string;
 	/** Discovery token endpoint (default: on the server's own origin). */
 	tokenEndpointOverride?: string;
+	/** `verification_uri` in the device authorization answer (default: `<issuer>/device`). */
+	verificationUriOverride?: string;
+	/** `verification_uri_complete` in the device authorization answer (default: `<issuer>/device?user_code=…`). */
+	verificationUriCompleteOverride?: string;
+	/** Fields of the organization lookup answer (default: FAKE_ORG). */
+	orgOverride?: Partial<{ name: string; code: string; tier: string }>;
+	/** The member's group name in the organization lookup (default: Editor). */
+	groupNameOverride?: string;
+	/** Claims of the ID token (default: Ada Lovelace, ada@acme.dev). */
+	idTokenClaimsOverride?: Record<string, unknown>;
 }
 
 export interface RecordedRequest {
@@ -167,8 +177,9 @@ export class FakeConnect {
 		json(res, 200, {
 			device_code: deviceCode,
 			user_code: "WDJB-MJHT",
-			verification_uri: `${this.origin}/device`,
-			verification_uri_complete: `${this.origin}/device?user_code=WDJB-MJHT`,
+			verification_uri: this.options.verificationUriOverride ?? `${this.origin}/device`,
+			verification_uri_complete:
+				this.options.verificationUriCompleteOverride ?? `${this.origin}/device?user_code=WDJB-MJHT`,
 			expires_in: this.options.expiresIn ?? 600,
 			interval: this.options.interval ?? 5,
 		});
@@ -276,8 +287,13 @@ export class FakeConnect {
 			code: ORG.code,
 			name: ORG.name,
 			tier: ORG.tier,
+			...this.options.orgOverride,
 			apps_enabled: ["connect", "fingers", "brain"],
-			my_membership: { member_id: "mem_9", group_id: "grp_editor", group_name: "Editor" },
+			my_membership: {
+				member_id: "mem_9",
+				group_id: "grp_editor",
+				group_name: this.options.groupNameOverride ?? "Editor",
+			},
 		});
 	}
 
@@ -333,6 +349,7 @@ export class FakeConnect {
 					name: "Ada Lovelace",
 					iat: now,
 					exp: now + 300,
+					...this.options.idTokenClaimsOverride,
 				},
 			);
 			this.issuedSecrets.push(idToken);

@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveConfigValueOrThrow, resolveHeadersOrThrow } from "../src/core/resolve-config-value.ts";
+import { childSpan, continueTrace, formatTraceparent, parseTraceparent } from "../src/core/trace-context.ts";
 import { ApprovalBroker, approvalNeed, describeManagedTool } from "../src/modes/rpc/managed/approvals.ts";
 import { validateCommand, validateOutbound } from "../src/modes/rpc/managed/contract.ts";
 import { escapeConfigValue, mcpServerEntries } from "../src/modes/rpc/managed/credentials.ts";
@@ -10,7 +11,6 @@ import { FileChangeTracker } from "../src/modes/rpc/managed/file-changes.ts";
 import { ManagedLogger } from "../src/modes/rpc/managed/log.ts";
 import { checkManagedToolPaths, preparePathPolicy } from "../src/modes/rpc/managed/path-policy.ts";
 import { SecretSet } from "../src/modes/rpc/managed/secrets.ts";
-import { childSpan, continueTrace, formatTraceparent, parseTraceparent } from "../src/modes/rpc/managed/trace.ts";
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {

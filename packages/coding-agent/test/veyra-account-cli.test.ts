@@ -2,9 +2,10 @@
  * `fingers login`, `fingers whoami` and `fingers logout` against a fake Connect. The login screen follows the canvas
  * artboard FingersTuiLogin ("Fingers · CLI & web"); no output line ever holds a token.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runVeyraAccountCommand, type VeyraCliTerminal } from "../src/cli/veyra-account.ts";
 import { VERSION } from "../src/config.ts";
@@ -67,7 +68,10 @@ function terminal(options: { live?: boolean } = {}): FakeTerminal {
 	return t;
 }
 
-function makeAuth(connect: FakeConnect, options: { store?: InMemorySecretStore; env?: NodeJS.ProcessEnv } = {}) {
+function makeAuth(
+	connect: FakeConnect,
+	options: { store?: InMemorySecretStore; env?: NodeJS.ProcessEnv; lockWaitMs?: number } = {},
+) {
 	const store = options.store ?? new InMemorySecretStore();
 	let clock = Date.now();
 	const auth = new VeyraAuth({
@@ -77,6 +81,7 @@ function makeAuth(connect: FakeConnect, options: { store?: InMemorySecretStore; 
 			issuer: connect.issuer,
 			env: options.env ?? { FINGERS_CREDENTIAL_STORE: "keychain" },
 			secretStore: store,
+			lockWaitMs: options.lockWaitMs,
 		}),
 		apiUrl: connect.issuer,
 		appVersion: "0.1.0",
@@ -97,6 +102,22 @@ async function run(args: string[], auth: VeyraAuth, t: FakeTerminal, signal = ne
 function expectNoSecrets(connect: FakeConnect, t: FakeTerminal): void {
 	const text = [...t.lines, ...t.errors, ...t.statuses.map(String)].join("\n");
 	for (const secret of connect.issuedSecrets) expect(text).not.toContain(secret);
+}
+
+/** Everything the command printed: lines, errors and live status lines. */
+function printed(t: FakeTerminal): string[] {
+	return [...t.lines, ...t.errors, ...t.statuses.filter((line): line is string => line !== undefined)];
+}
+
+/** OSC 52 (set the clipboard) and other escapes a hostile string could carry. */
+const OSC52 = "\u001b]52;c;cm0gLXJmIH4K\u0007";
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** Hold the sign-in's lock as another fingers process would, until the returned function runs. */
+async function holdSignInLock(): Promise<() => Promise<void>> {
+	const marker = readdirSync(agentDir).find((name) => name.startsWith("veyra-session.") && name.endsWith(".json"));
+	if (!marker) throw new Error("no sign-in marker to lock");
+	return lockfile.lock(join(agentDir, marker), { stale: 30_000 });
 }
 
 describe("fingers login", () => {
@@ -132,6 +153,17 @@ describe("fingers login", () => {
 		const t = terminal();
 		expect(await run(["login", "--no-browser"], auth, t)).toBe(0);
 		expect(t.lines).toContain(`  1. Open ${connect.issuer}/device in a browser`);
+		expect(t.opened).toEqual([]);
+	});
+
+	it("where a browser would not reach the person (SSH, no display): shows the link and opens nothing", async () => {
+		const connect = await startFake();
+		const { auth } = makeAuth(connect);
+		const t = terminal();
+		t.canOpenUrl = false;
+		expect(await run(["login"], auth, t)).toBe(0);
+		expect(t.lines).toContain(`  1. Open ${connect.issuer}/device in a browser`);
+		expect(t.lines.join("\n")).not.toContain("Your browser opened");
 		expect(t.opened).toEqual([]);
 	});
 
@@ -310,5 +342,114 @@ describe("fingers logout", () => {
 		const t = terminal();
 		expect(await run(["logout"], auth, t)).toBe(0);
 		expect(t.lines).toEqual(["Not signed in to Veyra."]);
+	});
+
+	it("a sign-out the keychain refuses is reported with exit 1, not thrown", async () => {
+		const refusing = {
+			issuer: "https://connect.veyra.so",
+			logout: async () => {
+				throw new Error("The macOS Keychain refused the change");
+			},
+		} as unknown as VeyraAuth;
+		const t = terminal();
+		expect(await run(["logout"], refusing, t)).toBe(1);
+		expect(t.errors).toEqual(["Could not sign out of Veyra: The macOS Keychain refused the change"]);
+	});
+});
+
+describe("fingers login: the verification link must be on Connect's own origin", () => {
+	const foreign = "https://connect.example.net";
+	it.each([
+		{
+			name: "a foreign host in verification_uri",
+			options: { verificationUriOverride: `${foreign}/device` },
+			value: foreign,
+		},
+		{
+			name: "a foreign host in verification_uri_complete",
+			options: { verificationUriCompleteOverride: `${foreign}/device?user_code=WDJB-MJHT` },
+			value: foreign,
+		},
+		{
+			name: "a javascript: verification_uri",
+			options: { verificationUriOverride: "javascript:alert(document.domain)" },
+			value: "javascript:alert",
+		},
+		{
+			name: "a file: verification_uri_complete",
+			options: { verificationUriCompleteOverride: "file:///etc/passwd" },
+			value: "file:///etc/passwd",
+		},
+	])("$name: opens nothing, shows no link or code, and sends no token poll", async ({ options, value }) => {
+		const connect = await startFake(options);
+		const { auth } = makeAuth(connect);
+		const t = terminal({ live: true });
+		expect(await run(["login"], auth, t)).toBe(1);
+
+		expect(t.opened).toEqual([]);
+		const shown = printed(t).join("\n");
+		expect(shown).not.toContain(value);
+		expect(shown).not.toContain("WDJB-MJHT");
+		expect(shown).not.toMatch(/Your browser opened|1\. Open /);
+		expect(t.errors.join("\n")).toContain("verification address");
+		expect(connect.requestsTo("/oauth2/device_authorization")).toHaveLength(1);
+		expect(connect.requestsTo("/oauth2/token")).toHaveLength(0);
+		expect(auth.account()).toBeUndefined();
+	});
+});
+
+describe("strings from Connect are printed without terminal escapes", () => {
+	it("an OSC 52 / ESC sequence in the organization, tier, group, name and email is neutralized in login and whoami", async () => {
+		const connect = await startFake({
+			orgOverride: { name: `${OSC52}Acme\u001b[2J Robotics`, code: "acme\u001b[1A", tier: "medium\u0007" },
+			groupNameOverride: `Editor${OSC52}`,
+			idTokenClaimsOverride: { name: "Ada\u001b]0;owned\u0007 Lovelace", email: `ada${OSC52}@acme.dev` },
+		});
+		const { auth } = makeAuth(connect);
+		const login = terminal();
+		expect(await run(["login"], auth, login)).toBe(0);
+		const whoami = terminal();
+		expect(await run(["whoami"], auth, whoami)).toBe(0);
+
+		for (const line of [...printed(login), ...printed(whoami)]) expect(line).not.toMatch(CONTROL);
+		const summary = login.lines.find((line) => line.startsWith("✓ Signed in as"));
+		expect(summary).toContain("Acme");
+		expect(summary).toContain("Robotics");
+		expect(summary).toContain("@acme.dev");
+		expect(whoami.lines.join("\n")).toContain("Editor");
+		expect(whoami.lines.join("\n")).toContain("Lovelace");
+	});
+
+	it("an OSC 52 / ESC sequence in Connect's error_description is neutralized in the error", async () => {
+		const connect = await startFake({
+			startError: { status: 400, error: "invalid_request", description: `Bad request${OSC52}\u001b[2J` },
+		});
+		const { auth } = makeAuth(connect);
+		const t = terminal();
+		expect(await run(["login"], auth, t)).toBe(1);
+		expect(t.errors.join("\n")).toContain("Bad request");
+		for (const line of printed(t)) expect(line).not.toMatch(CONTROL);
+	});
+});
+
+describe("fingers logout when another fingers process holds the lock", () => {
+	it("reports the lock, still revokes the device and clears the keychain", async () => {
+		const connect = await startFake();
+		const { auth, store } = makeAuth(connect, { lockWaitMs: 300 });
+		await run(["login"], auth, terminal());
+		const release = await holdSignInLock();
+		try {
+			const t = terminal();
+			expect(await run(["logout"], auth, t)).toBe(0);
+			expect(t.errors.join("\n")).toMatch(/lock/i);
+			expect(t.lines).toEqual([
+				"Signed out of Veyra. Connect revoked this device, and the sign-in is gone from your OS keychain.",
+			]);
+			expect(connect.revoked).toHaveLength(1);
+			expect([...store.items.keys()]).toEqual([]);
+			expect(auth.account()).toBeUndefined();
+		} finally {
+			await release();
+		}
 	});
 });

@@ -7,7 +7,8 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import lockfile from "proper-lockfile";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeychainBlob } from "../src/core/keychain-auth-storage.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
 import { openVeyraSessionVault, veyraSessionAccount } from "../src/core/veyra/session-vault.ts";
@@ -40,7 +41,10 @@ interface Setup {
 }
 
 /** A VeyraAuth on the fake, with an in-memory keychain. Pass `store` to share one keychain between "processes". */
-function setup(connect: FakeConnect, options: { store?: InMemorySecretStore; env?: NodeJS.ProcessEnv } = {}): Setup {
+function setup(
+	connect: FakeConnect,
+	options: { store?: InMemorySecretStore; env?: NodeJS.ProcessEnv; lockWaitMs?: number } = {},
+): Setup {
 	const store = options.store ?? new InMemorySecretStore();
 	const clock = { now: Date.now() };
 	const vault = openVeyraSessionVault({
@@ -48,6 +52,7 @@ function setup(connect: FakeConnect, options: { store?: InMemorySecretStore; env
 		issuer: connect.issuer,
 		env: options.env ?? { FINGERS_CREDENTIAL_STORE: "keychain" },
 		secretStore: store,
+		lockWaitMs: options.lockWaitMs,
 	});
 	const auth = new VeyraAuth({
 		issuer: connect.issuer,
@@ -82,6 +87,20 @@ function storedSession(store: InMemorySecretStore): Record<string, unknown> | un
 	if (!account) return undefined;
 	const text = new KeychainBlob(store, account).read();
 	return text ? (JSON.parse(text) as Record<string, unknown>) : undefined;
+}
+
+/** Hold the sign-in's lock as another fingers process would, until the returned function runs. */
+async function holdSignInLock(): Promise<() => Promise<void>> {
+	const marker = readdirSync(agentDir).find((name) => name.startsWith("veyra-session.") && name.endsWith(".json"));
+	if (!marker) throw new Error("no sign-in marker to lock");
+	return lockfile.lock(join(agentDir, marker), { stale: 30_000 });
+}
+
+function refreshTokensSent(connect: FakeConnect): string[] {
+	return connect
+		.requestsTo("/oauth2/token")
+		.filter((request) => request.form.grant_type === "refresh_token")
+		.map((request) => request.form.refresh_token ?? "");
 }
 
 function claims(token: string): Record<string, unknown> {
@@ -146,6 +165,33 @@ describe("where the sign-in is kept", () => {
 		const account = await signIn(s);
 		expect(account.storage).toMatchObject({ persistent: false });
 		expect(account.storage.memoryReason).toContain("not reachable");
+	});
+
+	it("a vault change runs to its end once started: the signal only ends the wait for the lock", async () => {
+		const connect = await startFake();
+		const s = setup(connect);
+		await signIn(s);
+		const vault = openVeyraSessionVault({
+			agentDir,
+			issuer: connect.issuer,
+			env: { FINGERS_CREDENTIAL_STORE: "keychain" },
+			secretStore: s.store,
+		});
+		const controller = new AbortController();
+		let finishChange: (() => void) | undefined;
+		const changing = vault.update(async (current) => {
+			await new Promise<void>((resolve) => {
+				finishChange = resolve;
+			});
+			return { result: "written", next: { ...current!, tier: "large" } };
+		}, controller.signal);
+		// Abort while the change runs (the lock is held).
+		await vi.waitFor(() => expect(finishChange).toBeDefined());
+		controller.abort();
+		finishChange?.();
+		await expect(changing).resolves.toBe("written");
+		expect(storedSession(s.store)?.tier).toBe("large");
+		expect(vault.read()?.tier).toBe("large");
 	});
 
 	it("veyraSessionAccount never exposes a token", async () => {
@@ -235,6 +281,35 @@ describe("access tokens per audience", () => {
 		expect(connect.liveSessions()).toBe(1);
 	});
 
+	it("a caller that stops waiting does not lose a refresh Connect already answered: the rotated token is kept and used next", async () => {
+		const connect = await startFake();
+		const s = setup(connect);
+		await signIn(s);
+		const original = storedSession(s.store)!.refresh_token as string;
+		connect.refreshDelayMs = 400;
+		const controller = new AbortController();
+		const waiting = s.auth.getAccessToken("connect", { signal: controller.signal });
+		// Stop waiting once the refresh reached Connect: Connect has spent the old refresh token by then.
+		await vi.waitFor(() => expect(refreshTokensSent(connect)).toEqual([original]));
+		controller.abort();
+		await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+		// Only the caller's wait ended; Connect is still answering.
+		expect(connect.refreshesByAudience.get("connect")).toBeUndefined();
+
+		// The refresh finishes under the lock and keeps the rotated refresh token.
+		await vi.waitFor(() => expect(storedSession(s.store)?.refresh_token).not.toBe(original), { timeout: 5_000 });
+		const rotated = storedSession(s.store)!.refresh_token as string;
+		expect(connect.refreshesByAudience.get("connect")).toBe(1);
+
+		// The next refresh sends the rotated token, and the session at Connect is still live.
+		connect.refreshDelayMs = 0;
+		s.clock.now += 10 * 60_000;
+		expect(await s.auth.getAccessToken("fingers")).toMatch(/^ey/);
+		expect(refreshTokensSent(connect)).toEqual([original, rotated]);
+		expect(connect.liveSessions()).toBe(1);
+		expect(s.auth.account()).toBeDefined();
+	});
+
 	it("an audience Connect does not give Fingers is a clear error, and the sign-in stays", async () => {
 		const connect = await startFake({ resources: ["connect"] });
 		const s = setup(connect);
@@ -320,6 +395,25 @@ describe("logout", () => {
 		expect(storedSession(s.store)).toBeUndefined();
 	});
 
+	it("another fingers process holds the lock past the wait: logout says so, still revokes and clears the keychain", async () => {
+		const connect = await startFake();
+		const s = setup(connect, { lockWaitMs: 300 });
+		await signIn(s);
+		const refresh = storedSession(s.store)!.refresh_token as string;
+		const release = await holdSignInLock();
+		try {
+			const result = await s.auth.logout();
+			expect(result).toMatchObject({ signedIn: true, revocation: "revoked" });
+			expect(result.lockProblem).toMatch(/lock/i);
+			expect(connect.revoked).toEqual([refresh]);
+			expect(connect.sessionLive(refresh)).toBe(false);
+			expect(storedSession(s.store)).toBeUndefined();
+			expect(s.auth.account()).toBeUndefined();
+		} finally {
+			await release();
+		}
+	});
+
 	it("not signed in: nothing to revoke", async () => {
 		const connect = await startFake();
 		const s = setup(connect);
@@ -340,6 +434,30 @@ describe("logout", () => {
 });
 
 describe("organization and logs", () => {
+	it("the log redacts the platform's secret keys at any depth and records errors with their stack", () => {
+		const path = join(agentDir, "veyra.log");
+		const log = createVeyraLog({ path, version: "0.1.0", env: "test" });
+		log.log("warn", "probe", {
+			headers: { "Set-Cookie": "sid=s3cr3t-cookie", Authorization: "Bearer s3cr3t-bearer" },
+			api_key: "s3cr3t-key",
+			nested: [{ client_secret: "s3cr3t-client" }],
+			err: new Error("boom"),
+		});
+		const text = readFileSync(path, "utf-8");
+		expect(text).not.toMatch(/s3cr3t/);
+		const record = JSON.parse(text.trim()) as {
+			headers: unknown;
+			api_key: unknown;
+			nested: unknown;
+			err: { type: string; message: string; stack?: string };
+		};
+		expect(record.headers).toEqual({ "Set-Cookie": "[redacted]", Authorization: "[redacted]" });
+		expect(record.api_key).toBe("[redacted]");
+		expect(record.nested).toEqual([{ client_secret: "[redacted]" }]);
+		expect(record.err).toMatchObject({ type: "Error", message: "boom" });
+		expect(record.err.stack).toContain("boom");
+	});
+
 	it("looks up the organization with a connect token", async () => {
 		const connect = await startFake();
 		const s = setup(connect);
@@ -385,7 +503,11 @@ describe("organization and logs", () => {
 			expect(record.trace_id).toMatch(/^[0-9a-f]{32}$/);
 			expect(record.span_id).toMatch(/^[0-9a-f]{16}$/);
 		}
-		expect(records.some((record) => record.msg === "signed in")).toBe(true);
+		expect(records.find((record) => record.msg === "signed in")).toMatchObject({
+			actor_type: "person",
+			actor_id: "usr_ada",
+			org_id: FAKE_ORG.id,
+		});
 		expect(records.some((record) => record.msg === "signed out")).toBe(true);
 		for (const secret of connect.issuedSecrets) expect(text).not.toContain(secret);
 		expect(text).not.toContain("WDJB-MJHT");

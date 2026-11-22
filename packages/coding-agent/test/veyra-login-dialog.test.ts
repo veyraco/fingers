@@ -12,6 +12,7 @@ import {
 } from "../src/modes/interactive/components/veyra-login-dialog.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { browserIsLocal } from "../src/utils/open-browser.ts";
 
 beforeAll(() => {
 	initTheme("dark", false);
@@ -91,11 +92,47 @@ describe("the /login dialog", () => {
 		d.component.dispose();
 	});
 
+	it("a browser that did not open: asks the person to open the address instead of saying it opened", () => {
+		const d = dialog();
+		d.component.showCode(PROMPT, { browserOpened: true });
+		expect(d.lines()).toContain("  1. Your browser opened https://connect.veyra.so/device");
+		d.component.browserDidNotOpen();
+		expect(d.lines()).toContain("  1. Open https://connect.veyra.so/device in a browser");
+		expect(d.lines().join("\n")).not.toContain("Your browser opened");
+		d.component.dispose();
+	});
+
 	it("formats the signed-in line as on the artboard", () => {
 		expect(stripAnsi(formatSignedInLine({ email: "ada@acme.dev", orgName: "Acme Robotics", tier: "medium" }))).toBe(
 			"✓ Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium",
 		);
 		expect(stripAnsi(formatSignedInLine({ email: "ada@acme.dev" }))).toBe("✓ Signed in as ada@acme.dev");
+	});
+
+	it("neutralizes terminal escapes from Connect in the signed-in line (only the theme's colors stay)", () => {
+		const osc52 = "\u001b]52;c;cm0gLXJmIH4K\u0007";
+		const line = formatSignedInLine({
+			email: `ada${osc52}@acme.dev`,
+			orgName: "Acme\u001b[2J Robotics",
+			tier: "medium\u0007",
+		});
+		const withoutThemeColors = line.replace(/\u001b\[[0-9;]*m/g, "");
+		expect(withoutThemeColors).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+		expect(withoutThemeColors).toContain("Acme");
+		expect(withoutThemeColors).toContain("Robotics");
+	});
+});
+
+describe("whether a browser Fingers opens reaches the person", () => {
+	it("not over SSH, and on Linux only with a display", () => {
+		expect(browserIsLocal({}, "darwin")).toBe(true);
+		expect(browserIsLocal({}, "win32")).toBe(true);
+		expect(browserIsLocal({ SSH_CONNECTION: "10.0.0.2 52000 10.0.0.1 22" }, "darwin")).toBe(false);
+		expect(browserIsLocal({ SSH_TTY: "/dev/ttys004" }, "linux")).toBe(false);
+		expect(browserIsLocal({}, "linux")).toBe(false);
+		expect(browserIsLocal({ DISPLAY: ":0" }, "linux")).toBe(true);
+		expect(browserIsLocal({ WAYLAND_DISPLAY: "wayland-0" }, "linux")).toBe(true);
+		expect(browserIsLocal({ WSL_DISTRO_NAME: "Ubuntu" }, "linux")).toBe(true);
 	});
 });
 

@@ -17,6 +17,7 @@ import { findBrowserExecutable } from "../../../core/browser/browser-session.ts"
 import { HostPolicy, type NetworkConfig } from "../../../core/browser/host-policy.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
+import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../../core/trace-context.ts";
 import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
 import { toJsonEvent } from "../../json-event.ts";
 import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
@@ -44,7 +45,6 @@ import { FileChangeTracker } from "./file-changes.ts";
 import { ManagedLogger } from "./log.ts";
 import { checkManagedToolPaths, type PathPolicy, preparePathPolicy } from "./path-policy.ts";
 import { SecretSet, secretHeaderValues } from "./secrets.ts";
-import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "./trace.ts";
 
 type JsonRecord = Record<string, any>;
 

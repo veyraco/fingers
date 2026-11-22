@@ -7,7 +7,7 @@
  * contracts/v1/logging.md) and is logged without any token or code.
  */
 import { randomUUID } from "node:crypto";
-import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../modes/rpc/managed/trace.ts";
+import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../trace-context.ts";
 import { ConnectConfigError } from "./connect-config.ts";
 import { silentVeyraLog, type VeyraLog } from "./veyra-log.ts";
 
@@ -373,16 +373,22 @@ function describeFetchError(error: unknown): string {
 }
 
 /**
- * The page the person opens: Fingers hands it to the browser, so only an https page (http only when the issuer itself
- * is plain http on this computer) is taken, never another scheme.
+ * The page the person opens: Fingers shows it and hands it to the browser, so it must be a page of this Connect, on
+ * the issuer's own origin (Connect builds it as `<issuer>/device`, doc/OIDC.md), never another host or scheme. A
+ * tampered answer pointing elsewhere could send the person to a look-alike page that phishes the code. The refused
+ * address is not echoed, so it never reaches the screen.
  */
 function checkPageUrl(value: string, issuer: string): string {
 	if (!URL.canParse(value)) throw new ConnectUnavailableError("Connect's verification address is not a URL");
 	const url = new URL(value);
-	const allowHttp = new URL(issuer).protocol === "http:";
+	const issuerUrl = new URL(issuer);
+	const allowHttp = issuerUrl.protocol === "http:";
 	if (url.protocol !== "https:" && !(allowHttp && url.protocol === "http:")) {
+		throw new ConnectConfigError("Connect's verification address is not an https page; refusing it");
+	}
+	if (url.origin !== issuerUrl.origin) {
 		throw new ConnectConfigError(
-			`Connect's verification address is not an https page (${url.protocol}); refusing it`,
+			`Connect's verification address is not on ${issuerUrl.origin}, the Connect you sign in to; refusing it`,
 		);
 	}
 	return url.href;

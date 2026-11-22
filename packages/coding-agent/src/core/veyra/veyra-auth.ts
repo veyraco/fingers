@@ -8,13 +8,17 @@
  * - Access tokens are cached until a minute before they expire (Connect issues them for 5 minutes).
  * - A refresh token Connect no longer takes (`invalid_grant`: signed out in Connect, member removed, app off) ends the
  *   sign-in here too.
+ * - A refresh runs to its end under the lock even when the caller stops waiting: Connect has spent the old refresh
+ *   token once the request is sent, so dropping its answer would end the session at the next refresh.
  * - Sign out revokes the refresh token at Connect (RFC 7009) and deletes the sign-in from the keychain, even when
- *   Connect can't be reached.
+ *   Connect can't be reached, and even when another fingers process holds the lock past the wait.
  *
  * Callers: F12 (ee gate: `organization()` for tier and apps), F13 (model connections: `getAccessToken("connect")`),
  * Brain and Eyes features (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
  */
-import type { TraceContext } from "../../modes/rpc/managed/trace.ts";
+
+import { raceWithAbortSignal } from "../../utils/abort.ts";
+import type { TraceContext } from "../trace-context.ts";
 import { FINGERS_APP, FINGERS_CLIENT_ID, resolveApiUrl, type VeyraApp, veyraApiBaseUrl } from "./connect-config.ts";
 import { type DeviceCodePrompt, DeviceFlowError, runDeviceFlow, type Sleep } from "./device-flow.ts";
 import { ConnectOidcClient, newVeyraTrace, OAuthResponseError, type TokenSet } from "./oidc-client.ts";
@@ -72,6 +76,11 @@ export interface VeyraLogoutResult {
 	revocation: VeyraRevocation;
 	/** Why the revocation failed. */
 	detail?: string;
+	/**
+	 * Why the sign-in's lock could not be taken (another fingers process held it past the wait). The sign-in was
+	 * revoked and removed without the lock all the same.
+	 */
+	lockProblem?: string;
 }
 
 export interface VeyraAuthOptions {
@@ -195,7 +204,9 @@ export class VeyraAuth {
 		this.cache.set(FINGERS_APP, session.access[FINGERS_APP]!);
 		this.log.log("info", "signed in", {
 			org_id: session.org,
-			actor: session.subject,
+			// Platform log fields (contracts/v1/logging.md); the device flow signs in a person.
+			actor_type: claim(decodeJwtPayload(tokens.accessToken), "sub_type") ?? "person",
+			actor_id: session.subject,
 			persistent: this.vault.storage.persistent,
 			trace_id: trace.traceId,
 			span_id: trace.spanId,
@@ -208,7 +219,8 @@ export class VeyraAuth {
 
 	/**
 	 * An access token for `audience`: cached while it has more than a minute left, else from the refresh grant
-	 * (`resource=<audience>` for apps other than Fingers itself).
+	 * (`resource=<audience>` for apps other than Fingers itself). `signal` ends the caller's wait only: a refresh that
+	 * was sent finishes under the lock with the client's own timeout and keeps the rotated refresh token.
 	 */
 	async getAccessToken(audience: VeyraApp, options: { signal?: AbortSignal } = {}): Promise<string> {
 		const cached = this.cache.get(audience);
@@ -220,7 +232,7 @@ export class VeyraAuth {
 		}
 
 		const trace = newVeyraTrace();
-		const outcome = await this.vault.update<
+		const refreshing = this.vault.update<
 			{ kind: "token"; token: StoredAccessToken } | { kind: "signed_out"; reason: "not_signed_in" | "session_ended" }
 		>(async (current) => {
 			if (!current) return { result: { kind: "signed_out", reason: "not_signed_in" } };
@@ -232,6 +244,8 @@ export class VeyraAuth {
 			if (!current.refresh_token) return { result: { kind: "signed_out", reason: "session_ended" }, next: null };
 			let tokens: TokenSet;
 			try {
+				// Not the caller's signal: once sent, Connect has spent this refresh token, so its answer (the rotated
+				// one) must be kept. The client's own timeout bounds the request.
 				tokens = await this.client.refresh(
 					{
 						clientId: this.clientId,
@@ -239,7 +253,6 @@ export class VeyraAuth {
 						resource: audience === FINGERS_APP ? undefined : audience,
 					},
 					trace,
-					options.signal,
 				);
 			} catch (error) {
 				if (error instanceof OAuthResponseError && error.error === "invalid_grant") {
@@ -271,37 +284,68 @@ export class VeyraAuth {
 			return { result: { kind: "token", token }, next };
 		}, options.signal);
 
-		if (outcome.kind === "signed_out") {
-			this.cache.clear();
-			throw new VeyraSignedOutError(outcome.reason);
-		}
-		this.cache.set(audience, outcome.token);
-		return outcome.token.token;
+		// The cache follows the outcome even when the caller stopped waiting.
+		const settled = refreshing.then((outcome) => {
+			if (outcome.kind === "signed_out") {
+				this.cache.clear();
+				throw new VeyraSignedOutError(outcome.reason);
+			}
+			this.cache.set(audience, outcome.token);
+			return outcome.token.token;
+		});
+		return raceWithAbortSignal(settled, options.signal);
 	}
 
-	/** Sign out: revoke the refresh token at Connect (RFC 7009), then delete the sign-in from the keychain. */
+	/**
+	 * Sign out: revoke the refresh token at Connect (RFC 7009), then delete the sign-in from the keychain. When
+	 * another fingers process holds the lock past the wait, the same steps run without the lock (signing out is
+	 * idempotent) and `lockProblem` says why. Throws only when the keychain itself refuses the deletion.
+	 */
 	async logout(options: { signal?: AbortSignal } = {}): Promise<VeyraLogoutResult> {
 		const trace = newVeyraTrace();
-		const result = await this.vault.update<VeyraLogoutResult>(async (current) => {
-			if (!current) return { result: { signedIn: false, revocation: "none" } };
-			if (!current.refresh_token) return { result: { signedIn: true, revocation: "none" }, next: null };
+		const revoke = async (refreshToken: string | undefined): Promise<Omit<VeyraLogoutResult, "signedIn">> => {
+			if (!refreshToken) return { revocation: "none" };
 			try {
 				const revocation = await this.client.revoke(
-					{ clientId: this.clientId, token: current.refresh_token, tokenTypeHint: "refresh_token" },
+					{ clientId: this.clientId, token: refreshToken, tokenTypeHint: "refresh_token" },
 					trace,
 					options.signal,
 				);
-				return { result: { signedIn: true, revocation }, next: null };
+				return { revocation };
 			} catch (error) {
-				const detail = error instanceof Error ? error.message : String(error);
-				return { result: { signedIn: true, revocation: "failed", detail }, next: null };
+				return { revocation: "failed", detail: error instanceof Error ? error.message : String(error) };
 			}
-		});
+		};
+
+		let changeStarted = false;
+		let result: VeyraLogoutResult;
+		try {
+			result = await this.vault.update<VeyraLogoutResult>(async (current) => {
+				changeStarted = true;
+				if (!current) return { result: { signedIn: false, revocation: "none" } };
+				return { result: { signedIn: true, ...(await revoke(current.refresh_token)) }, next: null };
+			});
+		} catch (error) {
+			// The change ran and the keychain refused it: report that, don't hide it.
+			if (changeStarted) throw error;
+			const lockProblem = error instanceof Error ? error.message : String(error);
+			this.log.log("warn", "sign-out lock not taken", {
+				err: error,
+				trace_id: trace.traceId,
+				span_id: trace.spanId,
+			});
+			const current = this.vault.read();
+			result = current
+				? { signedIn: true, ...(await revoke(current.refresh_token)), lockProblem }
+				: { signedIn: false, revocation: "none", lockProblem };
+			this.vault.clearWithoutLock();
+		}
 		this.cache.clear();
 		if (result.signedIn) {
 			this.log.log(result.revocation === "failed" ? "warn" : "info", "signed out", {
 				revocation: result.revocation,
 				reason: result.detail,
+				without_lock: result.lockProblem !== undefined ? true : undefined,
 				trace_id: trace.traceId,
 				span_id: trace.spanId,
 			});

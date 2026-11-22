@@ -20,9 +20,13 @@ export const silentVeyraLog: VeyraLog = { log: () => {} };
 
 const MAX_LOG_BYTES = 1024 * 1024;
 
+/** The platform's redaction list (contracts/v1/logging.md) and the OAuth secrets of this client. */
 const SECRET_KEYS = new Set([
 	"authorization",
 	"cookie",
+	"set-cookie",
+	"api_key",
+	"client_secret",
 	"token",
 	"access_token",
 	"refresh_token",
@@ -47,8 +51,9 @@ function redact(value: unknown, depth = 0): unknown {
 	return result;
 }
 
+/** `err: { type, message, stack }` (contracts/v1/logging.md). */
 function serializeError(value: unknown): unknown {
-	if (value instanceof Error) return { type: value.name, message: value.message };
+	if (value instanceof Error) return { type: value.name, message: value.message, stack: value.stack };
 	return { type: "Error", message: String(value) };
 }
 

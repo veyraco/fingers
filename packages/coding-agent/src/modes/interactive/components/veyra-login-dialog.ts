@@ -17,6 +17,7 @@ import {
 	SIGN_IN_LEAD,
 	type SignedInFacts,
 	SPINNER_FRAMES,
+	safeSignedInFacts,
 	WAITING_TEXT,
 } from "../../../core/veyra/login-text.ts";
 import { theme } from "../theme/theme.ts";
@@ -32,7 +33,9 @@ export interface VeyraLoginDialogOptions {
 }
 
 /** "✓ Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium", colored as on the artboard. */
-export function formatSignedInLine(facts: SignedInFacts): string {
+export function formatSignedInLine(unsafeFacts: SignedInFacts): string {
+	// Names come from Connect: no terminal escapes reach the screen.
+	const facts = safeSignedInFacts(unsafeFacts);
 	const separator = theme.fg("dim", "  ·  ");
 	let line = `${theme.bold(theme.fg("success", "✓"))} ${theme.fg("text", "Signed in as ")}${theme.bold(
 		theme.fg("text", facts.email ?? facts.subject ?? "your Veyra account"),
@@ -83,6 +86,12 @@ export class VeyraLoginDialogComponent implements Component, Focusable {
 			}, 1000);
 			this.timer.unref?.();
 		}
+		this.options.requestRender();
+	}
+
+	/** The browser could not be launched: ask the person to open the address instead of saying it opened. */
+	browserDidNotOpen(): void {
+		this.browserOpened = false;
 		this.options.requestRender();
 	}
 

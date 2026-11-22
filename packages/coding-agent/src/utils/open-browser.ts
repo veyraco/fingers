@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
  * `cmd /c start`: cmd.exe re-parses metacharacters (&, |, ^, ...) before
  * `start` runs, which would make attacker-controlled URLs injectable.
  */
-export function openBrowser(target: string): void {
+export function openBrowser(target: string, options: { onError?: () => void } = {}): void {
 	const [cmd, args]: [string, string[]] =
 		process.platform === "darwin"
 			? ["open", [target]]
@@ -22,6 +22,22 @@ export function openBrowser(target: string): void {
 	// \\wsl.localhost\... path exceeds MAX_PATH (#11592). The target is a URL,
 	// so no launcher needs fingers' cwd.
 	spawn(cmd, args, { stdio: "ignore", detached: true, cwd: "/" })
-		.on("error", () => {})
+		.on("error", () => options.onError?.())
 		.unref();
+}
+
+/**
+ * Whether a browser Fingers opens would appear in front of the person: not over SSH (it would open on the remote
+ * computer, if at all) and, on Linux, only with a display. Callers that cannot open one show the address instead of
+ * saying the browser opened.
+ */
+export function browserIsLocal(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): boolean {
+	if (env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY) return false;
+	if (platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.WSL_DISTRO_NAME && !env.TERMUX_VERSION) {
+		return false;
+	}
+	return true;
 }
