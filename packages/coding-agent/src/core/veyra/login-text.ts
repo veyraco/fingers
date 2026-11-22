@@ -4,15 +4,19 @@
  */
 import { replaceControlCharacters } from "@veyraco/fingers-tui";
 
+/** Bidirectional embedding, override and isolate controls: they reorder what follows them on the line. */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]+/g;
+
 /**
  * A string Connect controls (organization, tier, group, person name and email, error descriptions) made safe to print
- * in a terminal: each run of control characters (ESC, OSC, BEL, newlines) becomes one space, so it cannot move the
- * cursor, set the clipboard (OSC 52), retitle the window or fake another line.
+ * in a terminal: each run of control characters (C0 and C1: ESC, OSC, CSI, BEL, newlines) or bidi controls becomes one
+ * space, so it cannot move the cursor, set the clipboard (OSC 52), retitle the window, fake another line or reorder
+ * the text around it.
  */
 export function connectText(value: string): string;
 export function connectText(value: string | undefined): string | undefined;
 export function connectText(value: string | undefined): string | undefined {
-	return value === undefined ? undefined : replaceControlCharacters(value);
+	return value === undefined ? undefined : replaceControlCharacters(value).replace(BIDI_CONTROLS, " ");
 }
 
 /** An error's message for the screen; errors about Connect carry its error_description. */
@@ -50,7 +54,7 @@ export function safeSignedInFacts(facts: SignedInFacts): SignedInFacts {
 	};
 }
 
-/** "Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium". */
+/** "Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium". */
 export function signedInSummary(facts: SignedInFacts): string {
 	const safe = safeSignedInFacts(facts);
 	let text = `Signed in as ${safe.email ?? safe.subject ?? "your Veyra account"}`;

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 
 /**
  * Open a URL or file in the platform browser/default handler.
@@ -8,6 +8,19 @@ import { spawn } from "node:child_process";
  * `start` runs, which would make attacker-controlled URLs injectable.
  */
 export function openBrowser(target: string, options: { onError?: () => void } = {}): void {
+	spawnOpener(target).on("error", () => options.onError?.());
+}
+
+/** Like openBrowser; resolves true once the launcher started, false when it could not be started at all. */
+export function launchBrowser(target: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const child = spawnOpener(target);
+		child.once("spawn", () => resolve(true));
+		child.once("error", () => resolve(false));
+	});
+}
+
+function spawnOpener(target: string): ChildProcess {
 	const [cmd, args]: [string, string[]] =
 		process.platform === "darwin"
 			? ["open", [target]]
@@ -21,9 +34,9 @@ export function openBrowser(target: string, options: { onError?: () => void } = 
 	// On WSL, xdg-open launches explorer.exe, which fails when the cwd's
 	// \\wsl.localhost\... path exceeds MAX_PATH (#11592). The target is a URL,
 	// so no launcher needs fingers' cwd.
-	spawn(cmd, args, { stdio: "ignore", detached: true, cwd: "/" })
-		.on("error", () => options.onError?.())
-		.unref();
+	const child = spawn(cmd, args, { stdio: "ignore", detached: true, cwd: "/" });
+	child.unref();
+	return child;
 }
 
 /**

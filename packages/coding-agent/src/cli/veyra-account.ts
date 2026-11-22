@@ -19,9 +19,14 @@ import {
 	WAITING_TEXT,
 } from "../core/veyra/login-text.ts";
 import { ConnectUnavailableError } from "../core/veyra/oidc-client.ts";
-import { type VeyraAuth, type VeyraOrganization, VeyraSignedOutError } from "../core/veyra/veyra-auth.ts";
+import {
+	VEYRA_REVOKE_TIMEOUT_MS,
+	type VeyraAuth,
+	type VeyraOrganization,
+	VeyraSignedOutError,
+} from "../core/veyra/veyra-auth.ts";
 import { copyToClipboard } from "../utils/clipboard.ts";
-import { browserIsLocal, openBrowser } from "../utils/open-browser.ts";
+import { browserIsLocal, launchBrowser, openBrowser } from "../utils/open-browser.ts";
 
 export type VeyraLoginKey = "copy" | "open" | "cancel";
 
@@ -31,6 +36,8 @@ export interface VeyraCliTerminal {
 	write(line: string): void;
 	error(line: string): void;
 	openUrl(url: string): void;
+	/** Open the browser and tell whether the launcher started (false: it could not be started at all). */
+	launchUrl?(url: string): Promise<boolean>;
 	/** False when a browser opened here would not reach the person (SSH, no display): the address is shown instead. */
 	canOpenUrl?: boolean;
 	copy?(text: string): Promise<void>;
@@ -46,6 +53,8 @@ export interface VeyraAccountCommandOptions {
 	/** The sign-in for the Connect the command names (`--connect`), else FINGERS_CONNECT_URL or connect.veyra.so. */
 	openAuth(connectUrl: string | undefined): VeyraAuth;
 	now?: () => number;
+	/** logout: how long the revocation request may take, counted from when it is sent (default 15 s). */
+	revokeTimeoutMs?: number;
 }
 
 export const VEYRA_ACCOUNT_COMMANDS = ["login", "logout", "whoami"] as const;
@@ -145,7 +154,9 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 	const signal = AbortSignal.any([options.signal, controller.signal]);
 	let stopKeys: (() => void) | undefined;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let ended = false;
 	const stopLive = () => {
+		ended = true;
 		if (timer) clearInterval(timer);
 		timer = undefined;
 		stopKeys?.();
@@ -163,29 +174,46 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 		terminal.write(SIGN_IN_LEAD);
 		terminal.write("");
 		const page = replaceControlCharacters(prompt.verificationUri);
-		terminal.write(browser ? `  1. Your browser opened ${page}` : `  1. Open ${page} in a browser`);
-		terminal.write(`  ${CHECK_CODE_STEP}`);
-		terminal.write("");
-		terminal.write(`     ${replaceControlCharacters(prompt.userCode)}`);
-		terminal.write("");
-		if (browser) terminal.openUrl(target);
-		if (terminal.status && terminal.onKey) {
-			terminal.write(`  ${KEY_HINTS}`);
-			stopKeys = terminal.onKey((key) => {
-				if (key === "cancel") controller.abort();
-				else if (key === "open") terminal.openUrl(target);
-				else void terminal.copy?.(prompt.userCode).catch(() => {});
-			});
-			let frame = 0;
-			const render = () =>
-				`${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${WAITING_TEXT}   code expires in ${formatCountdown(deadline - now())}`;
-			terminal.status(render());
-			timer = setInterval(() => terminal.status?.(render()), 1000);
-			timer.unref?.();
-		} else {
-			terminal.write(
-				`${SPINNER_FRAMES[0]} ${WAITING_TEXT} · code expires in ${formatCountdown(deadline - now())} · Ctrl+C cancels`,
+		// The rest of the screen, once it is known whether the browser could be launched.
+		const showCode = (browserOpened: boolean) => {
+			if (ended) return;
+			terminal.write(browserOpened ? `  1. Your browser opened ${page}` : `  1. Open ${page} in a browser`);
+			terminal.write(`  ${CHECK_CODE_STEP}`);
+			terminal.write("");
+			terminal.write(`     ${replaceControlCharacters(prompt.userCode)}`);
+			terminal.write("");
+			if (terminal.status && terminal.onKey) {
+				terminal.write(`  ${KEY_HINTS}`);
+				stopKeys = terminal.onKey((key) => {
+					if (key === "cancel") controller.abort();
+					else if (key === "open") terminal.openUrl(target);
+					else void terminal.copy?.(prompt.userCode).catch(() => {});
+				});
+				let frame = 0;
+				const render = () =>
+					`${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${WAITING_TEXT}   code expires in ${formatCountdown(deadline - now())}`;
+				terminal.status(render());
+				timer = setInterval(() => terminal.status?.(render()), 1000);
+				timer.unref?.();
+			} else {
+				terminal.write(
+					`${SPINNER_FRAMES[0]} ${WAITING_TEXT} · code expires in ${formatCountdown(deadline - now())} · Ctrl+C cancels`,
+				);
+			}
+		};
+		if (!browser) {
+			showCode(false);
+			return;
+		}
+		// Never say "Your browser opened" when the launcher itself could not start (the terminal app does the same).
+		if (terminal.launchUrl) {
+			void terminal.launchUrl(target).then(
+				(started) => showCode(started),
+				() => showCode(false),
 			);
+		} else {
+			terminal.openUrl(target);
+			showCode(true);
 		}
 	};
 
@@ -230,7 +258,11 @@ async function logout(auth: VeyraAuth, options: VeyraAccountCommandOptions): Pro
 	const { terminal } = options;
 	let result: Awaited<ReturnType<VeyraAuth["logout"]>>;
 	try {
-		result = await auth.logout({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) });
+		// The revoke's timeout starts when the revoke is sent, after any wait for the lock.
+		result = await auth.logout({
+			signal: options.signal,
+			revokeTimeoutMs: options.revokeTimeoutMs ?? VEYRA_REVOKE_TIMEOUT_MS,
+		});
 	} catch (error) {
 		terminal.error(`Could not sign out of Veyra: ${connectErrorText(error)}`);
 		return 1;
@@ -274,7 +306,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	const { terminal } = options;
 	const account = auth.account();
 	if (!account) {
-		if (parsed.json) terminal.write(JSON.stringify({ signed_in: false, issuer: auth.issuer }, null, 2));
+		if (parsed.json) terminal.write(terminalSafeJson({ signed_in: false, issuer: auth.issuer }));
 		else terminal.write(`Not signed in to Veyra. Run ${APP_NAME} login.`);
 		return 1;
 	}
@@ -314,19 +346,15 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 			...(orgProblem ? { error: orgProblem } : {}),
 		};
 		terminal.write(
-			JSON.stringify(
-				{
-					signed_in: true,
-					issuer: account.issuer,
-					subject: account.subject,
-					email: account.email,
-					name: account.name,
-					organization,
-					storage,
-				},
-				null,
-				2,
-			),
+			terminalSafeJson({
+				signed_in: true,
+				issuer: account.issuer,
+				subject: account.subject,
+				email: account.email,
+				name: account.name,
+				organization,
+				storage,
+			}),
 		);
 		return 0;
 	}
@@ -346,6 +374,18 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	return 0;
 }
 
+/**
+ * Pretty JSON a terminal can't act on: JSON.stringify escapes U+0000-U+001F only, so DEL, the C1 controls (U+0080-
+ * U+009F: CSI U+009B and OSC U+009D act in some terminals) and the bidi controls are escaped as \uXXXX too. Same JSON
+ * values.
+ */
+function terminalSafeJson(value: unknown): string {
+	return JSON.stringify(value, null, 2).replace(
+		/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
+		(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	);
+}
+
 /** The account commands' terminal on this process' stdin and stdout: a live status line and keys in a terminal. */
 export function createProcessVeyraTerminal(): VeyraCliTerminal {
 	const stdin = process.stdin;
@@ -355,6 +395,7 @@ export function createProcessVeyraTerminal(): VeyraCliTerminal {
 		write: (line) => process.stdout.write(`${line}\n`),
 		error: (line) => process.stderr.write(`${line}\n`),
 		openUrl: (url) => openBrowser(url),
+		launchUrl: launchBrowser,
 		canOpenUrl: browserIsLocal(),
 		copy: copyToClipboard,
 	};

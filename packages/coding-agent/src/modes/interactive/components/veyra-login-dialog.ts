@@ -32,7 +32,7 @@ export interface VeyraLoginDialogOptions {
 	now?: () => number;
 }
 
-/** "✓ Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium", colored as on the artboard. */
+/** "✓ Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium", colored as on the artboard. */
 export function formatSignedInLine(unsafeFacts: SignedInFacts): string {
 	// Names come from Connect: no terminal escapes reach the screen.
 	const facts = safeSignedInFacts(unsafeFacts);

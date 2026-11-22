@@ -132,7 +132,7 @@ describe("where the sign-in is kept", () => {
 		expect(account).toMatchObject({
 			issuer: connect.issuer,
 			subject: "usr_ada",
-			email: "ada@acme.dev",
+			email: "ada@example.com",
 			name: "Ada Lovelace",
 			org: FAKE_ORG.id,
 			groupKey: "editor",
@@ -140,7 +140,7 @@ describe("where the sign-in is kept", () => {
 		});
 		const requests = connect.requests.length;
 		const other = setup(connect, { store: s.store });
-		expect(other.auth.account()?.email).toBe("ada@acme.dev");
+		expect(other.auth.account()?.email).toBe("ada@example.com");
 		expect(connect.requests.length).toBe(requests);
 	});
 
@@ -412,6 +412,58 @@ describe("logout", () => {
 		} finally {
 			await release();
 		}
+	});
+
+	it("the revoke's timeout starts at the revoke, not before a long wait for the lock", async () => {
+		const connect = await startFake();
+		const s = setup(connect, { lockWaitMs: 600 });
+		await signIn(s);
+		const release = await holdSignInLock();
+		try {
+			const result = await s.auth.logout({ revokeTimeoutMs: 300 });
+			expect(result).toMatchObject({ signedIn: true, revocation: "revoked" });
+			expect(connect.revoked).toHaveLength(1);
+			expect(storedSession(s.store)).toBeUndefined();
+		} finally {
+			await release();
+		}
+	});
+
+	it("a revoke slower than its timeout fails, and the keychain is still cleared", async () => {
+		const connect = await startFake();
+		const s = setup(connect);
+		await signIn(s);
+		connect.revokeDelayMs = 1_000;
+		const result = await s.auth.logout({ revokeTimeoutMs: 200 });
+		expect(result).toMatchObject({ signedIn: true, revocation: "failed" });
+		expect(result.detail).toMatch(/timed out|abort/i);
+		expect(storedSession(s.store)).toBeUndefined();
+	});
+
+	it("a sign-out without the lock wins: the lock holder's refresh does not write the sign-in back", async () => {
+		const connect = await startFake({ revocation: false });
+		const a = setup(connect);
+		await signIn(a);
+		// Another fingers process signs out while this one refreshes under the lock.
+		const b = setup(connect, { store: a.store, lockWaitMs: 300 });
+		connect.refreshDelayMs = 1_500;
+		const refreshing = a.auth.getAccessToken("connect").catch((caught: unknown) => caught);
+		await vi.waitFor(() => expect(refreshTokensSent(connect)).toHaveLength(1));
+		const result = await b.auth.logout();
+		expect(result).toMatchObject({ signedIn: true, revocation: "unsupported" });
+		expect(result.lockProblem).toBeDefined();
+		expect(b.auth.account()).toBeUndefined();
+
+		// The holder's refresh finishes after the sign-out: nothing is written back, and it reports signed out.
+		const outcome = await refreshing;
+		expect(outcome).toBeInstanceOf(VeyraSignedOutError);
+		expect(storedSession(a.store)).toBeUndefined();
+		expect(a.auth.account()).toBeUndefined();
+		expect(b.auth.account()).toBeUndefined();
+		// The same process asking again: still signed out, no request.
+		const requests = connect.requests.length;
+		await expect(a.auth.getAccessToken("connect")).rejects.toBeInstanceOf(VeyraSignedOutError);
+		expect(connect.requests.length).toBe(requests);
 	});
 
 	it("not signed in: nothing to revoke", async () => {

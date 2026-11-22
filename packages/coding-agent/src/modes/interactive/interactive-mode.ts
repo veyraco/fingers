@@ -131,6 +131,7 @@ import {
 	connectedAppsUrl,
 	createVeyraAuth,
 	DeviceFlowError,
+	VEYRA_REVOKE_TIMEOUT_MS,
 	type VeyraAccount,
 	type VeyraAuth,
 	VeyraSignedOutError,
@@ -6436,7 +6437,8 @@ export class InteractiveMode {
 		if (!auth) return;
 		let result: Awaited<ReturnType<VeyraAuth["logout"]>>;
 		try {
-			result = await auth.logout({ signal: AbortSignal.timeout(15_000) });
+			// The revoke's timeout starts when the revoke is sent, after any wait for the lock.
+			result = await auth.logout({ revokeTimeoutMs: VEYRA_REVOKE_TIMEOUT_MS });
 		} catch (error) {
 			this.showError(`Could not sign out of Veyra: ${connectErrorText(error)}`);
 			return;

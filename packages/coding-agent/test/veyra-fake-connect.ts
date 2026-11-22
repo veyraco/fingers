@@ -36,8 +36,10 @@ export interface FakeConnectOptions {
 	orgOverride?: Partial<{ name: string; code: string; tier: string }>;
 	/** The member's group name in the organization lookup (default: Editor). */
 	groupNameOverride?: string;
-	/** Claims of the ID token (default: Ada Lovelace, ada@acme.dev). */
+	/** Claims of the ID token (default: Ada Lovelace, ada@example.com). */
 	idTokenClaimsOverride?: Record<string, unknown>;
+	/** A scripted OAuth error for the revocation request (default: 200, RFC 7009 2.2). */
+	revokeError?: { status: number; error: string; description?: string };
 }
 
 export interface RecordedRequest {
@@ -85,6 +87,8 @@ export class FakeConnect {
 	private sessionCounter = 0;
 	/** Delay before answering a refresh, to make two refreshes overlap. */
 	refreshDelayMs = 0;
+	/** Delay before answering a revocation. */
+	revokeDelayMs = 0;
 
 	constructor(options: FakeConnectOptions = {}) {
 		this.options = options;
@@ -156,6 +160,7 @@ export class FakeConnect {
 		if (req.method === "POST" && url.pathname === "/oauth2/device_authorization") this.deviceAuthorization(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/token") await this.token(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/revoke" && this.options.revocation !== false) {
+			if (this.revokeDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.revokeDelayMs));
 			this.revoke(res, form);
 		} else if (req.method === "GET" && orgMatch) this.organization(res, req, orgMatch[1]!);
 		else json(res, 404, { error: "not_found" });
@@ -261,6 +266,11 @@ export class FakeConnect {
 	}
 
 	private revoke(res: ServerResponse, form: Record<string, string>): void {
+		if (this.options.revokeError) {
+			const { status, error, description } = this.options.revokeError;
+			json(res, status, { error, error_description: description ?? error });
+			return;
+		}
 		const token = form.token ?? "";
 		this.revoked.push(token);
 		const record = this.refreshTokens.get(token);
@@ -344,7 +354,7 @@ export class FakeConnect {
 					sid,
 					auth_time: now,
 					org: ORG.id,
-					email: "ada@acme.dev",
+					email: "ada@example.com",
 					email_verified: true,
 					name: "Ada Lovelace",
 					iat: now,

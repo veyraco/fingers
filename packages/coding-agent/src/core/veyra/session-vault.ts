@@ -98,6 +98,17 @@ export function veyraSessionAccount(session: StoredVeyraSession, storage: VeyraS
 	};
 }
 
+/**
+ * Another fingers process signed out without the lock (it could not take it in time) while this change ran. The
+ * sign-out wins: the change was not written, and the sign-in is gone.
+ */
+export class VeyraSessionClearedError extends Error {
+	constructor() {
+		super("Another fingers process signed out of Veyra while this change ran");
+		this.name = "VeyraSessionClearedError";
+	}
+}
+
 /** `next`: the session to store, `null` to delete it, undefined to leave it as it is. */
 export type VaultUpdate<T> = (
 	current: StoredVeyraSession | undefined,
@@ -110,7 +121,8 @@ export interface VeyraSessionVault {
 	/**
 	 * Read, change and write under the cross-process lock. `signal` ends only the wait for the lock: once `fn` runs,
 	 * the change finishes and is written, so a refresh Connect already answered is never dropped (Connect ends the
-	 * session when the spent refresh token comes back).
+	 * session when the spent refresh token comes back). When another process signed out without the lock meanwhile,
+	 * a session to store is dropped and the update rejects with VeyraSessionClearedError.
 	 */
 	update<T>(fn: VaultUpdate<T>, signal?: AbortSignal): Promise<T>;
 	/**
@@ -173,6 +185,16 @@ class KeychainSessionVault implements VeyraSessionVault {
 		}
 	}
 
+	/** The marker's revision: every write of the marker draws a new one. */
+	private markerRevision(): string | undefined {
+		try {
+			const revision = (JSON.parse(readFileSync(this.markerPath, "utf-8")) as { revision?: unknown }).revision;
+			return typeof revision === "string" ? revision : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	private readUnderLock(): StoredVeyraSession | undefined {
 		try {
 			return parseSession(this.blob.read(), this.issuer);
@@ -205,11 +227,18 @@ class KeychainSessionVault implements VeyraSessionVault {
 			.withLockAsync(
 				async () => {
 					signal?.removeEventListener("abort", forward);
+					// Under the lock only a sign-out without it (clearWithoutLock) can rewrite the marker.
+					const revision = this.markerRevision();
 					const { result, next } = await fn(this.readUnderLock());
 					if (next === undefined) return { result };
 					if (next === null) {
 						this.blob.delete();
 						return { result, next: this.marker(false) };
+					}
+					if (this.markerRevision() !== revision && !this.signedInByMarker()) {
+						// That sign-out wins: writing `next` (a rotated refresh token, say) would bring the sign-in back.
+						this.blob.delete();
+						throw new VeyraSessionClearedError();
 					}
 					this.blob.write(JSON.stringify(next));
 					return { result, next: this.marker(true) };

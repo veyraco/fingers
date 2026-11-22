@@ -311,9 +311,9 @@ export FINGERS_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
 
 The sign-in is kept only in the OS keychain (macOS Keychain, Secret Service on Linux, Windows Credential Manager): the refresh token and the short-lived access tokens never go to a file. Without a usable keychain, or with `FINGERS_CREDENTIAL_STORE=file`, `fingers login` refuses; `/login` in a session then keeps the sign-in in memory for that session only. Model provider credentials are separate and stay under `fingers auth`.
 
-`fingers whoami` prints the account, the organization with its tier, your group, the Connect address, and where the sign-in is stored. It exits with status `1` when you are not signed in. `--json` prints the same facts as JSON, never a token.
+`fingers whoami` prints the account, the organization with its tier, your group, the Connect address, and where the sign-in is stored. It exits with status `1` when you are not signed in. `--json` prints the same facts as JSON, never a token, with control and bidi characters escaped as `\uXXXX`.
 
-`fingers logout` revokes the device's refresh token at Connect (RFC 7009) and removes the sign-in from the keychain. When Connect can't be reached or can't revoke it, the sign-in is still removed here and the command names the Connected apps page where you remove the device; it exits with status `1` when the revocation failed. When another fingers process holds the sign-in's lock for more than 30 seconds, `fingers logout` says so and signs out without the lock, since signing out is safe to repeat.
+`fingers logout` revokes the device's refresh token at Connect (RFC 7009) and removes the sign-in from the keychain. When Connect can't be reached or can't revoke it, the sign-in is still removed here and the command names the Connected apps page where you remove the device; it exits with status `1` when the revocation failed. When another fingers process holds the sign-in's lock for more than 30 seconds, `fingers logout` says so and signs out without the lock, since signing out is safe to repeat; a refresh that process was running then cannot bring the sign-in back. The revocation request gets 15 seconds from when it is sent.
 
 | Option | Applies to | Description |
 |---|---|---|

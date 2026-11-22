@@ -26,6 +26,7 @@ import {
 	type StoredAccessToken,
 	type StoredVeyraSession,
 	type VeyraAccount,
+	VeyraSessionClearedError,
 	type VeyraSessionVault,
 	type VeyraStorageInfo,
 	veyraSessionAccount,
@@ -101,6 +102,9 @@ export interface VeyraAuthOptions {
 
 /** Refresh a token this long before it expires. */
 const REFRESH_MARGIN_MS = 60_000;
+
+/** How long `fingers logout` and `/logout` give the revocation request, counted from when it is sent. */
+export const VEYRA_REVOKE_TIMEOUT_MS = 15_000;
 
 function decodeJwtPayload(token: string | undefined): Record<string, unknown> {
 	const part = token?.split(".")[1];
@@ -285,14 +289,24 @@ export class VeyraAuth {
 		}, options.signal);
 
 		// The cache follows the outcome even when the caller stopped waiting.
-		const settled = refreshing.then((outcome) => {
-			if (outcome.kind === "signed_out") {
-				this.cache.clear();
-				throw new VeyraSignedOutError(outcome.reason);
-			}
-			this.cache.set(audience, outcome.token);
-			return outcome.token.token;
-		});
+		const settled = refreshing.then(
+			(outcome) => {
+				if (outcome.kind === "signed_out") {
+					this.cache.clear();
+					throw new VeyraSignedOutError(outcome.reason);
+				}
+				this.cache.set(audience, outcome.token);
+				return outcome.token.token;
+			},
+			(error: unknown) => {
+				// Another fingers process signed out while this refresh ran: signed out here too, token dropped.
+				if (error instanceof VeyraSessionClearedError) {
+					this.cache.clear();
+					throw new VeyraSignedOutError("not_signed_in");
+				}
+				throw error;
+			},
+		);
 		return raceWithAbortSignal(settled, options.signal);
 	}
 
@@ -300,16 +314,21 @@ export class VeyraAuth {
 	 * Sign out: revoke the refresh token at Connect (RFC 7009), then delete the sign-in from the keychain. When
 	 * another fingers process holds the lock past the wait, the same steps run without the lock (signing out is
 	 * idempotent) and `lockProblem` says why. Throws only when the keychain itself refuses the deletion.
+	 * `revokeTimeoutMs` bounds the revocation request from when it is sent, not from the start of a long lock wait.
 	 */
-	async logout(options: { signal?: AbortSignal } = {}): Promise<VeyraLogoutResult> {
+	async logout(options: { signal?: AbortSignal; revokeTimeoutMs?: number } = {}): Promise<VeyraLogoutResult> {
 		const trace = newVeyraTrace();
 		const revoke = async (refreshToken: string | undefined): Promise<Omit<VeyraLogoutResult, "signedIn">> => {
 			if (!refreshToken) return { revocation: "none" };
+			// The timeout starts here, right before the request.
+			const timeout =
+				options.revokeTimeoutMs === undefined ? undefined : AbortSignal.timeout(options.revokeTimeoutMs);
+			const signals = [options.signal, timeout].filter((signal): signal is AbortSignal => signal !== undefined);
 			try {
 				const revocation = await this.client.revoke(
 					{ clientId: this.clientId, token: refreshToken, tokenTypeHint: "refresh_token" },
 					trace,
-					options.signal,
+					signals.length > 0 ? AbortSignal.any(signals) : undefined,
 				);
 				return { revocation };
 			} catch (error) {

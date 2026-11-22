@@ -103,16 +103,16 @@ describe("the /login dialog", () => {
 	});
 
 	it("formats the signed-in line as on the artboard", () => {
-		expect(stripAnsi(formatSignedInLine({ email: "ada@acme.dev", orgName: "Acme Robotics", tier: "medium" }))).toBe(
-			"✓ Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium",
-		);
-		expect(stripAnsi(formatSignedInLine({ email: "ada@acme.dev" }))).toBe("✓ Signed in as ada@acme.dev");
+		expect(
+			stripAnsi(formatSignedInLine({ email: "ada@example.com", orgName: "Acme Robotics", tier: "medium" })),
+		).toBe("✓ Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium");
+		expect(stripAnsi(formatSignedInLine({ email: "ada@example.com" }))).toBe("✓ Signed in as ada@example.com");
 	});
 
 	it("neutralizes terminal escapes from Connect in the signed-in line (only the theme's colors stay)", () => {
 		const osc52 = "\u001b]52;c;cm0gLXJmIH4K\u0007";
 		const line = formatSignedInLine({
-			email: `ada${osc52}@acme.dev`,
+			email: `ada${osc52}@example.com`,
 			orgName: "Acme\u001b[2J Robotics",
 			tier: "medium\u0007",
 		});

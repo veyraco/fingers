@@ -64,7 +64,7 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const ACCOUNT: VeyraAccount = {
 	issuer: "https://connect.veyra.so",
 	subject: "usr_ada",
-	email: "ada@acme.dev",
+	email: "ada@example.com",
 	org: "org_7aR2cT",
 	orgName: "Acme Robotics",
 	signedInAt: 0,
@@ -266,6 +266,8 @@ describe("/logout (Veyra)", () => {
 		const context = accountContext(auth);
 		await prototype.handleVeyraLogout.call(context);
 		expect(auth.logout).toHaveBeenCalledTimes(1);
+		// The revoke's 15 s start at the revoke, after any wait for the lock: no timer is started up front.
+		expect(auth.logout).toHaveBeenCalledWith({ revokeTimeoutMs: 15_000 });
 		expect(context.veyraAccount).toBeUndefined();
 		expect(context.showStatus).toHaveBeenCalledWith(
 			"Signed out of Veyra. Provider keys stay; /logout <provider> removes one.",
@@ -323,10 +325,10 @@ describe("/logout (Veyra)", () => {
 describe("Connect's strings on the terminal app's screen", () => {
 	it("the status line's account has no terminal escapes", () => {
 		const status = prototype.getVeyraAccountStatus.call({
-			veyraAccount: { ...ACCOUNT, email: `ada${OSC52}@acme.dev`, orgName: "Acme\u001b[2J Robotics" },
+			veyraAccount: { ...ACCOUNT, email: `ada${OSC52}@example.com`, orgName: "Acme\u001b[2J Robotics" },
 		});
 		expect(status?.signedIn).toBe(true);
-		expect(status?.email).toContain("@acme.dev");
+		expect(status?.email).toContain("@example.com");
 		expect(status?.email).not.toMatch(CONTROL);
 		expect(status?.org).toContain("Robotics");
 		expect(status?.org).not.toMatch(CONTROL);

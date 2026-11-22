@@ -139,7 +139,7 @@ describe("fingers login", () => {
 			"",
 			"◐ Waiting for you to confirm in the browser · code expires in 10:00 · Ctrl+C cancels",
 			"",
-			"✓ Signed in as ada@acme.dev  ·  org Acme Robotics  ·  tier medium",
+			"✓ Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium",
 			"  Token stored in your OS keychain. Sign out with fingers logout or revoke the device in Connect.",
 		]);
 		expect(t.opened).toEqual([`${connect.issuer}/device?user_code=WDJB-MJHT`]);
@@ -249,7 +249,7 @@ describe("fingers whoami", () => {
 		const t = terminal();
 		expect(await run(["whoami"], auth, t)).toBe(0);
 		expect(t.lines).toEqual([
-			"Signed in as ada@acme.dev (Ada Lovelace)",
+			"Signed in as ada@example.com (Ada Lovelace)",
 			"  Organization  Acme Robotics (acme)",
 			"  Tier          medium",
 			"  Group         Editor",
@@ -269,7 +269,7 @@ describe("fingers whoami", () => {
 			signed_in: true,
 			issuer: connect.issuer,
 			subject: "usr_ada",
-			email: "ada@acme.dev",
+			email: "ada@example.com",
 			name: "Ada Lovelace",
 			organization: { id: "org_7aR2cT", code: "acme", name: "Acme Robotics", tier: "medium", group: "Editor" },
 			storage: { persistent: true, location: "in-memory keychain" },
@@ -292,7 +292,7 @@ describe("fingers whoami", () => {
 		await connect.stop();
 		const t = terminal();
 		expect(await run(["whoami"], auth, t)).toBe(0);
-		expect(t.lines[0]).toBe("Signed in as ada@acme.dev (Ada Lovelace)");
+		expect(t.lines[0]).toBe("Signed in as ada@example.com (Ada Lovelace)");
 		expect(t.lines[1]).toMatch(
 			/^ {2}Organization {2}Acme Robotics \(acme\) · not checked now: Connect could not be reached/,
 		);
@@ -403,7 +403,7 @@ describe("strings from Connect are printed without terminal escapes", () => {
 		const connect = await startFake({
 			orgOverride: { name: `${OSC52}Acme\u001b[2J Robotics`, code: "acme\u001b[1A", tier: "medium\u0007" },
 			groupNameOverride: `Editor${OSC52}`,
-			idTokenClaimsOverride: { name: "Ada\u001b]0;owned\u0007 Lovelace", email: `ada${OSC52}@acme.dev` },
+			idTokenClaimsOverride: { name: "Ada\u001b]0;owned\u0007 Lovelace", email: `ada${OSC52}@example.com` },
 		});
 		const { auth } = makeAuth(connect);
 		const login = terminal();
@@ -415,7 +415,7 @@ describe("strings from Connect are printed without terminal escapes", () => {
 		const summary = login.lines.find((line) => line.startsWith("✓ Signed in as"));
 		expect(summary).toContain("Acme");
 		expect(summary).toContain("Robotics");
-		expect(summary).toContain("@acme.dev");
+		expect(summary).toContain("@example.com");
 		expect(whoami.lines.join("\n")).toContain("Editor");
 		expect(whoami.lines.join("\n")).toContain("Lovelace");
 	});
@@ -451,5 +451,116 @@ describe("fingers logout when another fingers process holds the lock", () => {
 		} finally {
 			await release();
 		}
+	});
+});
+
+describe("round 2 of the review", () => {
+	it("whoami --json escapes C1 and bidi controls (U+009D OSC, U+009B CSI, U+202E) and keeps the exact values", async () => {
+		const orgName = "Acme\u009d52;c;cm0gLXJmIH4K\u009c \u202eRobotics";
+		const groupName = "Editor\u009b2J";
+		const connect = await startFake({ orgOverride: { name: orgName }, groupNameOverride: groupName });
+		const { auth } = makeAuth(connect);
+		await run(["login"], auth, terminal());
+		const t = terminal();
+		expect(await run(["whoami", "--json"], auth, t)).toBe(0);
+		const text = t.lines.join("\n");
+		expect(text).not.toMatch(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+		const parsed = JSON.parse(text) as { organization: { name: string; group: string } };
+		expect(parsed.organization.name).toBe(orgName);
+		expect(parsed.organization.group).toBe(groupName);
+	});
+
+	it("bidi controls from Connect (U+202E, U+2066-U+2069) are neutralized in login and whoami", async () => {
+		const connect = await startFake({
+			orgOverride: { name: "Acme \u202escitoboR\u202c" },
+			groupNameOverride: "\u2066Editor\u2069",
+			idTokenClaimsOverride: { name: "Ada \u2067Lovelace\u2069" },
+		});
+		const { auth } = makeAuth(connect);
+		const login = terminal();
+		expect(await run(["login"], auth, login)).toBe(0);
+		const whoami = terminal();
+		expect(await run(["whoami"], auth, whoami)).toBe(0);
+		for (const line of [...printed(login), ...printed(whoami)]) {
+			expect(line).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+		}
+		expect(whoami.lines.join("\n")).toContain("Editor");
+	});
+
+	it("a lock wait longer than the revoke timeout still sends the revoke (the timeout starts at the revoke)", async () => {
+		const connect = await startFake();
+		const { auth, store } = makeAuth(connect, { lockWaitMs: 600 });
+		await run(["login"], auth, terminal());
+		const release = await holdSignInLock();
+		try {
+			const t = terminal();
+			const code = await runVeyraAccountCommand(["logout"], {
+				terminal: t,
+				signal: new AbortController().signal,
+				openAuth: () => auth,
+				revokeTimeoutMs: 300,
+			});
+			expect(code).toBe(0);
+			expect(connect.revoked).toHaveLength(1);
+			expect(t.lines).toEqual([
+				"Signed out of Veyra. Connect revoked this device, and the sign-in is gone from your OS keychain.",
+			]);
+			expect([...store.items.keys()]).toEqual([]);
+		} finally {
+			await release();
+		}
+	});
+
+	it("an ESC sequence in a failed revocation's error_description is neutralized", async () => {
+		const connect = await startFake({
+			revokeError: { status: 400, error: "invalid_request", description: `Bad token${OSC52}\u001b[2J` },
+		});
+		const { auth } = makeAuth(connect);
+		await run(["login"], auth, terminal());
+		const t = terminal();
+		expect(await run(["logout"], auth, t)).toBe(1);
+		expect(t.errors[0]).toContain("Connect could not revoke the device (invalid_request: Bad token");
+		for (const line of printed(t)) expect(line).not.toMatch(CONTROL);
+	});
+
+	it("an ESC sequence in a sign-in error that is not a device-flow error is neutralized", async () => {
+		const failing = {
+			issuer: "https://connect.veyra.so",
+			storage: { persistent: true, location: "in-memory keychain" },
+			login: async () => {
+				throw new Error(`The keychain refused the sign-in${OSC52}\u001b[2J`);
+			},
+		} as unknown as VeyraAuth;
+		const t = terminal();
+		expect(await run(["login"], failing, t)).toBe(1);
+		expect(t.errors[0]).toMatch(/^Could not sign in: The keychain refused the sign-in/);
+		for (const line of printed(t)) expect(line).not.toMatch(CONTROL);
+	});
+
+	it("the browser launcher fails: asks to open the link and never says the browser opened", async () => {
+		const connect = await startFake();
+		const { auth } = makeAuth(connect);
+		const t = terminal();
+		t.launchUrl = async (url) => {
+			t.opened.push(url);
+			return false;
+		};
+		expect(await run(["login"], auth, t)).toBe(0);
+		expect(t.opened).toEqual([`${connect.issuer}/device?user_code=WDJB-MJHT`]);
+		expect(t.lines).toContain(`  1. Open ${connect.issuer}/device in a browser`);
+		expect(t.lines.join("\n")).not.toContain("Your browser opened");
+		expect(t.lines).toContain("     WDJB-MJHT");
+	});
+
+	it("the browser launcher starts: says the browser opened", async () => {
+		const connect = await startFake();
+		const { auth } = makeAuth(connect);
+		const t = terminal();
+		t.launchUrl = async (url) => {
+			t.opened.push(url);
+			return true;
+		};
+		expect(await run(["login"], auth, t)).toBe(0);
+		expect(t.lines).toContain(`  1. Your browser opened ${connect.issuer}/device`);
 	});
 });
