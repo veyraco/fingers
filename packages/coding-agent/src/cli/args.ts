@@ -297,9 +297,12 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} update [source|self|fingers]   Update fingers, extensions, or model catalogs
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
+  ${APP_NAME} login [--no-browser]      Sign in to your Veyra account with a device code
+  ${APP_NAME} whoami                    Show the Veyra account, organization, tier and group
+  ${APP_NAME} logout                    Sign out of Veyra: revoke this device and clear the keychain
   ${APP_NAME} auth <command>            Log in or out, print credentials, or check provider readiness
   ${APP_NAME} mcp <command>             Manage MCP servers
-  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
+  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/login/auth/mcp
 
 ${chalk.bold("Options:")}
   --provider <name>              Provider to search for --model (requires --model)
@@ -474,6 +477,8 @@ ${chalk.bold("Environment Variables:")}
   FINGERS_TELEMETRY                     - Override provider attribution when set to 1/true/yes or 0/false/no
   FINGERS_SHARE_VIEWER_URL              - Base URL of a viewer for /share gists (default: none, /share prints the gist URL)
   FINGERS_MODEL_CATALOG_URL             - Base URL of a model catalog service to refresh built-in models from (default: none)
+  FINGERS_CONNECT_URL                   - Veyra Connect for fingers login (default: https://connect.veyra.so)
+  FINGERS_API_URL                       - Origin of the Veyra apps' APIs (default: api.<domain> of FINGERS_CONNECT_URL)
 
 ${chalk.bold("Built-in Tool Names:")}
   read       - Read file contents

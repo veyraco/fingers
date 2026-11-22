@@ -131,7 +131,10 @@ export class FirstRunChooserComponent implements Component {
 				),
 			);
 			out.push(
-				theme.fg("muted", "in your OS keychain. 3 uses keys already set in your shell. /login changes this later."),
+				theme.fg(
+					"muted",
+					"in your OS keychain. 3 uses keys already set in your shell. /login <provider> changes this later.",
+				),
 			);
 			out.push("");
 		}

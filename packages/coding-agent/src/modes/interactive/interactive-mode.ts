@@ -127,12 +127,21 @@ import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
+import {
+	connectedAppsUrl,
+	createVeyraAuth,
+	DeviceFlowError,
+	type VeyraAccount,
+	type VeyraAuth,
+	VeyraSignedOutError,
+} from "../../core/veyra/index.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { flushStdout } from "../../utils/flush-stdout.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { ensurePngTranscoder } from "../../utils/image-convert.ts";
+import { openBrowser } from "../../utils/open-browser.ts";
 import { getCwdRelativePath, shortenHomePath } from "../../utils/paths.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
@@ -154,7 +163,7 @@ import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
 import { fingersBannerLines } from "./components/fingers-logo.ts";
 import { FirstRunChooserComponent } from "./components/first-run-chooser.ts";
-import { FooterComponent, formatTokens } from "./components/footer.ts";
+import { type FingersAccountStatus, FooterComponent, formatTokens } from "./components/footer.ts";
 import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./components/keybinding-hints.ts";
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { createMarkdownTransform } from "./components/markdown-transform.ts";
@@ -184,6 +193,7 @@ import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { formatSignedInLine, VeyraLoginDialogComponent } from "./components/veyra-login-dialog.ts";
 import { editInExternalEditor } from "./external-editor.ts";
 import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
 import { getModelSearchText } from "./model-search.ts";
@@ -523,6 +533,12 @@ export class InteractiveMode {
 	private footer: FooterComponent;
 	private footerContainer: Container;
 	private footerDataProvider: FooterDataProvider;
+	/** The Veyra sign-in (`/login`, `/org`, `/logout`), created on first use. */
+	private veyraAuth: VeyraAuth | undefined;
+	private veyraAuthError: string | undefined;
+	/** Who is signed in to Veyra, for the status line; read from the keychain at startup. */
+	private veyraAccount: VeyraAccount | undefined;
+	private veyraSignInRunning = false;
 	// Stored so the same manager can be injected into custom editors, selectors, and extension UI.
 	private keybindings: KeybindingsManager;
 	private version: string;
@@ -717,7 +733,9 @@ export class InteractiveMode {
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
-		this.footer = new FooterComponent(this.session, this.footerDataProvider);
+		this.footer = new FooterComponent(this.session, this.footerDataProvider, {
+			getAccount: () => this.getVeyraAccountStatus(),
+		});
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
@@ -833,6 +851,14 @@ export class InteractiveMode {
 					}),
 				);
 			};
+		}
+
+		const orgCommand = slashCommands.find((command) => command.name === "org");
+		if (orgCommand) {
+			orgCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null =>
+				"switch".startsWith(prefix.trim())
+					? [{ value: "switch", label: "switch", description: "sign in again and pick another organization" }]
+					: null;
 		}
 
 		const loginCommand = slashCommands.find((command) => command.name === "login");
@@ -1225,6 +1251,9 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
+
+		// Who is signed in to Veyra: a keychain read, after the first frame so startup does not wait on it.
+		setTimeout(() => this.loadVeyraAccount(), 0);
 
 		if (!process.env.FINGERS_OFFLINE) {
 			const controller = new AbortController();
@@ -3463,12 +3492,23 @@ export class InteractiveMode {
 			if (text === "/login" || text.startsWith("/login ")) {
 				const providerRef = text.startsWith("/login ") ? text.slice(7).trim() : undefined;
 				this.editor.setText("");
-				await this.handleLoginCommand(providerRef);
+				// Canvas FingersTuiSlash: /login alone is the Veyra sign-in; with a provider it configures that provider.
+				if (providerRef) await this.handleLoginCommand(providerRef);
+				else await this.handleVeyraLogin();
 				return;
 			}
-			if (text === "/logout") {
-				this.showOAuthSelector("logout");
+			if (text === "/logout" || text.startsWith("/logout ")) {
+				const providerRef = text.startsWith("/logout ") ? text.slice(8).trim() : undefined;
 				this.editor.setText("");
+				if (providerRef) this.showOAuthSelector("logout", providerRef);
+				else if (this.veyraAccount) await this.handleVeyraLogout();
+				else this.showOAuthSelector("logout");
+				return;
+			}
+			if (text === "/org" || text.startsWith("/org ")) {
+				const argument = text.startsWith("/org ") ? text.slice(5).trim() : "";
+				this.editor.setText("");
+				await this.handleOrgCommand(argument);
 				return;
 			}
 			if (text === "/new") {
@@ -6205,7 +6245,7 @@ export class InteractiveMode {
 		});
 	}
 
-	private async showOAuthSelector(mode: "login" | "logout"): Promise<void> {
+	private async showOAuthSelector(mode: "login" | "logout", initialSearchInput?: string): Promise<void> {
 		if (mode === "login") {
 			this.showLoginAuthTypeSelector();
 			return;
@@ -6260,11 +6300,186 @@ export class InteractiveMode {
 					done();
 					this.ui.requestRender();
 				},
-				undefined,
+				initialSearchInput,
 				this.ui,
 			);
 			return { component: selector, focus: selector, dispose: () => selector.dispose() };
 		});
+	}
+
+	// =========================================================================
+	// Veyra account: /login, /org, /logout (canvas FingersTuiLogin)
+	// =========================================================================
+
+	private getVeyraAuth(): VeyraAuth | undefined {
+		if (this.veyraAuth) return this.veyraAuth;
+		try {
+			this.veyraAuth = createVeyraAuth({ agentDir: getAgentDir() });
+		} catch (error) {
+			this.veyraAuthError = error instanceof Error ? error.message : String(error);
+		}
+		return this.veyraAuth;
+	}
+
+	/** The status line's Veyra part: "ee on · email" or "core only · email" once signed in (ee: F12). */
+	private getVeyraAccountStatus(): FingersAccountStatus | undefined {
+		const account = this.veyraAccount;
+		if (!account) return undefined;
+		return { signedIn: true, email: account.email ?? account.subject, org: account.orgName ?? account.org };
+	}
+
+	private loadVeyraAccount(): void {
+		const auth = this.getVeyraAuth();
+		if (!auth) return;
+		try {
+			this.veyraAccount = auth.account();
+		} catch {
+			this.veyraAccount = undefined;
+		}
+		if (this.veyraAccount) this.ui.requestRender();
+	}
+
+	/** `/login`: the device-code sign-in in place of the editor. Resolves true once signed in. */
+	private async handleVeyraLogin(): Promise<boolean> {
+		const auth = this.getVeyraAuth();
+		if (!auth) {
+			this.showError(`Veyra sign-in is not available: ${this.veyraAuthError ?? "unknown error"}`);
+			return false;
+		}
+		if (this.veyraSignInRunning) return false;
+		this.veyraSignInRunning = true;
+		const dialog = new VeyraLoginDialogComponent({
+			requestRender: () => this.ui.requestRender(),
+			onCancel: () => {},
+			openUrl: openBrowser,
+			copy: copyToClipboard,
+		});
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+		const restoreEditor = () => {
+			dialog.dispose();
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		this.programStatus.setBlocked("login", { kind: "auth", message: "Sign in to Veyra" });
+		try {
+			const account = await auth.login({
+				signal: dialog.signal,
+				onCode: (prompt) => {
+					openBrowser(prompt.verificationUriComplete ?? prompt.verificationUri);
+					dialog.showCode(prompt, { browserOpened: true });
+				},
+			});
+			restoreEditor();
+			this.veyraAccount = account;
+			let org: Awaited<ReturnType<VeyraAuth["organization"]>> | undefined;
+			try {
+				org = await auth.organization({ signal: AbortSignal.timeout(10_000) });
+				this.veyraAccount = auth.account() ?? account;
+			} catch {
+				// Signed in all the same; the line shows the organization id.
+			}
+			const kept = account.storage.persistent
+				? "Token stored in your OS keychain. Sign out with /logout or revoke the device in Connect."
+				: `Kept in memory for this session only: ${account.storage.memoryReason}.`;
+			this.chatContainer.addChild(new Spacer(1));
+			this.chatContainer.addChild(
+				new Text(
+					formatSignedInLine({
+						email: account.email,
+						subject: account.subject,
+						orgName: org?.name ?? account.org,
+						tier: org?.tier,
+					}),
+					1,
+					0,
+				),
+			);
+			this.chatContainer.addChild(new Text(theme.fg("dim", `  ${kept}`), 1, 0));
+			this.ui.requestRender();
+			return true;
+		} catch (error) {
+			restoreEditor();
+			if (error instanceof DeviceFlowError && error.reason === "cancelled") this.showStatus("Sign-in cancelled.");
+			else if (error instanceof DeviceFlowError && error.reason === "denied") {
+				this.showWarning("The sign-in was denied in the browser. Nothing was stored.");
+			} else if (error instanceof DeviceFlowError && error.reason === "expired") {
+				this.showWarning("The code expired before it was confirmed. Run /login again.");
+			} else this.showError(`Could not sign in to Veyra: ${error instanceof Error ? error.message : String(error)}`);
+			return false;
+		} finally {
+			this.veyraSignInRunning = false;
+			this.programStatus.setBlocked("login", undefined);
+		}
+	}
+
+	/** `/logout` without a provider: revoke the device at Connect and clear the keychain. */
+	private async handleVeyraLogout(): Promise<void> {
+		const auth = this.getVeyraAuth();
+		if (!auth) return;
+		const result = await auth.logout({ signal: AbortSignal.timeout(15_000) });
+		this.veyraAccount = undefined;
+		this.ui.requestRender();
+		const apps = connectedAppsUrl(auth.issuer);
+		if (!result.signedIn) this.showStatus("Not signed in to Veyra.");
+		else if (result.revocation === "failed") {
+			this.showWarning(
+				`Signed out of Veyra here, but Connect could not revoke the device (${result.detail ?? "unknown error"}). Remove it under Connected apps, ${apps}`,
+			);
+		} else if (result.revocation === "unsupported") {
+			this.showStatus(
+				`Signed out of Veyra here. Connect can't revoke the device from here yet: remove it under Connected apps, ${apps}`,
+			);
+		} else {
+			this.showStatus("Signed out of Veyra. Provider keys stay; /logout <provider> removes one.");
+		}
+	}
+
+	/** `/org`: the organization, tier and group; `/org switch` signs in again to pick another one on Connect's page. */
+	private async handleOrgCommand(argument: string): Promise<void> {
+		const auth = this.getVeyraAuth();
+		const account = auth?.account();
+		if (!auth || !account) {
+			this.showStatus(
+				"Not signed in to Veyra. /login signs you in, and you pick the organization on Connect's page.",
+			);
+			return;
+		}
+		if (argument === "switch") {
+			await this.handleVeyraLogin();
+			return;
+		}
+		if (argument) {
+			this.showWarning(`Unknown /org option "${argument}". Use /org or /org switch.`);
+			return;
+		}
+		let line: string;
+		try {
+			const org = await auth.organization({ signal: AbortSignal.timeout(10_000) });
+			this.veyraAccount = auth.account() ?? account;
+			line = [
+				`org ${org.name}${org.code ? ` (${org.code})` : ""}`,
+				org.tier ? `tier ${org.tier}` : undefined,
+				org.groupName ? `group ${org.groupName}` : undefined,
+				`Connect ${auth.issuer}`,
+			]
+				.filter(Boolean)
+				.join(" · ");
+		} catch (error) {
+			if (error instanceof VeyraSignedOutError) {
+				this.veyraAccount = undefined;
+				this.ui.requestRender();
+				this.showWarning(`${error.message.replace("fingers login", "/login")}`);
+				return;
+			}
+			line = `org ${account.orgName ?? account.org ?? "unknown"} · not checked now: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		this.showStatus(`${line}\n/org switch signs in again and lets you pick another organization on Connect's page.`);
 	}
 
 	private async completeProviderAuthentication(
@@ -6364,7 +6579,7 @@ export class InteractiveMode {
 	 * The first-run screen (canvas FingersTuiFirstRun) in place of the editor, shown when no model is
 	 * configured. Option 2 continues with the provider's /login flow; the key goes to the credential store.
 	 */
-	private showFirstRunChooser(fallbackMessage: string | undefined): void {
+	private showFirstRunChooser(fallbackMessage: string | undefined, notice?: string[]): void {
 		const restoreEditor = () => {
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
@@ -6380,9 +6595,19 @@ export class InteractiveMode {
 			},
 			onChoose: (choice) => {
 				if (choice.kind === "veyra") {
-					chooser.setNotice([
-						"Signing in to Veyra needs `fingers login`, which this build does not have yet. Choose 2 or 3.",
-					]);
+					restoreEditor();
+					void this.handleVeyraLogin().then((signedIn) => {
+						if (!signedIn) {
+							this.showFirstRunChooser(fallbackMessage);
+							return;
+						}
+						// Signing in adds no model yet: org model connections from Connect come with a later version.
+						this.showFirstRunChooser(fallbackMessage, [
+							"Signed in to Veyra. Models from your organization’s connections in Connect are not in this build yet:",
+							"choose 2 or 3 to give Fingers a model.",
+						]);
+					});
+					return;
 				} else if (choice.kind === "env") {
 					const profile = choice.detected.find((found) => found.providerId === "amazon-bedrock");
 					const awsProfile = profile?.source.match(/profile "([^"]+)"/)?.[1];
@@ -6403,6 +6628,7 @@ export class InteractiveMode {
 				this.ui.requestRender();
 			},
 		});
+		if (notice) chooser.setNotice(notice);
 		this.editorContainer.clear();
 		this.editorContainer.addChild(chooser);
 		this.ui.setFocus(chooser);

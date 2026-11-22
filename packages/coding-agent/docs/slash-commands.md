@@ -12,8 +12,9 @@ Extensions, prompt templates, and skills can add commands. The command menu in F
 | `/model [provider/model]` | Select a model |
 | `/thinking [level]` | Set the thinking level |
 | `/scoped-models` | Configure the models used by interactive cycling |
-| `/login [provider]` | Add provider authentication |
-| `/logout` | Remove provider authentication |
+| `/login [provider]` | Without a provider, sign in to your Veyra account with a device code; with one, add that provider's authentication |
+| `/org [switch]` | Show the Veyra organization, tier and group; `switch` signs in again to pick another organization |
+| `/logout [provider]` | Without a provider, sign out of Veyra (revokes the device at Connect, clears the keychain); with one, remove that provider's stored credentials |
 | `/llama` | Manage models on the configured llama.cpp router |
 
 ## Sessions and context
