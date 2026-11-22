@@ -24,6 +24,14 @@ export function connectErrorText(error: unknown): string {
 	return connectText(error instanceof Error ? error.message : String(error));
 }
 
+/**
+ * A fresh sign-in that another fingers process' sign-out (without the lock) overtook: the sign-out won, so nothing was
+ * kept. `command` is how to sign in again (`fingers login`, `/login`).
+ */
+export function signInNotKeptText(command: string): string {
+	return `Another fingers process signed out at the same moment, so this sign-in was not kept. Run ${command} again.`;
+}
+
 export const SIGN_IN_SUBTITLE = "Sign in with your Veyra account";
 export const SIGN_IN_LEAD = "Sign in to Veyra Connect to use your organization’s model connections and ee features.";
 export const CHECK_CODE_STEP = "2. Check that it shows this code, then confirm:";

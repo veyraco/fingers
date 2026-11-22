@@ -9,6 +9,7 @@ import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runVeyraAccountCommand, type VeyraCliTerminal } from "../src/cli/veyra-account.ts";
 import { VERSION } from "../src/config.ts";
+import type { EeFeatureId, EeModule, VeyraTier } from "../src/core/edition/index.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
 import { openVeyraSessionVault } from "../src/core/veyra/session-vault.ts";
 import { VeyraAuth } from "../src/core/veyra/veyra-auth.ts";
@@ -95,8 +96,36 @@ function makeAuth(
 	return { auth, store };
 }
 
-async function run(args: string[], auth: VeyraAuth, t: FakeTerminal, signal = new AbortController().signal) {
-	return runVeyraAccountCommand(args, { terminal: t, signal, openAuth: () => auth });
+/** A stand-in for the ee module (ee/ itself is not part of the core's tests). */
+const MATRIX: Record<EeFeatureId, VeyraTier> = {
+	token_saving: "low",
+	subagents: "medium",
+	checkpoints: "medium",
+	brain: "medium",
+	eyes: "medium",
+	org_hooks: "high",
+};
+const EE_MODULE: EeModule = {
+	apiVersion: 1,
+	matrixVersion: "test.1",
+	minimumTier: (feature) => MATRIX[feature],
+	activate: () => {},
+};
+
+async function run(
+	args: string[],
+	auth: VeyraAuth,
+	t: FakeTerminal,
+	signal = new AbortController().signal,
+	/** null: a core-only build. */
+	ee: EeModule | null = EE_MODULE,
+) {
+	return runVeyraAccountCommand(args, {
+		terminal: t,
+		signal,
+		openAuth: () => auth,
+		loadEeModule: async () => ee ?? undefined,
+	});
 }
 
 function expectNoSecrets(connect: FakeConnect, t: FakeTerminal): void {
@@ -140,6 +169,7 @@ describe("fingers login", () => {
 			"◐ Waiting for you to confirm in the browser · code expires in 10:00 · Ctrl+C cancels",
 			"",
 			"✓ Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium",
+			"✓ ee features on: token saving · sub-agents · checkpoints · Brain · Eyes",
 			"  Token stored in your OS keychain. Sign out with fingers logout or revoke the device in Connect.",
 		]);
 		expect(t.opened).toEqual([`${connect.issuer}/device?user_code=WDJB-MJHT`]);
@@ -253,10 +283,57 @@ describe("fingers whoami", () => {
 			"  Organization  Acme Robotics (acme)",
 			"  Tier          medium",
 			"  Group         Editor",
+			"  ee            on · token saving · sub-agents · checkpoints · Brain · Eyes",
 			`  Connect       ${connect.issuer}`,
 			"  Stored in     in-memory keychain",
 		]);
 		expectNoSecrets(connect, t);
+	});
+
+	it("says core only, and why, when the tier, the app or the build has no ee", async () => {
+		const connect = await startFake();
+		const { auth } = makeAuth(connect);
+		const login = terminal();
+		connect.orgTier = "free";
+		await run(["login"], auth, login);
+		expect(login.lines).toContain("  Core only: the Free tier includes no ee features.");
+
+		connect.orgTier = "medium";
+		connect.orgApps = ["connect"];
+		let t = terminal();
+		await run(["whoami"], auth, t);
+		expect(t.lines).toContain(
+			"  ee            off · the Fingers app is off for Acme Robotics; an admin turns it on in Veyra Connect.",
+		);
+
+		connect.orgApps = ["connect", "fingers"];
+		t = terminal();
+		await run(["whoami"], auth, t, undefined, null);
+		expect(t.lines).toContain("  ee            off · this Fingers build has no ee/ module.");
+	});
+
+	it("keeps ee as Connect last confirmed it while Connect is unreachable, and drops it when Connect refuses", async () => {
+		const connect = await startFake();
+		const { auth } = makeAuth(connect);
+		await run(["login"], auth, terminal());
+		connect.orgAnswer = { status: 503, body: { code: "unavailable" } };
+		let t = terminal();
+		await run(["whoami"], auth, t);
+		expect(t.lines).toContain("  ee            on · token saving · sub-agents · checkpoints · Brain · Eyes");
+
+		connect.orgAnswer = { status: 403, body: { code: "permission_denied", title: "Forbidden" } };
+		t = terminal();
+		await run(["whoami"], auth, t);
+		expect(t.lines.find((line) => line.startsWith("  ee"))).toMatch(
+			/^ {2}ee {12}off · Veyra Connect did not confirm/,
+		);
+
+		connect.orgAnswer = { status: 503, body: { code: "unavailable" } };
+		t = terminal();
+		await run(["whoami"], auth, t);
+		expect(t.lines.find((line) => line.startsWith("  ee"))).toMatch(
+			/^ {2}ee {12}off · Veyra Connect has not confirmed/,
+		);
 	});
 
 	it("--json prints the same facts as JSON, without any token", async () => {
@@ -272,6 +349,7 @@ describe("fingers whoami", () => {
 			email: "ada@example.com",
 			name: "Ada Lovelace",
 			organization: { id: "org_7aR2cT", code: "acme", name: "Acme Robotics", tier: "medium", group: "Editor" },
+			ee: { on: true, features: ["token_saving", "subagents", "checkpoints", "brain", "eyes"] },
 			storage: { persistent: true, location: "in-memory keychain" },
 		});
 		expectNoSecrets(connect, t);
@@ -562,5 +640,52 @@ describe("round 2 of the review", () => {
 		};
 		expect(await run(["login"], auth, t)).toBe(0);
 		expect(t.lines).toContain(`  1. Your browser opened ${connect.issuer}/device`);
+	});
+});
+
+describe("sign-out races (F11a)", () => {
+	it("a lock-free sign-out by another process during fingers login: says so, keeps nothing, revokes the fresh token", async () => {
+		const connect = await startFake();
+		const store = new InMemorySecretStore();
+		const { auth } = makeAuth(connect, { store });
+		const other = openVeyraSessionVault({
+			agentDir,
+			issuer: connect.issuer,
+			env: { FINGERS_CREDENTIAL_STORE: "keychain" },
+			secretStore: store,
+		});
+		// The other process signs out at the moment this sign-in reads the keychain under the lock.
+		const get = store.get.bind(store);
+		let armed = true;
+		store.get = (account: string) => {
+			if (armed && account.startsWith("veyra:")) {
+				armed = false;
+				other.clearWithoutLock();
+			}
+			return get(account);
+		};
+		const t = terminal();
+		expect(await run(["login"], auth, t)).toBe(1);
+		expect(t.errors).toEqual([
+			"Another fingers process signed out at the same moment, so this sign-in was not kept. Run fingers login again.",
+		]);
+		expect(t.lines.join("\n")).not.toContain("Signed in as");
+		expect(auth.account()).toBeUndefined();
+		expect(connect.revoked).toHaveLength(1);
+		expect(connect.liveSessions()).toBe(0);
+		expectNoSecrets(connect, t);
+	});
+
+	it("whoami --json escapes U+2028 and U+2029, which end a line in some terminals and JavaScript parsers", async () => {
+		const orgName = "Acme\u2028Robotics\u2029Ltd";
+		const connect = await startFake({ orgOverride: { name: orgName } });
+		const { auth } = makeAuth(connect);
+		await run(["login"], auth, terminal());
+		const t = terminal();
+		expect(await run(["whoami", "--json"], auth, t)).toBe(0);
+		const text = t.lines.join("\n");
+		expect(text).not.toMatch(/[\u2028\u2029]/);
+		expect(text).toContain("Acme\\u2028Robotics\\u2029Ltd");
+		expect((JSON.parse(text) as { organization: { name: string } }).organization.name).toBe(orgName);
 	});
 });

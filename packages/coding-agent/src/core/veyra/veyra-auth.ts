@@ -202,8 +202,25 @@ export class VeyraAuth {
 		}
 
 		const session = this.sessionFromTokens(tokens);
-		// Stored even if the person cancels now: the tokens exist at Connect either way.
-		const previous = await this.vault.update(async (current) => ({ result: current, next: session }));
+		let previous: StoredVeyraSession | undefined;
+		try {
+			// Stored even if the person cancels now: the tokens exist at Connect either way.
+			previous = await this.vault.update(async (current) => ({ result: current, next: session }));
+		} catch (error) {
+			if (error instanceof VeyraSessionClearedError) {
+				// Another fingers process signed out at the same moment and that wins: nothing here holds the new
+				// refresh token, so it must not stay live at Connect.
+				this.cache.clear();
+				this.log.log("warn", "sign-in not kept: another fingers process signed out", {
+					trace_id: trace.traceId,
+					span_id: trace.spanId,
+				});
+				if (session.refresh_token) {
+					await this.revokeQuietly(session.refresh_token, trace, "sign-in not kept and not revoked");
+				}
+			}
+			throw error;
+		}
 		this.cache.clear();
 		this.cache.set(FINGERS_APP, session.access[FINGERS_APP]!);
 		this.log.log("info", "signed in", {
@@ -302,6 +319,11 @@ export class VeyraAuth {
 				// Another fingers process signed out while this refresh ran: signed out here too, token dropped.
 				if (error instanceof VeyraSessionClearedError) {
 					this.cache.clear();
+					this.log.log("warn", "refresh not kept: another fingers process signed out", {
+						audience,
+						trace_id: trace.traceId,
+						span_id: trace.spanId,
+					});
 					throw new VeyraSignedOutError("not_signed_in");
 				}
 				throw error;
@@ -357,7 +379,16 @@ export class VeyraAuth {
 			result = current
 				? { signedIn: true, ...(await revoke(current.refresh_token)), lockProblem }
 				: { signedIn: false, revocation: "none", lockProblem };
-			this.vault.clearWithoutLock();
+			const problem = this.vault.clearWithoutLock();
+			if (problem) {
+				// Removed instead: a lock holder still sees the sign-out. Left: its refresh could write the sign-in back.
+				this.log.log(problem.markerLeft ? "error" : "warn", "sign-out marker not written", {
+					err: problem.error,
+					marker_removed: !problem.markerLeft,
+					trace_id: trace.traceId,
+					span_id: trace.spanId,
+				});
+			}
 		}
 		this.cache.clear();
 		if (result.signedIn) {
@@ -399,17 +430,41 @@ export class VeyraAuth {
 		return organization;
 	}
 
-	/** Keep the organization's name, tier and group with the sign-in, so they show without a request. */
+	/**
+	 * Keep the organization's name, tier, group and whether Fingers is on with the sign-in, so they show without a
+	 * request, and when Connect confirmed them: the ee gate trusts these facts offline for 72 hours.
+	 */
 	private async rememberOrganization(org: VeyraOrganization): Promise<void> {
 		try {
 			await this.vault.update(async (current) => {
 				if (!current || current.org !== org.id) return { result: undefined };
-				const facts = { org_name: org.name, org_code: org.code, tier: org.tier, group_name: org.groupName };
-				const same = (Object.keys(facts) as Array<keyof typeof facts>).every((key) => current[key] === facts[key]);
-				return same ? { result: undefined } : { result: undefined, next: { ...current, ...facts } };
+				const facts = {
+					org_name: org.name,
+					org_code: org.code,
+					tier: org.tier,
+					group_name: org.groupName,
+					fingers_enabled: org.appsEnabled.includes(FINGERS_APP),
+				};
+				return { result: undefined, next: { ...current, ...facts, entitlement_checked_at: this.now() } };
 			});
 		} catch {
-			// Only a display cache.
+			// Only a cache: the ee gate falls back to "not confirmed".
+		}
+	}
+
+	/**
+	 * Drop the confirmed tier and apps (Connect refused the organization lookup), so an offline start does not keep
+	 * ee features on from older facts.
+	 */
+	async forgetEntitlement(): Promise<void> {
+		try {
+			await this.vault.update(async (current) => {
+				if (!current || current.entitlement_checked_at === undefined) return { result: undefined };
+				const { entitlement_checked_at: _checked, fingers_enabled: _enabled, ...rest } = current;
+				return { result: undefined, next: rest };
+			});
+		} catch {
+			// Nothing stored, or no keychain: nothing to drop.
 		}
 	}
 
@@ -448,14 +503,19 @@ export class VeyraAuth {
 		};
 	}
 
-	private async revokeQuietly(refreshToken: string, trace: TraceContext): Promise<void> {
+	/** Revoke a refresh token nothing keeps any more; a failure is only logged (`failureMsg`). */
+	private async revokeQuietly(
+		refreshToken: string,
+		trace: TraceContext,
+		failureMsg = "previous sign-in not revoked",
+	): Promise<void> {
 		try {
 			await this.client.revoke(
 				{ clientId: this.clientId, token: refreshToken, tokenTypeHint: "refresh_token" },
 				trace,
 			);
 		} catch (error) {
-			this.log.log("warn", "previous sign-in not revoked", {
+			this.log.log("warn", failureMsg, {
 				reason: error instanceof Error ? error.message : String(error),
 				trace_id: trace.traceId,
 				span_id: trace.spanId,

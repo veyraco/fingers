@@ -57,6 +57,21 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./core/compaction/index.ts";
+// Open core: the contract the ee/ module implements (the core never imports ee/; see core/edition/types.ts)
+export {
+	EE_API_VERSION,
+	EE_FEATURE_IDS,
+	type EeCommandContext,
+	type EeCommandHandler,
+	type EeEntitlement,
+	type EeFeatureId,
+	type EeHost,
+	type EeModule,
+	isVeyraTier,
+	tierIncludes,
+	VEYRA_TIERS,
+	type VeyraTier,
+} from "./core/edition/types.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {

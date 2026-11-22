@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { DeviceFlowError } from "../src/core/veyra/device-flow.ts";
-import type { VeyraAccount } from "../src/core/veyra/session-vault.ts";
+import { type VeyraAccount, VeyraSessionClearedError } from "../src/core/veyra/session-vault.ts";
 import { type VeyraLogoutResult, type VeyraOrganization, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
 import type { FingersAccountStatus } from "../src/modes/interactive/components/footer.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -46,6 +46,17 @@ interface AccountContext {
 	editor: object;
 	editorContainer: { clear: Mock; addChild: Mock };
 	programStatus: { setBlocked: Mock };
+	/** The ee gate (F12): /org names the ee features that are on, /logout turns them off. */
+	editionGate: FakeEditionGate;
+	getEditionGate(this: AccountContext): FakeEditionGate;
+	startEdition: Mock;
+	editionTimer?: ReturnType<typeof setInterval>;
+}
+
+interface FakeEditionGate {
+	isOn: Mock;
+	onFeatures: Mock;
+	setEntitlement: Mock;
 }
 
 type InteractiveModePrivate = {
@@ -124,6 +135,15 @@ function accountContext(auth: FakeAuth | undefined, options: { signedIn?: boolea
 		editor: {},
 		editorContainer: { clear: vi.fn(), addChild: vi.fn() },
 		programStatus: { setBlocked: vi.fn() },
+		editionGate: {
+			isOn: vi.fn(() => true),
+			onFeatures: vi.fn(() => ["token_saving"]),
+			setEntitlement: vi.fn(async () => {}),
+		},
+		getEditionGate() {
+			return this.editionGate;
+		},
+		startEdition: vi.fn(async () => {}),
 	};
 }
 
@@ -187,8 +207,10 @@ describe("/org", () => {
 		const context = accountContext(auth);
 		await prototype.handleOrgCommand.call(context, "");
 		expect(auth.organization).toHaveBeenCalledTimes(1);
+		expect(context.startEdition).toHaveBeenCalledWith({ askConnect: false });
 		expect(context.showStatus).toHaveBeenCalledWith(
 			"org Acme Robotics (acme) · tier medium · group Editor · Connect https://connect.veyra.so\n" +
+				"ee on: token saving\n" +
 				"/org switch signs in again and lets you pick another organization on Connect's page.",
 		);
 	});
@@ -269,6 +291,7 @@ describe("/logout (Veyra)", () => {
 		// The revoke's 15 s start at the revoke, after any wait for the lock: no timer is started up front.
 		expect(auth.logout).toHaveBeenCalledWith({ revokeTimeoutMs: 15_000 });
 		expect(context.veyraAccount).toBeUndefined();
+		expect(context.editionGate.setEntitlement).toHaveBeenCalledWith(expect.objectContaining({ signedIn: false }));
 		expect(context.showStatus).toHaveBeenCalledWith(
 			"Signed out of Veyra. Provider keys stay; /logout <provider> removes one.",
 		);
@@ -349,5 +372,22 @@ describe("Connect's strings on the terminal app's screen", () => {
 		const [line] = context.showError.mock.calls.map(([message]) => String(message));
 		expect(line).toContain("Connect refused the sign-in");
 		expect(line).not.toMatch(CONTROL);
+	});
+});
+
+describe("/login racing a sign-out (F11a)", () => {
+	it("another fingers process signed out at the same moment: says the sign-in was not kept and to run /login again", async () => {
+		const auth = fakeAuth({
+			login: vi.fn(async () => {
+				throw new VeyraSessionClearedError();
+			}),
+		});
+		const context = accountContext(auth, { signedIn: false });
+		expect(await prototype.handleVeyraLogin.call(context)).toBe(false);
+		expect(shown(context)).toEqual([
+			"Another fingers process signed out at the same moment, so this sign-in was not kept. Run /login again.",
+		]);
+		expect(context.showWarning).toHaveBeenCalledTimes(1);
+		expect(context.veyraAccount).toBeUndefined();
 	});
 });

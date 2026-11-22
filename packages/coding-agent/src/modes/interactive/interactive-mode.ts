@@ -79,6 +79,17 @@ import {
 import { formatCacheWarmingStatus, formatCacheWarmingUsage } from "../../core/cache-warmer.ts";
 import { findExtensionStackMatches, recordCrash, takeUnnotifiedCrash } from "../../core/crash-log.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "../../core/defaults.ts";
+import {
+	cachedEntitlement,
+	coreOnlyText,
+	EditionGate,
+	type EeFeatureId,
+	type EeFeatureState,
+	formatFeatureList,
+	loadEeModule,
+	parseEeCommand,
+	SIGNED_OUT,
+} from "../../core/edition/index.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -136,7 +147,8 @@ import {
 	type VeyraAuth,
 	VeyraSignedOutError,
 } from "../../core/veyra/index.ts";
-import { connectErrorText, connectText } from "../../core/veyra/login-text.ts";
+import { connectErrorText, connectText, signInNotKeptText } from "../../core/veyra/login-text.ts";
+import { VeyraSessionClearedError } from "../../core/veyra/session-vault.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -160,6 +172,7 @@ import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
+import { EeLockedBoxComponent } from "./components/ee-locked-box.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -301,6 +314,10 @@ function isUsageSessionEntry(item: RenderSessionItem): item is Extract<SessionEn
 // EIO: tty reads/ioctls from an orphaned background process group, or writes after hangup.
 // ENOTTY: the tty was revoked (macOS) and stdin is no longer a terminal.
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN", "ENOTTY"]);
+/** How often the running app asks Connect again for the organization's tier and apps (the ee gate). */
+const EDITION_RECHECK_MS = 60 * 60 * 1000;
+/** How long one such check may take before the gate keeps what it had. */
+const EDITION_REQUEST_TIMEOUT_MS = 10_000;
 
 function isDeadTerminalError(error: unknown): boolean {
 	if (!error || typeof error !== "object" || !("code" in error)) {
@@ -541,6 +558,10 @@ export class InteractiveMode {
 	/** Who is signed in to Veyra, for the status line; read from the keychain at startup. */
 	private veyraAccount: VeyraAccount | undefined;
 	private veyraSignInRunning = false;
+	/** The ee gate (open core): which ee features are on for the signed-in organization. Created on first use. */
+	private editionGate: EditionGate | undefined;
+	/** Re-checks the organization's tier and apps at Connect while the app runs. */
+	private editionTimer: ReturnType<typeof setInterval> | undefined;
 	// Stored so the same manager can be injected into custom editors, selectors, and extension UI.
 	private keybindings: KeybindingsManager;
 	private version: string;
@@ -3491,6 +3512,12 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			const eeCommand = parseEeCommand(text);
+			if (eeCommand) {
+				this.editor.setText("");
+				await this.handleEeCommand(eeCommand.name, eeCommand.args);
+				return;
+			}
 			if (text === "/login" || text.startsWith("/login ")) {
 				const providerRef = text.startsWith("/login ") ? text.slice(7).trim() : undefined;
 				this.editor.setText("");
@@ -6323,7 +6350,7 @@ export class InteractiveMode {
 		return this.veyraAuth;
 	}
 
-	/** The status line's Veyra part: "ee on · email" or "core only · email" once signed in (ee: F12). */
+	/** The status line's Veyra part: "ee on · email" or "core only · email" once signed in. */
 	private getVeyraAccountStatus(): FingersAccountStatus | undefined {
 		const account = this.veyraAccount;
 		if (!account) return undefined;
@@ -6332,6 +6359,7 @@ export class InteractiveMode {
 			signedIn: true,
 			email: connectText(account.email ?? account.subject),
 			org: connectText(account.orgName ?? account.org),
+			eeOn: this.editionGate?.isOn() ?? false,
 		};
 	}
 
@@ -6343,7 +6371,101 @@ export class InteractiveMode {
 		} catch {
 			this.veyraAccount = undefined;
 		}
-		if (this.veyraAccount) this.ui.requestRender();
+		if (this.veyraAccount) {
+			this.ui.requestRender();
+			void this.startEdition();
+		}
+	}
+
+	// =========================================================================
+	// Open core: the ee gate, ee commands and the locked box (canvas FingersTuiLocked)
+	// =========================================================================
+
+	private getEditionGate(): EditionGate {
+		this.editionGate ??= new EditionGate({ loadModule: () => loadEeModule() });
+		return this.editionGate;
+	}
+
+	/**
+	 * At start, signed in: the facts Connect gave last (kept in the keychain, good for 72 hours offline) first, so the
+	 * status line does not wait on the network, then Connect's answer, then again every hour.
+	 */
+	private async startEdition(options: { askConnect?: boolean } = {}): Promise<void> {
+		const gate = this.getEditionGate();
+		await gate.setEntitlement(cachedEntitlement(this.veyraAccount, Date.now()));
+		this.ui.requestRender();
+		if (options.askConnect !== false) await this.refreshEdition();
+		if (!this.editionTimer) {
+			this.editionTimer = setInterval(() => void this.refreshEdition(), EDITION_RECHECK_MS);
+			this.editionTimer.unref?.();
+		}
+	}
+
+	/** Ask Connect for the organization's tier and apps again (offline: the kept answer while it is fresh). */
+	private async refreshEdition(): Promise<void> {
+		const gate = this.getEditionGate();
+		const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
+		try {
+			if (auth && process.env.FINGERS_OFFLINE) {
+				await gate.setEntitlement(cachedEntitlement(auth.account(), Date.now()));
+			} else {
+				await gate.refresh(auth, { signal: AbortSignal.timeout(EDITION_REQUEST_TIMEOUT_MS) });
+			}
+		} catch {
+			// The gate keeps what it had; ee stays as it was until the next check.
+		}
+		if (this.veyraAccount && !gate.entitlement.signedIn) this.veyraAccount = auth?.account();
+		else if (auth) this.veyraAccount = auth.account() ?? this.veyraAccount;
+		this.ui.requestRender();
+	}
+
+	/** Run an ee command when its feature is on; otherwise show the locked box. */
+	private async handleEeCommand(name: string, args: string): Promise<void> {
+		const gate = this.getEditionGate();
+		await gate.load();
+		const feature = gate.commandFeature(name);
+		if (!feature) return;
+		const state = gate.state(feature);
+		const handler = gate.commandHandler(name);
+		if (handler) {
+			try {
+				await handler({
+					args,
+					entitlement: gate.entitlement,
+					showStatus: (message) => this.showStatus(message),
+					showWarning: (message) => this.showWarning(message),
+				});
+			} catch (error) {
+				this.showError(`/${name} failed: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			return;
+		}
+		if (state.on) {
+			this.showWarning(`/${name} is on for your organization, but this Fingers build has nothing to run for it.`);
+			return;
+		}
+		await this.showEeLockedBox(feature, state);
+	}
+
+	/** The locked box in place of the editor; "Sign in now" runs the Veyra sign-in. */
+	private async showEeLockedBox(feature: EeFeatureId, state: Exclude<EeFeatureState, { on: true }>): Promise<void> {
+		const answer = await new Promise<"sign_in" | "continue">((resolve) => {
+			const box = new EeLockedBoxComponent({
+				feature,
+				state,
+				entitlement: this.getEditionGate().entitlement,
+				onAnswer: resolve,
+			});
+			this.editorContainer.clear();
+			this.editorContainer.addChild(box);
+			this.ui.setFocus(box);
+			this.ui.requestRender();
+		});
+		this.editorContainer.clear();
+		this.editorContainer.addChild(this.editor);
+		this.ui.setFocus(this.editor);
+		this.ui.requestRender();
+		if (answer === "sign_in") await this.handleVeyraLogin();
 	}
 
 	/** `/login`: the device-code sign-in in place of the editor. Resolves true once signed in. */
@@ -6413,6 +6535,18 @@ export class InteractiveMode {
 					0,
 				),
 			);
+			// The organization lookup above kept the tier and apps with the sign-in: the ee gate starts from them.
+			await this.startEdition({ askConnect: false });
+			const gate = this.getEditionGate();
+			this.chatContainer.addChild(
+				new Text(
+					gate.isOn()
+						? `${theme.bold(theme.fg("success", "✓"))} ${theme.fg("text", "ee features on: ")}${theme.fg("success", formatFeatureList(gate.onFeatures()))}`
+						: theme.fg("dim", `  Core only: ${coreOnlyText(gate.state("token_saving"), gate.entitlement)}`),
+					1,
+					0,
+				),
+			);
 			this.chatContainer.addChild(new Text(theme.fg("dim", `  ${kept}`), 1, 0));
 			this.ui.requestRender();
 			return true;
@@ -6423,6 +6557,8 @@ export class InteractiveMode {
 				this.showWarning("The sign-in was denied in the browser. Nothing was stored.");
 			} else if (error instanceof DeviceFlowError && error.reason === "expired") {
 				this.showWarning("The code expired before it was confirmed. Run /login again.");
+			} else if (error instanceof VeyraSessionClearedError) {
+				this.showWarning(signInNotKeptText("/login"));
 			} else this.showError(`Could not sign in to Veyra: ${connectErrorText(error)}`);
 			return false;
 		} finally {
@@ -6444,6 +6580,9 @@ export class InteractiveMode {
 			return;
 		}
 		this.veyraAccount = undefined;
+		if (this.editionTimer) clearInterval(this.editionTimer);
+		this.editionTimer = undefined;
+		await this.getEditionGate().setEntitlement(SIGNED_OUT);
 		this.ui.requestRender();
 		const apps = connectedAppsUrl(auth.issuer);
 		if (result.lockProblem) {
@@ -6487,6 +6626,8 @@ export class InteractiveMode {
 		try {
 			const org = await auth.organization({ signal: AbortSignal.timeout(10_000) });
 			this.veyraAccount = auth.account() ?? account;
+			await this.startEdition({ askConnect: false });
+			const gate = this.getEditionGate();
 			// From Connect: no terminal escapes on screen.
 			const code = connectText(org.code);
 			const tier = connectText(org.tier);
@@ -6499,6 +6640,9 @@ export class InteractiveMode {
 			]
 				.filter(Boolean)
 				.join(" · ");
+			line += gate.isOn()
+				? `\nee on: ${formatFeatureList(gate.onFeatures())}`
+				: `\ncore only: ${coreOnlyText(gate.state("token_saving"), gate.entitlement)}`;
 		} catch (error) {
 			if (error instanceof VeyraSignedOutError) {
 				this.veyraAccount = undefined;
@@ -7538,6 +7682,8 @@ export class InteractiveMode {
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
+		if (this.editionTimer) clearInterval(this.editionTimer);
+		this.editionTimer = undefined;
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}

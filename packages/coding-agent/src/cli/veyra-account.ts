@@ -4,6 +4,15 @@
  */
 import { replaceControlCharacters } from "@veyraco/fingers-tui";
 import { APP_NAME, VERSION } from "../config.ts";
+import {
+	coreOnlyText,
+	EditionGate,
+	type EeFeatureId,
+	type EeModule,
+	entitlementAfterLookup,
+	formatFeatureList,
+	loadEeModule,
+} from "../core/edition/index.ts";
 import { connectedAppsUrl } from "../core/veyra/connect-config.ts";
 import { type DeviceCodePrompt, DeviceFlowError } from "../core/veyra/device-flow.ts";
 import {
@@ -16,9 +25,11 @@ import {
 	SIGN_IN_SUBTITLE,
 	SPINNER_FRAMES,
 	signedInSummary,
+	signInNotKeptText,
 	WAITING_TEXT,
 } from "../core/veyra/login-text.ts";
 import { ConnectUnavailableError } from "../core/veyra/oidc-client.ts";
+import { VeyraSessionClearedError } from "../core/veyra/session-vault.ts";
 import {
 	VEYRA_REVOKE_TIMEOUT_MS,
 	type VeyraAuth,
@@ -55,6 +66,33 @@ export interface VeyraAccountCommandOptions {
 	now?: () => number;
 	/** logout: how long the revocation request may take, counted from when it is sent (default 15 s). */
 	revokeTimeoutMs?: number;
+	/** Finds the ee module (default: this installation's, see core/edition/loader.ts). */
+	loadEeModule?: () => Promise<EeModule | undefined>;
+}
+
+interface EeSummary {
+	on: boolean;
+	features: EeFeatureId[];
+	/** Why Fingers is core only. */
+	reason?: string;
+}
+
+/** Which ee features this sign-in has after the organization lookup (the ee gate, as the terminal app decides it). */
+async function eeSummary(
+	auth: VeyraAuth,
+	outcome: { org: VeyraOrganization } | { error: unknown },
+	options: VeyraAccountCommandOptions,
+): Promise<EeSummary | undefined> {
+	const account = auth.account();
+	if (!account) return undefined;
+	const { entitlement, forget } = entitlementAfterLookup(account, outcome, (options.now ?? Date.now)());
+	if (forget) await auth.forgetEntitlement();
+	const gate = new EditionGate({ loadModule: options.loadEeModule ?? (() => loadEeModule()) });
+	await gate.setEntitlement(entitlement);
+	const features = gate.onFeatures();
+	return features.length > 0
+		? { on: true, features }
+		: { on: false, features, reason: coreOnlyText(gate.state("token_saving"), entitlement) };
 }
 
 export const VEYRA_ACCOUNT_COMMANDS = ["login", "logout", "whoami"] as const;
@@ -228,15 +266,21 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 	stopLive();
 
 	let org: VeyraOrganization | undefined;
+	let lookup: { org: VeyraOrganization } | { error: unknown };
 	try {
 		org = await auth.organization({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) });
-	} catch {
+		lookup = { org };
+	} catch (error) {
 		// The sign-in worked; the summary shows the organization id instead.
+		lookup = { error };
 	}
+	const ee = await eeSummary(auth, lookup, options);
 	terminal.write("");
 	terminal.write(
 		`✓ ${signedInSummary({ email: account.email, subject: account.subject, orgName: org?.name ?? account.org, tier: org?.tier })}`,
 	);
+	if (ee?.on) terminal.write(`✓ ee features on: ${formatFeatureList(ee.features)}`);
+	else if (ee) terminal.write(`  Core only: ${connectText(ee.reason)}`);
 	terminal.write(
 		`  Token stored in your OS keychain. Sign out with ${APP_NAME} logout or revoke the device in Connect.`,
 	);
@@ -244,6 +288,8 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 }
 
 function loginErrorMessage(error: unknown): string {
+	// The fresh refresh token was already revoked (VeyraAuth.login).
+	if (error instanceof VeyraSessionClearedError) return signInNotKeptText(`${APP_NAME} login`);
 	if (error instanceof DeviceFlowError) {
 		if (error.reason === "denied") return "The sign-in was denied in the browser. Nothing was stored.";
 		if (error.reason === "expired") return `The code expired before it was confirmed. Run ${APP_NAME} login again.`;
@@ -312,13 +358,16 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	}
 	let org: VeyraOrganization | undefined;
 	let orgProblem: string | undefined;
+	let lookup: { org: VeyraOrganization } | { error: unknown };
 	try {
 		org = await auth.organization({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) });
+		lookup = { org };
 	} catch (error) {
 		if (error instanceof VeyraSignedOutError) {
 			terminal.error(error.message);
 			return 1;
 		}
+		lookup = { error };
 		const detail = connectErrorText(error);
 		orgProblem =
 			error instanceof ConnectUnavailableError
@@ -326,6 +375,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 				: `not available: ${detail}`;
 	}
 	const storage = { persistent: account.storage.persistent, location: account.storage.location };
+	const ee = await eeSummary(auth, lookup, options);
 
 	// Without an answer from Connect, the facts kept from the last lookup.
 	const shown = org ?? {
@@ -353,6 +403,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 				email: account.email,
 				name: account.name,
 				organization,
+				ee: ee ? { on: ee.on, features: ee.features, ...(ee.reason ? { reason: ee.reason } : {}) } : undefined,
 				storage,
 			}),
 		);
@@ -369,6 +420,10 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	);
 	if (shown.tier) terminal.write(`  Tier          ${connectText(shown.tier)}`);
 	if (shown.groupName) terminal.write(`  Group         ${connectText(shown.groupName)}`);
+	if (ee)
+		terminal.write(
+			`  ee            ${ee.on ? `on · ${formatFeatureList(ee.features)}` : `off · ${connectText(ee.reason)}`}`,
+		);
 	terminal.write(`  Connect       ${connectText(account.issuer)}`);
 	terminal.write(`  Stored in     ${storage.location}`);
 	return 0;
@@ -376,12 +431,12 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 
 /**
  * Pretty JSON a terminal can't act on: JSON.stringify escapes U+0000-U+001F only, so DEL, the C1 controls (U+0080-
- * U+009F: CSI U+009B and OSC U+009D act in some terminals) and the bidi controls are escaped as \uXXXX too. Same JSON
- * values.
+ * U+009F: CSI U+009B and OSC U+009D act in some terminals), the line and paragraph separators U+2028/U+2029 and the
+ * bidi controls are escaped as \uXXXX too. Same JSON values.
  */
 function terminalSafeJson(value: unknown): string {
 	return JSON.stringify(value, null, 2).replace(
-		/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
+		/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
 		(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
 	);
 }

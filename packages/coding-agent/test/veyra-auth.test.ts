@@ -4,14 +4,18 @@
  * `resource`, rotated refresh tokens replace the old one under a cross-process lock, and logout revokes the
  * refresh token (RFC 7009) and clears the keychain. The log carries the platform fields and never a token.
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeychainBlob } from "../src/core/keychain-auth-storage.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
-import { openVeyraSessionVault, veyraSessionAccount } from "../src/core/veyra/session-vault.ts";
+import {
+	openVeyraSessionVault,
+	VeyraSessionClearedError,
+	veyraSessionAccount,
+} from "../src/core/veyra/session-vault.ts";
 import { VeyraAudienceError, VeyraAuth, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
 import { createVeyraLog } from "../src/core/veyra/veyra-log.ts";
 import { FAKE_ORG, FakeConnect, type FakeConnectOptions } from "./veyra-fake-connect.ts";
@@ -94,6 +98,57 @@ async function holdSignInLock(): Promise<() => Promise<void>> {
 	const marker = readdirSync(agentDir).find((name) => name.startsWith("veyra-session.") && name.endsWith(".json"));
 	if (!marker) throw new Error("no sign-in marker to lock");
 	return lockfile.lock(join(agentDir, marker), { stale: 30_000 });
+}
+
+/** A keychain where another fingers process acts at a chosen instant: right before the next read or write of the sign-in. */
+class RacingStore extends InMemorySecretStore {
+	beforeGet: (() => void) | undefined;
+	beforeSet: (() => void) | undefined;
+
+	override get(account: string): string | undefined {
+		const hook = this.beforeGet;
+		if (hook && account.startsWith("veyra:")) {
+			this.beforeGet = undefined;
+			hook();
+		}
+		return super.get(account);
+	}
+
+	override set(account: string, value: string): void {
+		const hook = this.beforeSet;
+		if (hook && account.startsWith("veyra:")) {
+			this.beforeSet = undefined;
+			hook();
+		}
+		super.set(account, value);
+	}
+}
+
+/** Another fingers process' vault on the same keychain and agent dir. */
+function otherProcessVault(connect: FakeConnect, store: InMemorySecretStore) {
+	return openVeyraSessionVault({
+		agentDir,
+		issuer: connect.issuer,
+		env: { FINGERS_CREDENTIAL_STORE: "keychain" },
+		secretStore: store,
+		lockWaitMs: 300,
+	});
+}
+
+function markerFile(): string {
+	const marker = readdirSync(agentDir).find((name) => name.startsWith("veyra-session.") && name.endsWith(".json"));
+	if (!marker) throw new Error("no sign-in marker");
+	return join(agentDir, marker);
+}
+
+function logRecords(): Array<Record<string, unknown>> {
+	const path = join(agentDir, "veyra.log");
+	if (!existsSync(path)) return [];
+	return readFileSync(path, "utf-8")
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 function refreshTokensSent(connect: FakeConnect): string[] {
@@ -464,6 +519,109 @@ describe("logout", () => {
 		const requests = connect.requests.length;
 		await expect(a.auth.getAccessToken("connect")).rejects.toBeInstanceOf(VeyraSignedOutError);
 		expect(connect.requests.length).toBe(requests);
+	});
+
+	it("a sign-out without the lock that lands between the holder's check and its keychain write still wins", async () => {
+		const connect = await startFake({ revocation: false });
+		const store = new RacingStore();
+		const a = setup(connect, { store });
+		await signIn(a);
+		const other = otherProcessVault(connect, store);
+		// The other process signs out right before the holder writes the rotated refresh token.
+		store.beforeSet = () => other.clearWithoutLock();
+		await expect(a.auth.getAccessToken("connect")).rejects.toBeInstanceOf(VeyraSignedOutError);
+		expect(refreshTokensSent(connect)).toHaveLength(1);
+		expect(storedSession(store)).toBeUndefined();
+		expect(a.auth.account()).toBeUndefined();
+		expect(setup(connect, { store }).auth.account()).toBeUndefined();
+		// Asking again: still signed out, no request.
+		const requests = connect.requests.length;
+		await expect(a.auth.getAccessToken("connect")).rejects.toBeInstanceOf(VeyraSignedOutError);
+		expect(connect.requests.length).toBe(requests);
+		expect(logRecords()).toContainEqual(
+			expect.objectContaining({ level: "warn", msg: "refresh not kept: another fingers process signed out" }),
+		);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"a sign-out without the lock whose marker write fails removes the marker, so the holder's refresh is not written back",
+		async () => {
+			const connect = await startFake({ revocation: false });
+			const a = setup(connect);
+			await signIn(a);
+			const b = setup(connect, { store: a.store, lockWaitMs: 300 });
+			connect.refreshDelayMs = 1_500;
+			const refreshing = a.auth.getAccessToken("connect").catch((caught: unknown) => caught);
+			await vi.waitFor(() => expect(refreshTokensSent(connect)).toHaveLength(1));
+			// The marker can't be written (read-only): the sign-out must not leave a marker that still says signed in.
+			const marker = markerFile();
+			chmodSync(marker, 0o400);
+			try {
+				const result = await b.auth.logout();
+				expect(result).toMatchObject({ signedIn: true, revocation: "unsupported" });
+				expect(result.lockProblem).toBeDefined();
+			} finally {
+				if (existsSync(marker)) chmodSync(marker, 0o600);
+			}
+			expect(b.auth.account()).toBeUndefined();
+
+			const outcome = await refreshing;
+			expect(outcome).toBeInstanceOf(VeyraSignedOutError);
+			expect(storedSession(a.store)).toBeUndefined();
+			expect(a.auth.account()).toBeUndefined();
+			expect(b.auth.account()).toBeUndefined();
+			expect(logRecords()).toContainEqual(
+				expect.objectContaining({ level: "warn", msg: "sign-out marker not written", marker_removed: true }),
+			);
+		},
+	);
+
+	it.skipIf(process.getuid?.() === 0)(
+		"a sign-out without the lock that can neither write nor remove the marker logs it as an error",
+		async () => {
+			const connect = await startFake();
+			const s = setup(connect, { lockWaitMs: 300 });
+			await signIn(s);
+			expect(existsSync(join(agentDir, "veyra.log"))).toBe(true);
+			const release = await holdSignInLock();
+			// Read-only marker and directory: the write fails and so does the removal, so the old marker stays.
+			const marker = markerFile();
+			chmodSync(marker, 0o400);
+			chmodSync(agentDir, 0o500);
+			try {
+				const result = await s.auth.logout();
+				expect(result).toMatchObject({ signedIn: true, revocation: "revoked" });
+				expect(result.lockProblem).toBeDefined();
+			} finally {
+				chmodSync(agentDir, 0o700);
+				chmodSync(marker, 0o600);
+				await release();
+			}
+			expect(existsSync(marker)).toBe(true);
+			expect(storedSession(s.store)).toBeUndefined();
+			expect(s.auth.account()).toBeUndefined();
+			expect(logRecords()).toContainEqual(
+				expect.objectContaining({ level: "error", msg: "sign-out marker not written", marker_removed: false }),
+			);
+		},
+	);
+
+	it("a fresh sign-in that a lock-free sign-out overtakes is not kept, and its refresh token is revoked", async () => {
+		const connect = await startFake();
+		const store = new RacingStore();
+		const s = setup(connect, { store });
+		const other = otherProcessVault(connect, store);
+		// The other process signs out while this sign-in reads the keychain under the lock.
+		store.beforeGet = () => other.clearWithoutLock();
+		await expect(signIn(s)).rejects.toBeInstanceOf(VeyraSessionClearedError);
+		expect(storedSession(store)).toBeUndefined();
+		expect(s.auth.account()).toBeUndefined();
+		// No live session is left at Connect that nothing on this computer holds.
+		expect(connect.revoked).toHaveLength(1);
+		expect(connect.liveSessions()).toBe(0);
+		expect(logRecords()).toContainEqual(
+			expect.objectContaining({ level: "warn", msg: "sign-in not kept: another fingers process signed out" }),
+		);
 	});
 
 	it("not signed in: nothing to revoke", async () => {

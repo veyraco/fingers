@@ -90,7 +90,9 @@
 		"packages/*/test/**/*",
 		"packages/ai/catalog/**/*",
 		"packages/coding-agent/examples/**/*",
-		"packages/agent/examples/**/*"
+		"packages/agent/examples/**/*",
+		"ee/src/**/*",
+		"ee/test/**/*"
 	],
 	"exclude": [
 		"**/dist/**",
