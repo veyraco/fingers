@@ -642,3 +642,50 @@ describe("round 2 of the review", () => {
 		expect(t.lines).toContain(`  1. Your browser opened ${connect.issuer}/device`);
 	});
 });
+
+describe("sign-out races (F11a)", () => {
+	it("a lock-free sign-out by another process during fingers login: says so, keeps nothing, revokes the fresh token", async () => {
+		const connect = await startFake();
+		const store = new InMemorySecretStore();
+		const { auth } = makeAuth(connect, { store });
+		const other = openVeyraSessionVault({
+			agentDir,
+			issuer: connect.issuer,
+			env: { FINGERS_CREDENTIAL_STORE: "keychain" },
+			secretStore: store,
+		});
+		// The other process signs out at the moment this sign-in reads the keychain under the lock.
+		const get = store.get.bind(store);
+		let armed = true;
+		store.get = (account: string) => {
+			if (armed && account.startsWith("veyra:")) {
+				armed = false;
+				other.clearWithoutLock();
+			}
+			return get(account);
+		};
+		const t = terminal();
+		expect(await run(["login"], auth, t)).toBe(1);
+		expect(t.errors).toEqual([
+			"Another fingers process signed out at the same moment, so this sign-in was not kept. Run fingers login again.",
+		]);
+		expect(t.lines.join("\n")).not.toContain("Signed in as");
+		expect(auth.account()).toBeUndefined();
+		expect(connect.revoked).toHaveLength(1);
+		expect(connect.liveSessions()).toBe(0);
+		expectNoSecrets(connect, t);
+	});
+
+	it("whoami --json escapes U+2028 and U+2029, which end a line in some terminals and JavaScript parsers", async () => {
+		const orgName = "Acme\u2028Robotics\u2029Ltd";
+		const connect = await startFake({ orgOverride: { name: orgName } });
+		const { auth } = makeAuth(connect);
+		await run(["login"], auth, terminal());
+		const t = terminal();
+		expect(await run(["whoami", "--json"], auth, t)).toBe(0);
+		const text = t.lines.join("\n");
+		expect(text).not.toMatch(/[\u2028\u2029]/);
+		expect(text).toContain("Acme\\u2028Robotics\\u2029Ltd");
+		expect((JSON.parse(text) as { organization: { name: string } }).organization.name).toBe(orgName);
+	});
+});

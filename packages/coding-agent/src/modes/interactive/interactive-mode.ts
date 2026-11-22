@@ -147,7 +147,8 @@ import {
 	type VeyraAuth,
 	VeyraSignedOutError,
 } from "../../core/veyra/index.ts";
-import { connectErrorText, connectText } from "../../core/veyra/login-text.ts";
+import { connectErrorText, connectText, signInNotKeptText } from "../../core/veyra/login-text.ts";
+import { VeyraSessionClearedError } from "../../core/veyra/session-vault.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -6556,6 +6557,8 @@ export class InteractiveMode {
 				this.showWarning("The sign-in was denied in the browser. Nothing was stored.");
 			} else if (error instanceof DeviceFlowError && error.reason === "expired") {
 				this.showWarning("The code expired before it was confirmed. Run /login again.");
+			} else if (error instanceof VeyraSessionClearedError) {
+				this.showWarning(signInNotKeptText("/login"));
 			} else this.showError(`Could not sign in to Veyra: ${connectErrorText(error)}`);
 			return false;
 		} finally {

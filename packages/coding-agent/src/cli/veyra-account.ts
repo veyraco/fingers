@@ -25,9 +25,11 @@ import {
 	SIGN_IN_SUBTITLE,
 	SPINNER_FRAMES,
 	signedInSummary,
+	signInNotKeptText,
 	WAITING_TEXT,
 } from "../core/veyra/login-text.ts";
 import { ConnectUnavailableError } from "../core/veyra/oidc-client.ts";
+import { VeyraSessionClearedError } from "../core/veyra/session-vault.ts";
 import {
 	VEYRA_REVOKE_TIMEOUT_MS,
 	type VeyraAuth,
@@ -286,6 +288,8 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 }
 
 function loginErrorMessage(error: unknown): string {
+	// The fresh refresh token was already revoked (VeyraAuth.login).
+	if (error instanceof VeyraSessionClearedError) return signInNotKeptText(`${APP_NAME} login`);
 	if (error instanceof DeviceFlowError) {
 		if (error.reason === "denied") return "The sign-in was denied in the browser. Nothing was stored.";
 		if (error.reason === "expired") return `The code expired before it was confirmed. Run ${APP_NAME} login again.`;
@@ -427,12 +431,12 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 
 /**
  * Pretty JSON a terminal can't act on: JSON.stringify escapes U+0000-U+001F only, so DEL, the C1 controls (U+0080-
- * U+009F: CSI U+009B and OSC U+009D act in some terminals) and the bidi controls are escaped as \uXXXX too. Same JSON
- * values.
+ * U+009F: CSI U+009B and OSC U+009D act in some terminals), the line and paragraph separators U+2028/U+2029 and the
+ * bidi controls are escaped as \uXXXX too. Same JSON values.
  */
 function terminalSafeJson(value: unknown): string {
 	return JSON.stringify(value, null, 2).replace(
-		/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
+		/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
 		(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
 	);
 }

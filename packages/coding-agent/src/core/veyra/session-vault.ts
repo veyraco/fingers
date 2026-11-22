@@ -12,7 +12,7 @@
  * kept in memory for this process only, and `storage.memoryReason` says why.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FileAuthStorageBackend } from "../auth-storage.ts";
 import { KeychainBlob } from "../keychain-auth-storage.ts";
@@ -119,6 +119,15 @@ export class VeyraSessionClearedError extends Error {
 	}
 }
 
+/**
+ * A sign-out without the lock could not write its signed-out marker (`error`). The marker was then removed, so a lock
+ * holder's check still sees the sign-out; `markerLeft` when removing it failed too and the old marker stays.
+ */
+export interface VeyraClearProblem {
+	error: unknown;
+	markerLeft: boolean;
+}
+
 /** `next`: the session to store, `null` to delete it, undefined to leave it as it is. */
 export type VaultUpdate<T> = (
 	current: StoredVeyraSession | undefined,
@@ -137,9 +146,9 @@ export interface VeyraSessionVault {
 	update<T>(fn: VaultUpdate<T>, signal?: AbortSignal): Promise<T>;
 	/**
 	 * Delete the sign-in without the lock: sign out when another fingers process holds the lock past the wait.
-	 * Signing out is idempotent, so this is safe to repeat.
+	 * Signing out is idempotent, so this is safe to repeat. Returns what it could not do (for the log).
 	 */
-	clearWithoutLock(): void;
+	clearWithoutLock(): VeyraClearProblem | undefined;
 }
 
 function parseSession(text: string | undefined, issuer: string): StoredVeyraSession | undefined {
@@ -245,12 +254,11 @@ class KeychainSessionVault implements VeyraSessionVault {
 						this.blob.delete();
 						return { result, next: this.marker(false) };
 					}
-					if (this.markerRevision() !== revision && !this.signedInByMarker()) {
-						// That sign-out wins: writing `next` (a rotated refresh token, say) would bring the sign-in back.
-						this.blob.delete();
-						throw new VeyraSessionClearedError();
-					}
+					// That sign-out wins: writing `next` (a rotated refresh token, say) would bring the sign-in back.
+					this.refuseIfClearedSince(revision);
 					this.blob.write(JSON.stringify(next));
+					// Again after the write: the sign-out may have landed between the check and the write.
+					this.refuseIfClearedSince(revision);
 					return { result, next: this.marker(true) };
 				},
 				signal ? { signal: lockWait.signal } : undefined,
@@ -258,12 +266,28 @@ class KeychainSessionVault implements VeyraSessionVault {
 			.finally(() => signal?.removeEventListener("abort", forward));
 	}
 
-	clearWithoutLock(): void {
+	/** A sign-out without the lock rewrote the marker since `revision` was read: delete the sign-in and refuse. */
+	private refuseIfClearedSince(revision: string | undefined): void {
+		if (this.markerRevision() === revision || this.signedInByMarker()) return;
+		this.blob.delete();
+		throw new VeyraSessionClearedError();
+	}
+
+	clearWithoutLock(): VeyraClearProblem | undefined {
+		// The keychain first: without the blob, read() finds no sign-in whatever the marker says.
 		this.blob.delete();
 		try {
 			writeFileSync(this.markerPath, this.marker(false), { encoding: "utf-8", mode: 0o600 });
-		} catch {
-			// The keychain is the record: without the blob, read() finds no sign-in whatever the marker says.
+			return undefined;
+		} catch (error) {
+			// A marker that still says signed in with its old revision would let the lock holder write the sign-in
+			// back. Without the file its check sees the sign-out (no revision, not signed in); the next lock recreates it.
+			try {
+				rmSync(this.markerPath, { force: true });
+				return { error, markerLeft: false };
+			} catch {
+				return { error, markerLeft: true };
+			}
 		}
 	}
 }
@@ -292,8 +316,9 @@ class MemorySessionVault implements VeyraSessionVault {
 		return run;
 	}
 
-	clearWithoutLock(): void {
+	clearWithoutLock(): VeyraClearProblem | undefined {
 		this.session = undefined;
+		return undefined;
 	}
 }
 
@@ -346,7 +371,7 @@ export function openVeyraSessionVault(options: OpenVeyraSessionVaultOptions): Ve
 			return resolve().update(fn, signal);
 		},
 		clearWithoutLock() {
-			resolve().clearWithoutLock();
+			return resolve().clearWithoutLock();
 		},
 	};
 }

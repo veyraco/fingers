@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { DeviceFlowError } from "../src/core/veyra/device-flow.ts";
-import type { VeyraAccount } from "../src/core/veyra/session-vault.ts";
+import { type VeyraAccount, VeyraSessionClearedError } from "../src/core/veyra/session-vault.ts";
 import { type VeyraLogoutResult, type VeyraOrganization, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
 import type { FingersAccountStatus } from "../src/modes/interactive/components/footer.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -372,5 +372,22 @@ describe("Connect's strings on the terminal app's screen", () => {
 		const [line] = context.showError.mock.calls.map(([message]) => String(message));
 		expect(line).toContain("Connect refused the sign-in");
 		expect(line).not.toMatch(CONTROL);
+	});
+});
+
+describe("/login racing a sign-out (F11a)", () => {
+	it("another fingers process signed out at the same moment: says the sign-in was not kept and to run /login again", async () => {
+		const auth = fakeAuth({
+			login: vi.fn(async () => {
+				throw new VeyraSessionClearedError();
+			}),
+		});
+		const context = accountContext(auth, { signedIn: false });
+		expect(await prototype.handleVeyraLogin.call(context)).toBe(false);
+		expect(shown(context)).toEqual([
+			"Another fingers process signed out at the same moment, so this sign-in was not kept. Run /login again.",
+		]);
+		expect(context.showWarning).toHaveBeenCalledTimes(1);
+		expect(context.veyraAccount).toBeUndefined();
 	});
 });
