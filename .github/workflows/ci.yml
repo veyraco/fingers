@@ -118,3 +118,56 @@ jobs:
             args+=(--workspace "${dir%/}")
           done
           npm run test --if-present "${args[@]}"
+
+  # Open core: the MIT core builds, checks and passes its tests with the ee/ folder deleted.
+  core-without-ee:
+    name: core without ee/ (node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fd-find ripgrep
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
+
+      - name: Allow the browser sandbox
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Warm the browser
+        run: timeout 120 google-chrome --headless --dump-dom about:blank > /dev/null || echo "first start failed: $?"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Delete ee/
+        run: rm -rf ee
+
+      - name: Build
+        run: |
+          npm run build
+          test ! -e packages/coding-agent/dist/ee
+
+      - name: Check (biome, imports, ee boundary, typecheck)
+        run: npm run check
+
+      - name: Repository script tests
+        run: npm run test:scripts
+
+      - name: Test the coding agent
+        env:
+          FINGERS_NO_LOCAL_LLM: '1'
+        run: |
+          npm run test --workspace packages/coding-agent
+          npm run test:ee

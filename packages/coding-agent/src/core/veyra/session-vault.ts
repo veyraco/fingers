@@ -45,6 +45,10 @@ export interface StoredVeyraSession {
 	org_code?: string;
 	tier?: string;
 	group_name?: string;
+	/** The organization has the `fingers` app on (Connect `apps_enabled`), as of `entitlement_checked_at`. */
+	fingers_enabled?: boolean;
+	/** When Connect last confirmed tier and apps (epoch ms): the ee gate's offline cache (72 h). */
+	entitlement_checked_at?: number;
 	/** Epoch ms. */
 	signed_in_at: number;
 	access: Record<string, StoredAccessToken>;
@@ -73,6 +77,10 @@ export interface VeyraAccount {
 	orgCode?: string;
 	tier?: string;
 	groupName?: string;
+	/** From the last organization lookup: the `fingers` app is on for the organization. */
+	fingersEnabled?: boolean;
+	/** When Connect last confirmed tier and apps (epoch ms). */
+	entitlementCheckedAt?: number;
 	sessionId?: string;
 	signedInAt: number;
 	storage: VeyraStorageInfo;
@@ -92,6 +100,8 @@ export function veyraSessionAccount(session: StoredVeyraSession, storage: VeyraS
 		orgCode: session.org_code,
 		tier: session.tier,
 		groupName: session.group_name,
+		fingersEnabled: session.fingers_enabled,
+		entitlementCheckedAt: session.entitlement_checked_at,
 		sessionId: session.sid,
 		signedInAt: session.signed_in_at,
 		storage,

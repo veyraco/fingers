@@ -4,6 +4,15 @@
  */
 import { replaceControlCharacters } from "@veyraco/fingers-tui";
 import { APP_NAME, VERSION } from "../config.ts";
+import {
+	coreOnlyText,
+	EditionGate,
+	type EeFeatureId,
+	type EeModule,
+	entitlementAfterLookup,
+	formatFeatureList,
+	loadEeModule,
+} from "../core/edition/index.ts";
 import { connectedAppsUrl } from "../core/veyra/connect-config.ts";
 import { type DeviceCodePrompt, DeviceFlowError } from "../core/veyra/device-flow.ts";
 import {
@@ -42,6 +51,33 @@ export interface VeyraAccountCommandOptions {
 	/** The sign-in for the Connect the command names (`--connect`), else FINGERS_CONNECT_URL or connect.veyra.so. */
 	openAuth(connectUrl: string | undefined): VeyraAuth;
 	now?: () => number;
+	/** Finds the ee module (default: this installation's, see core/edition/loader.ts). */
+	loadEeModule?: () => Promise<EeModule | undefined>;
+}
+
+interface EeSummary {
+	on: boolean;
+	features: EeFeatureId[];
+	/** Why Fingers is core only. */
+	reason?: string;
+}
+
+/** Which ee features this sign-in has after the organization lookup (the ee gate, as the terminal app decides it). */
+async function eeSummary(
+	auth: VeyraAuth,
+	outcome: { org: VeyraOrganization } | { error: unknown },
+	options: VeyraAccountCommandOptions,
+): Promise<EeSummary | undefined> {
+	const account = auth.account();
+	if (!account) return undefined;
+	const { entitlement, forget } = entitlementAfterLookup(account, outcome, (options.now ?? Date.now)());
+	if (forget) await auth.forgetEntitlement();
+	const gate = new EditionGate({ loadModule: options.loadEeModule ?? (() => loadEeModule()) });
+	await gate.setEntitlement(entitlement);
+	const features = gate.onFeatures();
+	return features.length > 0
+		? { on: true, features }
+		: { on: false, features, reason: coreOnlyText(gate.state("token_saving"), entitlement) };
 }
 
 export const VEYRA_ACCOUNT_COMMANDS = ["login", "logout", "whoami"] as const;
@@ -196,15 +232,21 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 	stopLive();
 
 	let org: VeyraOrganization | undefined;
+	let lookup: { org: VeyraOrganization } | { error: unknown };
 	try {
 		org = await auth.organization({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) });
-	} catch {
+		lookup = { org };
+	} catch (error) {
 		// The sign-in worked; the summary shows the organization id instead.
+		lookup = { error };
 	}
+	const ee = await eeSummary(auth, lookup, options);
 	terminal.write("");
 	terminal.write(
 		`✓ ${signedInSummary({ email: account.email, subject: account.subject, orgName: org?.name ?? account.org, tier: org?.tier })}`,
 	);
+	if (ee?.on) terminal.write(`✓ ee features on: ${formatFeatureList(ee.features)}`);
+	else if (ee) terminal.write(`  Core only: ${ee.reason}`);
 	terminal.write(
 		`  Token stored in your OS keychain. Sign out with ${APP_NAME} logout or revoke the device in Connect.`,
 	);
@@ -263,13 +305,16 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	}
 	let org: VeyraOrganization | undefined;
 	let orgProblem: string | undefined;
+	let lookup: { org: VeyraOrganization } | { error: unknown };
 	try {
 		org = await auth.organization({ signal: AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) });
+		lookup = { org };
 	} catch (error) {
 		if (error instanceof VeyraSignedOutError) {
 			terminal.error(error.message);
 			return 1;
 		}
+		lookup = { error };
 		const detail = error instanceof Error ? error.message : String(error);
 		orgProblem =
 			error instanceof ConnectUnavailableError
@@ -277,6 +322,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 				: `not available: ${detail}`;
 	}
 	const storage = { persistent: account.storage.persistent, location: account.storage.location };
+	const ee = await eeSummary(auth, lookup, options);
 
 	// Without an answer from Connect, the facts kept from the last lookup.
 	const shown = org ?? {
@@ -305,6 +351,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 					email: account.email,
 					name: account.name,
 					organization,
+					ee: ee ? { on: ee.on, features: ee.features, ...(ee.reason ? { reason: ee.reason } : {}) } : undefined,
 					storage,
 				},
 				null,
@@ -321,6 +368,7 @@ async function whoami(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccount
 	);
 	if (shown.tier) terminal.write(`  Tier          ${shown.tier}`);
 	if (shown.groupName) terminal.write(`  Group         ${shown.groupName}`);
+	if (ee) terminal.write(`  ee            ${ee.on ? `on · ${formatFeatureList(ee.features)}` : `off · ${ee.reason}`}`);
 	terminal.write(`  Connect       ${account.issuer}`);
 	terminal.write(`  Stored in     ${storage.location}`);
 	return 0;

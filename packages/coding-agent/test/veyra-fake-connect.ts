@@ -75,6 +75,11 @@ export class FakeConnect {
 	private sessionCounter = 0;
 	/** Delay before answering a refresh, to make two refreshes overlap. */
 	refreshDelayMs = 0;
+	/** The organization's tier and apps as the lookup answers them (the ee gate's facts). */
+	orgTier: string = ORG.tier;
+	orgApps: string[] = ["connect", "fingers", "brain"];
+	/** A scripted answer for the organization lookup instead of the organization, e.g. 503 or 403. */
+	orgAnswer: { status: number; body: Record<string, unknown> } | undefined;
 
 	constructor(options: FakeConnectOptions = {}) {
 		this.options = options;
@@ -271,12 +276,16 @@ export class FakeConnect {
 			json(res, 404, { code: "not_found" });
 			return;
 		}
+		if (this.orgAnswer) {
+			json(res, this.orgAnswer.status, this.orgAnswer.body);
+			return;
+		}
 		json(res, 200, {
 			id: ORG.id,
 			code: ORG.code,
 			name: ORG.name,
-			tier: ORG.tier,
-			apps_enabled: ["connect", "fingers", "brain"],
+			tier: this.orgTier,
+			apps_enabled: this.orgApps,
 			my_membership: { member_id: "mem_9", group_id: "grp_editor", group_name: "Editor" },
 		});
 	}

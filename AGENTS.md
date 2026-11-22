@@ -26,6 +26,7 @@ Rules for people and agents working in this repository.
 - In `packages/coding-agent`, resolve package assets through helpers in `src/config.ts`. Do not use `__dirname` directly; the helpers account for source checkouts, npm installations, and standalone binaries.
 - Never remove or downgrade code to fix type errors from outdated deps; upgrade the dep instead.
 - Use only erasable TypeScript syntax (Node strip-only mode) in code checked by the root config (`packages/*/src`, `packages/*/test`, `packages/coding-agent/examples`): no parameter properties, `enum`, `namespace`/`module`, `import =`, `export =`, or other constructs needing JS emit. Use explicit fields with constructor assignments.
+- Open core: nothing outside `ee/` imports from `ee/` (checked by `npm run check:ee-boundary`), so the MIT core builds and runs with `ee/` deleted. ee code reaches the core only through the `EeHost` it is handed (`packages/coding-agent/src/core/edition/`) and imports core types with `import type` only. Files in `ee/` start with the Veyra Fingers Enterprise License line.
 - Always ask before removing functionality or code that appears intentional.
 - Do not preserve backward compatibility unless the user asks for it.
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.

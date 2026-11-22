@@ -336,17 +336,41 @@ export class VeyraAuth {
 		return organization;
 	}
 
-	/** Keep the organization's name, tier and group with the sign-in, so they show without a request. */
+	/**
+	 * Keep the organization's name, tier, group and whether Fingers is on with the sign-in, so they show without a
+	 * request, and when Connect confirmed them: the ee gate trusts these facts offline for 72 hours.
+	 */
 	private async rememberOrganization(org: VeyraOrganization): Promise<void> {
 		try {
 			await this.vault.update(async (current) => {
 				if (!current || current.org !== org.id) return { result: undefined };
-				const facts = { org_name: org.name, org_code: org.code, tier: org.tier, group_name: org.groupName };
-				const same = (Object.keys(facts) as Array<keyof typeof facts>).every((key) => current[key] === facts[key]);
-				return same ? { result: undefined } : { result: undefined, next: { ...current, ...facts } };
+				const facts = {
+					org_name: org.name,
+					org_code: org.code,
+					tier: org.tier,
+					group_name: org.groupName,
+					fingers_enabled: org.appsEnabled.includes(FINGERS_APP),
+				};
+				return { result: undefined, next: { ...current, ...facts, entitlement_checked_at: this.now() } };
 			});
 		} catch {
-			// Only a display cache.
+			// Only a cache: the ee gate falls back to "not confirmed".
+		}
+	}
+
+	/**
+	 * Drop the confirmed tier and apps (Connect refused the organization lookup), so an offline start does not keep
+	 * ee features on from older facts.
+	 */
+	async forgetEntitlement(): Promise<void> {
+		try {
+			await this.vault.update(async (current) => {
+				if (!current || current.entitlement_checked_at === undefined) return { result: undefined };
+				const { entitlement_checked_at: _checked, fingers_enabled: _enabled, ...rest } = current;
+				return { result: undefined, next: rest };
+			});
+		} catch {
+			// Nothing stored, or no keychain: nothing to drop.
 		}
 	}
 
