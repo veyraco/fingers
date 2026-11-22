@@ -19,7 +19,7 @@ import { parseArgs } from "../src/cli/args.ts";
 import { validateOutbound } from "../src/modes/rpc/managed/contract.ts";
 import { ManagedRpcServer } from "../src/modes/rpc/managed/managed-rpc-server.ts";
 import { createManagedRuntimeFactory } from "../src/modes/rpc/managed/managed-runtime.ts";
-import { listen, type ScriptedResponse, startFakeAnthropic } from "./managed-rpc-fakes.ts";
+import { listen, type ScriptedResponse, startFakeAnthropic, startFakeMcp } from "./managed-rpc-fakes.ts";
 
 type Rec = Record<string, any>;
 
@@ -292,6 +292,73 @@ describe("managed RPC secrets", () => {
 				.map((file) => readFileSync(file, "utf8"))
 				.join(""),
 		).not.toContain(TOKEN);
+	});
+});
+
+describe("managed RPC MCP server headers (F6b)", () => {
+	const MCP_SECRET = "Bearer hrt_mcp_run_token_7Qx2Lp9z";
+
+	it("sends configure.mcp_servers[].headers to the MCP server and keeps their values out of stdout, logs and session files", async () => {
+		const mcp = startFakeMcp({ echoAuthorization: true });
+		const mcpUrl = await listen(mcp.server);
+		cleanups.push(() => new Promise<void>((resolve) => mcp.server.close(() => resolve())));
+		const m = await startManaged([
+			{
+				content: [
+					{
+						type: "toolCall",
+						id: "toolu_m",
+						name: "mcp__github__create_pull_request",
+						arguments: { title: "t", head: "h", base: "main" },
+					},
+				],
+				usage,
+				stopReason: "toolUse",
+			},
+			{ content: [{ type: "text", text: "Opened." }], usage, stopReason: "stop" },
+		]);
+		const configured = await m.configure({
+			tools: { approval: "never" },
+			mcp_servers: [
+				{
+					name: "github",
+					url: `${mcpUrl}/mcp`,
+					headers: { Authorization: MCP_SECRET, "x-flag": "true" },
+					allowed_tools: ["create_pull_request"],
+					approval: "never",
+				},
+			],
+		});
+		expect(configured).toMatchObject({ success: true });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "open a pull request" });
+		const [result] = await m.waitFor("result");
+		expect(result).toMatchObject({ status: "completed" });
+		// The header reached the MCP server on every request, and the tool really ran.
+		expect(mcp.authorizations.length).toBeGreaterThan(0);
+		expect(mcp.authorizations.every((value) => value === MCP_SECRET)).toBe(true);
+		expect(mcp.calls).toHaveLength(1);
+		// The server echoed the value into its tool result; Fingers passed the result on with the value redacted.
+		expect(m.invalidStdout).toEqual([]);
+		const stdout = JSON.stringify(m.outs);
+		expect(stdout).toContain("created with [redacted]");
+		expect(JSON.stringify(m.anthropic.requests[1]!.body.messages)).toContain("created with");
+		expect(stdout).not.toContain(MCP_SECRET);
+		expect(stdout).not.toContain("hrt_mcp_run_token_7Qx2Lp9z");
+		const stderr = m.stderr.join("");
+		expect(stderr.length).toBeGreaterThan(0);
+		expect(stderr).not.toContain("hrt_mcp_run_token_7Qx2Lp9z");
+		const sessionFiles = filesUnder(join(m.root, "sessions"));
+		expect(sessionFiles.length).toBeGreaterThan(0);
+		const persisted = sessionFiles
+			.concat(filesUnder(join(m.root, "agent")))
+			.map((file) => readFileSync(file, "utf8"))
+			.join("\n");
+		expect(persisted).toContain("created with");
+		expect(persisted).not.toContain("hrt_mcp_run_token_7Qx2Lp9z");
+		// The configured log line names the server, never its headers.
+		const configuredLog = m.stderr.map((line) => JSON.parse(line) as Rec).find((log) => log.msg === "configured");
+		expect(configuredLog).toMatchObject({ mcp_servers: ["github"] });
 	});
 });
 
