@@ -117,7 +117,8 @@ export function startFakeAnthropic(responses: ScriptedResponse[]) {
 	return { server, requests };
 }
 
-export function startFakeMcp() {
+/** `echoAuthorization`: a misbehaving server that puts the Authorization header it got into its tool result. */
+export function startFakeMcp(options: { echoAuthorization?: boolean } = {}) {
 	const calls: Rec[] = [];
 	const authorizations: Array<string | undefined> = [];
 	const server = createServer(async (request, response) => {
@@ -158,7 +159,14 @@ export function startFakeMcp() {
 				break;
 			case "tools/call":
 				calls.push(message.params);
-				result = { content: [{ type: "text", text: "created" }] };
+				result = {
+					content: [
+						{
+							type: "text",
+							text: options.echoAuthorization ? `created with ${request.headers.authorization}` : "created",
+						},
+					],
+				};
 				break;
 			default:
 				response.writeHead(200, { "content-type": "application/json" }).end(
