@@ -41,10 +41,10 @@ A **model** generates Fingers' responses. A **provider** is the service or accou
 In Fingers, run:
 
 ```text
-/login
+/login anthropic
 ```
 
-Choose a provider, then follow the prompts to use a subscription or store an API key. Run `/model` afterward if you want to select a different available model.
+Use your provider instead of `anthropic`; type `/login ` and a few letters to search the providers. Follow the prompts to use a subscription or store an API key. Run `/model` afterward if you want to select a different available model. `/login` without a provider signs you in to your Veyra account instead.
 
 See [Choose a model and provider](models.md) for supported providers, environment-variable authentication, local models, and custom endpoints.
 

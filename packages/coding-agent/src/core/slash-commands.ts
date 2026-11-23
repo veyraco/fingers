@@ -30,6 +30,8 @@ export const SLASH_MENU = {
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
 	{ name: "model", description: "Select model (opens selector UI)", argumentHint: "<provider/model>" },
+	// Canvas FingersTuiSlash: an ee feature (sub-agents). Locked until signed in with a tier that includes it.
+	{ name: "agents", description: "sub-agents: start, watch, steer, stop", edition: "ee" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },
 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
@@ -45,8 +47,10 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "fork", description: "Create a new fork from a previous user message" },
 	{ name: "clone", description: "Duplicate the current session at the current position" },
 	{ name: "trust", description: "Save project trust decision for future sessions" },
-	{ name: "login", description: "Configure provider authentication", argumentHint: "<provider>" },
-	{ name: "logout", description: "Remove provider authentication" },
+	// Canvas FingersTuiSlash: /login is the Veyra sign-in; `/login <provider>` still configures a model provider.
+	{ name: "login", description: "sign in to Veyra Connect (device code)", argumentHint: "[provider]" },
+	{ name: "org", description: "Veyra organization, tier and group · switch by signing in again" },
+	{ name: "logout", description: "sign out of Veyra (revokes the device) · /logout <provider>" },
 	{ name: "new", description: "Start a new session" },
 	{ name: "compact", description: "Manually compact the session context" },
 	{ name: "resume", description: "Resume another session" },

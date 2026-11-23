@@ -1,6 +1,6 @@
 /**
- * Local fakes for managed RPC tests: the Anthropic Messages API (streaming, scripted responses) and an MCP
- * server (Streamable HTTP with JSON responses).
+ * Local fakes for managed RPC tests: the Anthropic Messages API and the OpenAI chat-completions API
+ * (streaming, scripted responses) and an MCP server (Streamable HTTP with JSON responses).
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -117,7 +117,83 @@ export function startFakeAnthropic(responses: ScriptedResponse[]) {
 	return { server, requests };
 }
 
-export function startFakeMcp() {
+function sseData(response: ServerResponse, data: Rec | string): void {
+	response.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
+}
+
+/** The OpenAI chat-completions API (streaming, scripted responses) under any path prefix, e.g. `/openai`. */
+export function startFakeOpenAI(responses: ScriptedResponse[]) {
+	const requests: Array<{ path: string; headers: IncomingMessage["headers"]; body: Rec }> = [];
+	let index = 0;
+	const server = createServer(async (request, response) => {
+		const body = await readBody(request);
+		const path = new URL(request.url ?? "/", "http://fake").pathname;
+		if (request.method !== "POST" || !path.endsWith("/chat/completions")) {
+			response.writeHead(404).end();
+			return;
+		}
+		requests.push({ path, headers: request.headers, body: JSON.parse(body) });
+		const scripted = responses[index++];
+		if (!scripted) {
+			response
+				.writeHead(500, { "content-type": "application/json" })
+				.end(JSON.stringify({ error: { type: "server_error", message: "no scripted response left" } }));
+			return;
+		}
+		if (scripted.error) {
+			response.writeHead(scripted.error.status, { "content-type": "application/json" }).end(scripted.error.body);
+			return;
+		}
+		const id = `chatcmpl_fake_${index}`;
+		const chunk = (choices: Rec[], extra: Rec = {}) => ({
+			id,
+			object: "chat.completion.chunk",
+			created: 0,
+			model: JSON.parse(body).model,
+			choices,
+			...extra,
+		});
+		response.writeHead(200, { "content-type": "text/event-stream" });
+		let toolIndex = 0;
+		for (const block of scripted.content) {
+			if (block.type === "text") {
+				sseData(
+					response,
+					chunk([{ index: 0, delta: { role: "assistant", content: block.text }, finish_reason: null }]),
+				);
+			} else {
+				const call = {
+					index: toolIndex++,
+					id: block.id,
+					type: "function",
+					function: { name: toolName(block.name), arguments: JSON.stringify(block.arguments) },
+				};
+				sseData(response, chunk([{ index: 0, delta: { tool_calls: [call] }, finish_reason: null }]));
+			}
+		}
+		const finish =
+			scripted.stopReason === "toolUse" ? "tool_calls" : scripted.stopReason === "length" ? "length" : "stop";
+		sseData(response, chunk([{ index: 0, delta: {}, finish_reason: finish }]));
+		const { input, output, cacheRead } = scripted.usage;
+		sseData(
+			response,
+			chunk([], {
+				usage: {
+					prompt_tokens: input + cacheRead,
+					completion_tokens: output,
+					total_tokens: input + cacheRead + output,
+					prompt_tokens_details: { cached_tokens: cacheRead },
+				},
+			}),
+		);
+		sseData(response, "[DONE]");
+		response.end();
+	});
+	return { server, requests };
+}
+
+/** `echoAuthorization`: a misbehaving server that puts the Authorization header it got into its tool result. */
+export function startFakeMcp(options: { echoAuthorization?: boolean } = {}) {
 	const calls: Rec[] = [];
 	const authorizations: Array<string | undefined> = [];
 	const server = createServer(async (request, response) => {
@@ -158,7 +234,14 @@ export function startFakeMcp() {
 				break;
 			case "tools/call":
 				calls.push(message.params);
-				result = { content: [{ type: "text", text: "created" }] };
+				result = {
+					content: [
+						{
+							type: "text",
+							text: options.echoAuthorization ? `created with ${request.headers.authorization}` : "created",
+						},
+					],
+				};
 				break;
 			default:
 				response.writeHead(200, { "content-type": "application/json" }).end(

@@ -81,7 +81,7 @@ See [AGENTS.md](AGENTS.md) for the development rules and
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+The core is MIT. See [LICENSE](LICENSE). The `ee/` folder holds Fingers ee under the Veyra Fingers Enterprise License ([ee/LICENSE](ee/LICENSE)): its features switch on after `fingers login` when your organization's Veyra tier includes them, and the core runs without it. See [ee/README.md](ee/README.md).
 
 ## Links
 

@@ -37,6 +37,7 @@ import { listModels } from "./cli/list-models.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
+import { createProcessVeyraTerminal, isVeyraAccountCommand, runVeyraAccountCommand } from "./cli/veyra-account.ts";
 import { APP_NAME, ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
@@ -66,6 +67,7 @@ import { collectSettingsDiagnostics, deduplicateDiagnostics } from "./core/setti
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
+import { createVeyraAuth } from "./core/veyra/index.ts";
 import { builtInExtensions } from "./extensions/index.ts";
 import { loadMcpCommand } from "./extensions/mcp/cli.lazy.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
@@ -162,6 +164,21 @@ async function runAuthLogoutCommand(args: string[]): Promise<number> {
 		terminal: { write: (line) => console.log(line), error: (line) => console.error(line) },
 		signal,
 	});
+}
+
+async function runVeyraAccountCommandInProcess(args: string[], agentDir: string): Promise<number> {
+	const controller = new AbortController();
+	const interrupt = () => controller.abort();
+	process.on("SIGINT", interrupt);
+	try {
+		return await runVeyraAccountCommand(args, {
+			terminal: createProcessVeyraTerminal(),
+			signal: controller.signal,
+			openAuth: (connectUrl) => createVeyraAuth({ agentDir, connectUrl }),
+		});
+	} finally {
+		process.off("SIGINT", interrupt);
+	}
 }
 
 async function runAuthCommand(args: string[]): Promise<boolean> {
@@ -642,6 +659,13 @@ export async function main(args: string[], options?: MainOptions) {
 	const bootstrapSettingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
+
+	// `fingers login|logout|whoami`: the Veyra account (provider credentials are `fingers auth`). Only the first
+	// argument counts, so `fingers -p login` or a first message "login to …" still starts a session.
+	if (isVeyraAccountCommand(args)) {
+		process.exitCode = await runVeyraAccountCommandInProcess(args, agentDir);
+		return;
+	}
 
 	if (await handlePackageCommand(args, { extensionFactories })) {
 		const exitCode = process.exitCode ?? 0;

@@ -1,0 +1,56 @@
+The Veyra Fingers Enterprise License (the "ee License")
+
+Copyright (c) 2026 Veyra
+
+This license applies to all files under the "ee/" directory of the Veyra
+Fingers repository and to all files built from them, including any "ee/"
+directory inside a published Fingers package (together, the "ee Software").
+Files outside "ee/" are licensed under the MIT License in the repository's
+LICENSE file and are not affected by this license.
+
+1. Use with a subscription.
+   You may use the ee Software only while you, or the organization on whose
+   behalf you use it, hold a valid Veyra subscription whose tier includes the
+   ee feature being used, and only under the Veyra Terms of Service that apply
+   to that subscription. The ee Software turns features on only after you sign
+   in to Veyra; that check is a convenience, not a grant: holding a
+   subscription is what entitles you to use a feature.
+
+2. Reading, development and testing.
+   You may read the ee Software, and you may copy and change it to develop and
+   test changes to Fingers, without a subscription. You may not use the ee
+   Software, or a changed copy of it, for any other purpose without a
+   subscription that covers that use.
+
+3. Contributions.
+   Changes you make to the ee Software, and patches you submit to Veyra for
+   it, may be used, copied, changed and distributed by Veyra under any license
+   Veyra chooses. You keep any rights you hold in your contribution; you grant
+   Veyra a perpetual, worldwide, royalty-free, non-exclusive license to it.
+
+4. No other rights.
+   Except as stated in sections 1 to 3, you may not copy, change, merge,
+   publish, distribute, sublicense, sell or otherwise make available the ee
+   Software, or remove, disable or work around the sign-in, tier or licence
+   checks in Fingers in order to use ee features without a subscription that
+   includes them. All rights not expressly granted are reserved by Veyra.
+
+5. Third-party components.
+   Third-party components in the ee Software, if any, remain under their own
+   licenses, which are named next to them.
+
+6. Ending.
+   Your rights under this license end automatically when your subscription
+   ends or when you breach this license. Sections 3, 4 and 7 survive.
+
+7. No warranty, no liability.
+   THE ee SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+   VEYRA OR ITS CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE ee SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE ee SOFTWARE, EXCEPT AS A VEYRA SUBSCRIPTION AGREEMENT
+   EXPRESSLY PROVIDES.
+
+Questions about this license: support@veyra.so

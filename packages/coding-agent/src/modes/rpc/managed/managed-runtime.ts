@@ -22,6 +22,7 @@ import { SessionManager } from "../../../core/session-manager.ts";
 import { DEFAULT_TOOL_NAMES, type Settings, SettingsManager } from "../../../core/settings-manager.ts";
 import { builtInExtensions } from "../../../extensions/index.ts";
 import type { ManagedRuntimeFactory, ManagedRuntimeFactoryInput } from "./managed-rpc-server.ts";
+import { OPENAI_COMPATIBLE_PROVIDER, openAICompatibleProvider } from "./openai-compatible.ts";
 
 export interface ManagedRuntimeOptions {
 	/** Fingers' agent directory (sessions, models.json; never credentials). Default: `~/.fingers/agent` or FINGERS_CODING_AGENT_DIR. */
@@ -53,10 +54,15 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 			settingsManager.applyOverrides({ cacheWarming: "off", ...options.settingsOverrides });
 			// Credentials come only from the host's `credentials` message: never from auth.json or the
 			// machine's OS keychain, so a managed run cannot pick up keys stored by a person on this machine.
+			// An `openai-compatible` model is in no catalog: Fingers builds it from `configure.model.model_id`.
 			const modelRuntime = await ModelRuntime.create({
 				credentials: AuthStorage.inMemory(),
 				modelsPath: join(runtimeAgentDir, "models.json"),
 				signal: AbortSignal.timeout(15_000),
+				extraProviders:
+					configure.model.provider === OPENAI_COMPATIBLE_PROVIDER
+						? [openAICompatibleProvider(configure.model.model_id)]
+						: [],
 			});
 			const services = await createAgentSessionServices({
 				cwd: runtimeCwd,
