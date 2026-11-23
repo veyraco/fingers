@@ -125,6 +125,11 @@ export interface CreateModelRuntimeOptions {
 	signal?: AbortSignal;
 	/** Skip initial catalog and availability refresh. Static models remain available. */
 	refreshOnCreate?: boolean;
+	/**
+	 * Providers this runtime adds to the built-in ones, such as managed mode's `openai-compatible`. They are
+	 * composed like built-ins: models.json and registerProvider() overlay them. Default: none.
+	 */
+	extraProviders?: readonly Provider[];
 }
 
 export interface ModelRuntimeAuthOverrides extends AuthOperationOptions {
@@ -258,7 +263,7 @@ export class ModelRuntime implements Models {
 			config,
 			modelsPath,
 			modelsStore,
-			providers,
+			[...providers, ...(options.extraProviders ?? [])],
 			process.env.FINGERS_OFFLINE === undefined,
 		);
 		runtime.credentialStorage = storageInfo;

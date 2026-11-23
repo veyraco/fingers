@@ -10,6 +10,10 @@
 - Open core: the `ee/` folder holds Fingers ee under the Veyra Fingers Enterprise License (`ee/LICENSE`); the MIT core never imports it and runs without it. ee features switch on only when you are signed in, your organization has the Fingers app on in Veyra Connect, and its tier includes them (tier matrix in `ee/src/tier-matrix.ts`: Low token saving; Medium sub-agents, checkpoints, Brain, Eyes; High organization hooks). Connect's answer is kept with the sign-in in the keychain and counts for 72 hours offline. `/agents` (tagged `ee`) shows the locked box while sub-agents are off; the status line says `ee on` or `core only`; `fingers login`, `fingers whoami` and `/org` name the ee features that are on or why none are. Published packages ship ee as `dist/ee/` with its own `LICENSE`.
 - Approvals in the interactive terminal: shell commands outside the allow list show the approval box (Yes / Yes, always allow / No, tell Fingers what to do instead). `approvals.commands: "never"` turns it off; `approvals.allow` adds prefixes. The built-in read-only commands are checked argument by argument (`rg --pre`, `git diff --output`, `git branch -D` and the like ask; `fd` and `tree` are not built in), the box shows long commands in full, and each decision is recorded in the session as an `approval` entry.
 
+### Fixed
+
+- Managed RPC mode: `configure` with provider `openai-compatible` failed with "Unknown model" for every model id, because no catalog lists such a model. Fingers now builds the model from `configure.model.model_id` and points it at the `credentials` message's `base_url` (OpenAI chat completions, models.json custom-model defaults), with no catalog or models.json entry. A request before a `base_url` arrived fails instead of going to a default endpoint.
+
 ### Removed
 
 - The Pi easter eggs (`/arminsayshi`, the 3D logo) and the `ArminComponent` export.
