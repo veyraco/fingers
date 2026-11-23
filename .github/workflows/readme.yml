@@ -1,0 +1,47 @@
+name: README
+
+# The README follows the Veyra README kit (veyraco/platform, brand/): the
+# light/dark banner pair, the badges and links lines, the sections What it
+# is, How it fits the Veyra family, Quick start and Links in that order, the
+# family footer, and .github/banner-*.png and .github/marks/*.svg equal to
+# the brand kit's files. Update the assets with
+#   npx -p @veyraco/platform-brand veyra-readme install --repo fingers
+# The check comes from @veyraco/platform-brand on GitHub Packages at a pinned
+# version, read with this repository's GITHUB_TOKEN (the package grants this
+# repository read access under "Manage Actions access").
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+      - ".github/banner-*.png"
+      - ".github/marks/**"
+      - ".github/workflows/readme.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: readme-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  readme:
+    name: README kit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: "@veyraco"
+
+      - name: Check README and banner assets
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --yes -p @veyraco/platform-brand@1.0.0 veyra-readme check --repo fingers
