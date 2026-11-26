@@ -152,6 +152,35 @@ async function holdSignInLock(): Promise<() => Promise<void>> {
 describe("fingers login", () => {
 	it("shows the canvas login screen, opens the browser at the code's link, and ends signed in", async () => {
 		const connect = await startFake({ polls: ["pending"] });
+		connect.modelConnections = [
+			{
+				id: "mc_claude",
+				provider: "anthropic",
+				name: "Claude",
+				apps: ["hands", "fingers"],
+				groups: [],
+				capabilities: ["chat"],
+				status: "ok",
+			},
+			{
+				id: "mc_gpt",
+				provider: "openai",
+				name: "OpenAI",
+				apps: ["hands", "fingers"],
+				groups: [],
+				capabilities: ["chat"],
+				status: "ok",
+			},
+			{
+				id: "mc_router",
+				provider: "openrouter",
+				name: "OpenRouter",
+				apps: ["hands", "fingers"],
+				groups: [],
+				capabilities: ["chat"],
+				status: "ok",
+			},
+		];
 		const { auth } = makeAuth(connect);
 		const t = terminal();
 		expect(await run(["login"], auth, t)).toBe(0);
@@ -169,6 +198,7 @@ describe("fingers login", () => {
 			"◐ Waiting for you to confirm in the browser · code expires in 10:00 · Ctrl+C cancels",
 			"",
 			"✓ Signed in as ada@example.com  ·  org Acme Robotics  ·  tier medium",
+			"✓ 3 model connections from Connect: Claude, OpenAI, OpenRouter",
 			"✓ ee features on: token saving · sub-agents · checkpoints · Brain · Eyes",
 			"  Token stored in your OS keychain. Sign out with fingers logout or revoke the device in Connect.",
 		]);

@@ -15,6 +15,23 @@ On a remote or headless machine, an OAuth callback may not reach the local proce
 
 Run `/logout <provider>` to remove a provider's stored credential (`/logout` alone signs out of your Veyra account when you are signed in, and otherwise lists the providers). This does not unset environment variables, remove authentication from `models.json`, or revoke the credential at the provider.
 
+## Model connections from Veyra
+
+When you are signed in to Veyra (`fingers login`, or `/login` alone), Fingers offers your organization's model connections from Veyra Connect as providers of their own, named after the connection, for example `Claude (Veyra)` with the id `veyra-<connection id>`. `fingers login` and `/login` list them (`✓ 3 model connections from Connect: …`), `/model` shows their models, and option 1 of the first-run screen picks the first one's default model.
+
+The provider key never reaches your computer. Each model call goes to Veyra Hands' model proxy (`https://api.veyra.so/hands/v1/model-proxy/<connection>/<anthropic|openai|google>`) with your Veyra sign-in's short-lived token for Hands; Hands adds the connection's API key or subscription sign-in and records the call's cost for you. Fingers stores no credential for these providers: nothing goes to the keychain's provider entries, `auth.json` or `models.json`.
+
+Fingers offers a connection when:
+
+- its apps in Connect include both `fingers` and `hands`;
+- its provider is one Hands relays: Anthropic, OpenAI, Google Gemini, OpenRouter, xAI or Moonshot Kimi (Bedrock, Vertex AI and OpenAI-compatible endpoints are not offered yet);
+- it uses an API key, or it is a Claude subscription (Claude Pro or Max). Fingers calls a Claude subscription connection the way Anthropic requires of a subscription, as it does after `/login anthropic`. Subscription sign-ins of ChatGPT, SuperGrok and Kimi Code are not offered yet: Hands relays those providers to their API-key endpoints, where these sign-ins do not work;
+- its key was not rejected, and its groups, when set, include yours.
+
+Seeing the connections needs Connect `models:read` for your group. Using one needs Connect `models:use` and Fingers `cli:use`, and stays within the organization's cost caps for the Fingers CLI; a refusal names the connection and what is missing, for example `Veyra model connection “Claude”: refused (…). Ask an admin of your organization in Connect: …`. When the provider refuses the connection's key or subscription sign-in, the message says so and asks an admin to test the connection in Connect; signing in to Fingers again does not help then.
+
+Fingers loads the list in the background after the first frame. A start whose saved model, `--model`, `--provider`, `--models` or resumed session names a `veyra-` provider waits for it (up to 8 seconds) before it picks the model. `/logout` removes the connections, and offline (`--offline`) Fingers does not ask for them.
+
 ## Where credentials are stored
 
 Fingers keeps saved API keys and OAuth tokens in the operating system's keychain:

@@ -45,6 +45,8 @@ export interface FakeConnectOptions {
 export interface RecordedRequest {
 	method: string;
 	path: string;
+	/** The query string, with its `?` (empty when none). */
+	search: string;
 	form: Record<string, string>;
 	headers: Record<string, string | string[] | undefined>;
 }
@@ -94,6 +96,23 @@ export class FakeConnect {
 	orgApps: string[] = ["connect", "fingers", "brain"];
 	/** A scripted answer for the organization lookup instead of the organization, e.g. 503 or 403. */
 	orgAnswer: { status: number; body: Record<string, unknown> } | undefined;
+	/** The organization's model connections (connect.yaml `ModelConnection`) the list answers. */
+	modelConnections: Array<Record<string, unknown>> = [];
+	/** Connect filters the list by `app`; off, the fake answers every connection (to test Fingers' own check). */
+	filterConnectionsByApp = true;
+	/** A scripted answer for the model connection list instead of the list, e.g. 403 without models:read. */
+	modelConnectionsAnswer: { status: number; body: Record<string, unknown> } | undefined;
+	/**
+	 * Hands' model proxy door for the Fingers CLI (hands.yaml "Model calls from the Fingers CLI") on the same API
+	 * origin: a person's token for `hands` is required; the call then goes to `handsUpstream` (a fake provider) with
+	 * the provider key added here, as Hands adds the leased key, and only the request headers Hands passes
+	 * (hands providers.ts PASSED_REQUEST_HEADERS). `handsRefusal` answers instead, as Hands refuses; Hands' own 401s
+	 * carry `WWW-Authenticate: Bearer realm="hands"`.
+	 */
+	handsUpstream: string | undefined;
+	handsRefusal: { status: number; body: Record<string, unknown>; headers?: Record<string, string> } | undefined;
+	/** The provider key the fake Hands adds upstream: it must never reach Fingers, a file or a log. */
+	readonly handsProviderKey = `sk-ant-api03-${randomBytes(16).toString("hex")}`;
 
 	constructor(options: FakeConnectOptions = {}) {
 		this.options = options;
@@ -141,7 +160,13 @@ export class FakeConnect {
 		const url = new URL(req.url ?? "/", this.origin);
 		const body = await readBody(req);
 		const form = Object.fromEntries(new URLSearchParams(body));
-		this.requests.push({ method: req.method ?? "GET", path: url.pathname, form, headers: req.headers });
+		this.requests.push({
+			method: req.method ?? "GET",
+			path: url.pathname,
+			search: url.search,
+			form,
+			headers: req.headers,
+		});
 
 		if (req.method === "GET" && url.pathname === "/.well-known/openid-configuration") {
 			json(res, 200, {
@@ -162,12 +187,19 @@ export class FakeConnect {
 			return;
 		}
 		const orgMatch = url.pathname.match(/^\/connect\/v1\/organizations\/([^/]+)$/);
+		const connectionsMatch = url.pathname.match(/^\/connect\/v1\/organizations\/([^/]+)\/model-connections$/);
+		const proxyMatch = url.pathname.match(/^\/hands\/v1\/model-proxy\/([^/]+)\/(anthropic|openai|google)(\/.*)$/);
+		if (proxyMatch) {
+			await this.handsDoor(req, res, body, proxyMatch[3]!);
+			return;
+		}
 		if (req.method === "POST" && url.pathname === "/oauth2/device_authorization") this.deviceAuthorization(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/token") await this.token(res, form);
 		else if (req.method === "POST" && url.pathname === "/oauth2/revoke" && this.options.revocation !== false) {
 			if (this.revokeDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.revokeDelayMs));
 			this.revoke(res, form);
 		} else if (req.method === "GET" && orgMatch) this.organization(res, req, orgMatch[1]!);
+		else if (req.method === "GET" && connectionsMatch) this.listModelConnections(res, req, url, connectionsMatch[1]!);
 		else json(res, 404, { error: "not_found" });
 	}
 
@@ -314,6 +346,74 @@ export class FakeConnect {
 				group_name: this.options.groupNameOverride ?? "Editor",
 			},
 		});
+	}
+
+	/** The live access token of `req` for `aud`, or undefined. */
+	private bearerFor(req: IncomingMessage, aud: string): string | undefined {
+		const token = (req.headers.authorization ?? "").match(/^Bearer (.+)$/)?.[1];
+		const access = token ? this.accessTokens.get(token) : undefined;
+		if (!access || access.aud !== aud || this.sessions.get(access.sid)?.ended) return undefined;
+		return token;
+	}
+
+	private listModelConnections(res: ServerResponse, req: IncomingMessage, url: URL, org: string): void {
+		if (!this.bearerFor(req, "connect")) {
+			json(res, 401, { status: 401, code: "unauthenticated", title: "Unauthorized" });
+			return;
+		}
+		if (org !== ORG.id) {
+			json(res, 404, { code: "not_found" });
+			return;
+		}
+		if (this.modelConnectionsAnswer) {
+			json(res, this.modelConnectionsAnswer.status, this.modelConnectionsAnswer.body);
+			return;
+		}
+		const app = url.searchParams.get("app");
+		const data = this.modelConnections.filter(
+			(connection) =>
+				!this.filterConnectionsByApp ||
+				!app ||
+				(Array.isArray(connection.apps) && (connection.apps as unknown[]).includes(app)),
+		);
+		json(res, 200, { data });
+	}
+
+	private async handsDoor(req: IncomingMessage, res: ServerResponse, body: string, rest: string): Promise<void> {
+		if (!this.bearerFor(req, "hands")) {
+			res.setHeader("www-authenticate", 'Bearer realm="hands"');
+			json(res, 401, {
+				type: "error",
+				error: { type: "authentication_error", message: "A Connect access token for Hands is required." },
+			});
+			return;
+		}
+		if (this.handsRefusal) {
+			for (const [name, value] of Object.entries(this.handsRefusal.headers ?? {})) res.setHeader(name, value);
+			json(res, this.handsRefusal.status, this.handsRefusal.body);
+			return;
+		}
+		if (!this.handsUpstream) {
+			json(res, 503, { type: "error", error: { type: "overloaded_error", message: "no upstream" } });
+			return;
+		}
+		const passed: Record<string, string> = {};
+		for (const name of ["accept", "anthropic-version", "anthropic-beta", "openai-beta", "user-agent"]) {
+			const value = req.headers[name];
+			if (typeof value === "string") passed[name] = value;
+		}
+		const upstream = await fetch(`${this.handsUpstream}${rest}`, {
+			method: req.method,
+			headers: {
+				...passed,
+				"content-type": "application/json",
+				"x-api-key": this.handsProviderKey,
+				authorization: `Bearer ${this.handsProviderKey}`,
+			},
+			body,
+		});
+		res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" });
+		res.end(Buffer.from(await upstream.arrayBuffer()));
 	}
 
 	private endSession(sid: string): void {

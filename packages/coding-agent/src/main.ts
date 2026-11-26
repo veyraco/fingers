@@ -67,7 +67,9 @@ import { collectSettingsDiagnostics, deduplicateDiagnostics } from "./core/setti
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
+import { namesModelConnection, prepareModelConnections } from "./core/veyra/connection-provider.ts";
 import { createVeyraAuth } from "./core/veyra/index.ts";
+import { isConnectionProviderId } from "./core/veyra/model-connections.ts";
 import { builtInExtensions } from "./extensions/index.ts";
 import { loadMcpCommand } from "./extensions/mcp/cli.lazy.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
@@ -910,6 +912,26 @@ export async function main(args: string[], options?: MainOptions) {
 				message: `Extension package "${path}": ${warning}`,
 			})),
 		];
+
+		// The organization's model connections from Veyra Connect (F13), as providers `veyra-<connection id>`. Never in
+		// managed RPC mode: the host gives the model there, and the sandbox has no sign-in.
+		if (parsed.mode !== "rpc") {
+			const warning = await prepareModelConnections(modelRuntime, {
+				auth: () => createVeyraAuth({ agentDir }),
+				wanted:
+					namesModelConnection([
+						settingsManager.getDefaultProvider(),
+						parsed.provider,
+						parsed.model,
+						...(parsed.models ?? settingsManager.getEnabledModels() ?? []),
+					]) ||
+					sessionManager
+						.buildSessionContext()
+						.messages.some((message) => message.role === "assistant" && isConnectionProviderId(message.provider)),
+				offline: isTruthyEnvFlag(process.env.FINGERS_OFFLINE),
+			});
+			if (warning) diagnostics.push({ type: "warning", message: warning });
+		}
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const { scopedModels, diagnostics: modelScopeDiagnostics } =
