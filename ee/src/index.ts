@@ -6,11 +6,12 @@
  */
 import type { EeHost, EeModule } from "@veyraco/fingers";
 import { BrainMemory } from "./brain/index.ts";
+import { EyesTelemetry } from "./eyes/index.ts";
 import { minimumTier, TIER_MATRIX_VERSION } from "./tier-matrix.ts";
 import { TokenSaving } from "./token-saving/index.ts";
 
 /** The core contract this module was built for (the core's EE_API_VERSION). */
-export const apiVersion = 5;
+export const apiVersion = 6;
 
 export const matrixVersion = TIER_MATRIX_VERSION;
 
@@ -21,6 +22,9 @@ export const tokenSaving = new TokenSaving();
 
 /** One per process: the repositories turned off with /memory off stay off across entitlement checks. */
 export const brainMemory = new BrainMemory();
+
+/** One per process: its per-organization exporters and /eyes off live across entitlement checks. */
+export const eyesTelemetry = new EyesTelemetry();
 
 export function activate(host: EeHost): void {
 	if (host.isOn("token_saving")) {
@@ -33,6 +37,11 @@ export function activate(host: EeHost): void {
 		brainMemory.attach(host);
 	} else {
 		brainMemory.reset();
+	}
+	if (host.isOn("eyes")) {
+		eyesTelemetry.attach(host);
+	} else {
+		eyesTelemetry.reset();
 	}
 	if (host.isOn("subagents")) {
 		// The sub-agents panel (start, watch, steer, stop) is Fingers item F19; until then /agents says it is on.

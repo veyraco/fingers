@@ -7,7 +7,8 @@
  *
  * On top of Pi's RPC commands and session events it adds the handshake (`hello`, `configure`,
  * `credentials`), `seq` and `traceparent` correlation, structured stderr logs, the managed path policy,
- * approvals, `usage`, `file_changed`, limits, checkpoints and a `result` after every `agent_settled`.
+ * approvals, `usage`, `file_changed`, limits, checkpoints, the memory and telemetry relays and a `result` after
+ * every `agent_settled`.
  */
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
@@ -26,6 +27,8 @@ import { type MemoryResponseRecord, RelayMemoryProvider } from "../../../core/me
 import type { MemoryUnavailableError } from "../../../core/memory/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../../core/trace-context.ts";
+import type { SpanExporter } from "../../../core/tracing/spans.ts";
+import { SessionTracer } from "../../../core/tracing/tracer.ts";
 import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
 import { toJsonEvent } from "../../json-event.ts";
 import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
@@ -62,6 +65,9 @@ const WORK_COMMANDS = new Set(["prompt", "steer", "follow_up", "compact"]);
 /** Correlation headers Fingers sets on model requests; a provider or host value with any casing is replaced. */
 const CORRELATION_HEADER = /^(traceparent|x-request-id)$/i;
 
+/** `veyra.correlation_id` (contracts/v1/eyes-feed.md): the run's X-Request-Id when it has this shape. */
+const CORRELATION_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
 export interface ManagedConfigure {
 	id: string;
 	type: "configure";
@@ -80,6 +86,7 @@ export interface ManagedConfigure {
 	approvals?: { timeout_ms?: number };
 	/** `relay`: the memory provider asks the host (`memory_request`); `off` (default): no memory. */
 	memory?: { mode?: string; context_budget_tokens?: number };
+	/** `relay`: finished spans go to the host as `telemetry_span`; `off` (default): no spans. */
 	telemetry?: { mode?: string; capture_content?: boolean };
 	checkpoints?: { dir?: string };
 }
@@ -176,6 +183,9 @@ export class ManagedRpcServer {
 	/** The memory relay (`memory.mode: relay`): Fingers never calls Brain, the host does. */
 	private memory?: RelayMemoryProvider;
 	private memoryNoticeSent = false;
+	/** The telemetry relay (`telemetry.mode: relay`): spans go to the host, Fingers sends none itself. */
+	private tracer?: SessionTracer;
+	private unsubscribeTracer?: () => void;
 	private readonly credentials = new Map<string, { expiresAt?: string }>();
 	/**
 	 * The latest `credentials` message per provider, in memory only. A session replacement (fork, clone,
@@ -195,6 +205,7 @@ export class ManagedRpcServer {
 	private commandTrace?: TraceContext;
 	/** The trace of the command that started the current (or last) run: model requests are its child spans. */
 	private workTrace?: TraceContext;
+	private compactionStartedAt?: number;
 
 	constructor(options: ManagedRpcServerOptions) {
 		this.options = options;
@@ -417,6 +428,7 @@ export class ManagedRpcServer {
 					},
 				});
 			}
+			if (configure.telemetry?.mode === "relay") this.tracer = this.createRelayTracer(configure);
 			this.runtime = await this.options.createRuntime({ configure, extension: this.createManagedExtension() });
 			this.runtime.setRebindSession(async () => {
 				await this.bindSession();
@@ -429,6 +441,9 @@ export class ManagedRpcServer {
 			this.configure = undefined;
 			this.memory?.close();
 			this.memory = undefined;
+			this.unsubscribeTracer?.();
+			this.unsubscribeTracer = undefined;
+			this.tracer = undefined;
 			this.logger.error("configure failed", { err: error });
 			this.fail(configure.id, "configure", "invalid_command", `configure failed: ${errorMessage(error)}`);
 			await this.runtime?.dispose().catch(() => {});
@@ -448,6 +463,8 @@ export class ManagedRpcServer {
 			builtin_tools: configure.tools?.builtin,
 			network_mode: configure.network?.mode ?? "open",
 			memory_mode: this.memory ? "relay" : "off",
+			telemetry_mode: this.tracer ? "relay" : "off",
+			telemetry_capture_content: this.tracer ? configure.telemetry?.capture_content === true : undefined,
 			session_id: this.session.sessionId,
 		});
 		this.respond(configure.id, "configure", { session_id: this.session.sessionId });
@@ -498,6 +515,83 @@ export class ManagedRpcServer {
 		};
 	}
 
+	/**
+	 * The telemetry relay: every finished span (model calls, tool calls, compactions) becomes a `telemetry_span` record
+	 * for the host, which sends it to Eyes as the run's Fingers feed or drops it. Spans continue the trace of the
+	 * command that started the run, carry the run's ids and are masked: the host's secrets never appear in them, and
+	 * prompts, answers and tool arguments only with `capture_content`.
+	 */
+	private createRelayTracer(configure: ManagedConfigure): SessionTracer {
+		const relay: SpanExporter = {
+			content: configure.telemetry?.capture_content === true,
+			export: (span) => this.emit({ type: "telemetry_span", span }),
+		};
+		const exporters = [relay];
+		const runAttributes = {
+			...(configure.run_id ? { "veyra.run_id": configure.run_id } : {}),
+			"veyra.fingers.agent_id": "main",
+			...(configure.request_id && CORRELATION_ID.test(configure.request_id)
+				? { "veyra.correlation_id": configure.request_id }
+				: {}),
+		};
+		return new SessionTracer({
+			exporters: () => exporters,
+			parent: () => this.spanParent(),
+			attributes: () => runAttributes,
+			conversationId: () => this.session?.sessionId,
+			systemPrompt: () => this.session?.systemPrompt,
+			messages: () => this.session?.messages ?? [],
+			mask: { redactSecrets: (text) => this.secrets.redact(text) },
+			onError: (error) => this.logger.warn("telemetry span not sent", { err: error }),
+			now: () => this.now(),
+		});
+	}
+
+	/**
+	 * The parent of the run's spans and model requests: the host's span named by the `traceparent` of the command that
+	 * started the run (Fingers' own command span is never exported), or that command span on a new trace.
+	 */
+	private spanParent(): TraceContext | undefined {
+		const trace = this.workTrace ?? this.commandTrace;
+		if (!trace) return undefined;
+		return { traceId: trace.traceId, spanId: trace.parentSpanId ?? trace.spanId, flags: trace.flags };
+	}
+
+	/** Feed the relay tracer; it listens after the server, so a model call's span follows its `usage` record. */
+	private traceEvent(event: AgentSessionEvent): void {
+		const tracer = this.tracer;
+		if (!tracer) return;
+		switch (event.type) {
+			case "agent_start":
+				tracer.runStarted();
+				return;
+			case "message_start":
+				if (event.message.role === "assistant") tracer.assistantStarted();
+				return;
+			case "message_end":
+				if (event.message.role === "assistant") tracer.assistantEnded(event.message as AssistantMessage);
+				return;
+			case "tool_execution_start":
+				tracer.toolStarted(event.toolCallId, event.toolName, event.args);
+				return;
+			case "tool_execution_end":
+				tracer.toolEnded(event.toolCallId, event.toolName, event.result, event.isError);
+				return;
+			case "compaction_start":
+				this.compactionStartedAt = this.now();
+				return;
+			case "compaction_end":
+				if (event.result) {
+					tracer.compacted(event.result.tokensBefore, event.result.estimatedTokensAfter, this.compactionStartedAt);
+				}
+				this.compactionStartedAt = undefined;
+				return;
+			case "agent_settled":
+				tracer.runSettled(event.aborted);
+				return;
+		}
+	}
+
 	/** Memory is best effort: the run goes on without it, and the person watching hears it once per run. */
 	private onMemoryUnavailable(error: MemoryUnavailableError): void {
 		this.logger.warn("memory unavailable; continuing without it", { code: error.code, error: error.message });
@@ -511,9 +605,10 @@ export class ManagedRpcServer {
 	 * `traceparent` and the run's `X-Request-Id` (contracts/v1/logging.md, Correlation headers).
 	 */
 	private addCorrelationHeaders(headers: ProviderHeaders): void {
-		const parent = this.workTrace ?? this.commandTrace;
+		const parent = this.spanParent();
 		if (!parent) return;
-		const span = childSpan(parent);
+		// With the telemetry relay, the request's span is the model call's `chat` span.
+		const span = this.tracer?.modelRequest() ?? childSpan(parent);
 		const requestId = this.configure?.request_id;
 		for (const key of Object.keys(headers)) {
 			if (!CORRELATION_HEADER.test(key)) continue;
@@ -629,6 +724,8 @@ export class ManagedRpcServer {
 		for (const message of this.credentialMessages.values()) await this.applyCredentialsTo(session, message);
 		this.unsubscribe?.();
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
+		this.unsubscribeTracer?.();
+		this.unsubscribeTracer = this.tracer ? session.subscribe((event) => this.traceEvent(event)) : undefined;
 		// A limit reached during a turn ends the run after the turn's tool calls (the same stop as /budget).
 		endRunAfterTurnWhen(session.agent, () => this.limitStop !== undefined);
 		await session.bindExtensions({
@@ -1191,6 +1288,7 @@ export class ManagedRpcServer {
 			this.logger.warn("abort during shutdown failed", { err: error });
 		}
 		this.unsubscribe?.();
+		this.unsubscribeTracer?.();
 		await this.runtime?.dispose().catch((error) => this.logger.warn("dispose failed", { err: error }));
 	}
 }

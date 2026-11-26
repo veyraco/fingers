@@ -25,6 +25,8 @@ import {
 } from "../src/core/edition/index.ts";
 import { MemoryProviders } from "../src/core/memory/registry.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
+import { OtlpHttpExporter } from "../src/core/tracing/otlp.ts";
+import { TelemetryExporters } from "../src/core/tracing/registry.ts";
 import { ConnectUnavailableError, VeyraApiError } from "../src/core/veyra/oidc-client.ts";
 import { openVeyraSessionVault, type VeyraAccount } from "../src/core/veyra/session-vault.ts";
 import { VeyraAuth, type VeyraOrganization, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
@@ -44,7 +46,7 @@ function fakeModule(overrides: Partial<EeModule> = {}): EeModule {
 		org_hooks: "high",
 	};
 	return {
-		apiVersion: 5,
+		apiVersion: 6,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => matrix[feature],
 		activate: (host) => {
@@ -321,6 +323,32 @@ describe("EditionGate", () => {
 		expect(await providers.providerFor("/w")).toBeUndefined();
 	});
 
+	it("lets the ee module register a span exporter only for a feature that is on, asked before every span (F21)", async () => {
+		const exporters = new TelemetryExporters();
+		const spans: unknown[] = [];
+		const exporter = { export: (span: unknown) => spans.push(span) };
+		let created: unknown;
+		const module = fakeModule({
+			activate: (host) => {
+				host.registerTelemetryExporter("not_a_feature" as never, exporter);
+				host.registerTelemetryExporter("eyes", exporter);
+				created = host.createOtlpExporter({ url: "http://127.0.0.1:9/v1/traces" });
+			},
+		});
+		const gate = new EditionGate({ loadModule: async () => module, telemetry: exporters });
+		await gate.setEntitlement({ ...SIGNED_IN, tier: "low" });
+		expect(exporters.has("ee")).toBe(false);
+		expect(exporters.active()).toEqual([]);
+		await gate.setEntitlement(SIGNED_IN);
+		expect(exporters.active()).toEqual([exporter]);
+		expect(created).toBeInstanceOf(OtlpHttpExporter);
+		// Another slot (the person's own OTLP destination) is not the gate's to clear.
+		exporters.set("otlp", { export: () => {} });
+		await gate.setEntitlement(SIGNED_OUT);
+		expect(exporters.has("ee")).toBe(false);
+		expect(exporters.has("otlp")).toBe(true);
+	});
+
 	it("is core only without an ee module, whatever the tier", async () => {
 		const gate = new EditionGate({ loadModule: async () => undefined });
 		await gate.setEntitlement({ ...SIGNED_IN, tier: "high" });
@@ -376,7 +404,7 @@ describe("the ee module loader", () => {
 		writeFileSync(path, text);
 	}
 
-	const VALID = `export const apiVersion = 5; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
+	const VALID = `export const apiVersion = 6; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
 
 	it("looks next to a binary, in a source checkout's ee/src, then in dist/ee", () => {
 		const packageDir = join(dir, "packages", "coding-agent");
@@ -408,16 +436,16 @@ describe("the ee module loader", () => {
 		const other = join(dir, "pkg2");
 		writeModule(
 			join(other, "dist", "ee", "index.js"),
-			`export default { apiVersion: 5, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
+			`export default { apiVersion: 6, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
 		);
 		expect((await loadEeModule({ packageDir: other, isBunBinary: false, execPath: "" }))?.matrixVersion).toBe("d");
 	});
 
 	it("refuses a module built for another contract version, one without the exports, and one that throws", async () => {
 		for (const [name, text] of [
-			["v4", VALID.replace("apiVersion = 5", "apiVersion = 4")],
-			["v6", VALID.replace("apiVersion = 5", "apiVersion = 6")],
-			["partial", `export const apiVersion = 5; export const matrixVersion = "x";`],
+			["v5", VALID.replace("apiVersion = 6", "apiVersion = 5")],
+			["v7", VALID.replace("apiVersion = 6", "apiVersion = 7")],
+			["partial", `export const apiVersion = 6; export const matrixVersion = "x";`],
 			["throws", `throw new Error("broken ee");`],
 		]) {
 			const packageDir = join(dir, name);

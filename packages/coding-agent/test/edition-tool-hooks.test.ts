@@ -45,7 +45,7 @@ function signedIn(tier: string): EeEntitlement {
 /** A stand-in ee module that registers `hooks` for token saving, and one for org hooks (High). */
 function moduleWith(hooks: EeToolHooks, orgHooks: EeToolHooks = {}): EeModule {
 	return {
-		apiVersion: 5,
+		apiVersion: 6,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => MATRIX[feature],
 		activate: (host) => {

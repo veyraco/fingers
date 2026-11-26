@@ -9,8 +9,8 @@ import { commandSchema, commonSchema, eventSchema, responseSchema } from "./cont
 export const FINGERS_RPC_PROTOCOL = "veyra.fingers.rpc.v1";
 
 /**
- * Capabilities this build announces in `hello`. The telemetry relay and sub-agents are part of the contract but not
- * implemented yet; a host must not use them until they are announced.
+ * Capabilities this build announces in `hello`. Sub-agents are part of the contract but not implemented yet; a host
+ * must not use them until they are announced.
  */
 export const MANAGED_CAPABILITIES = [
 	"approvals",
@@ -20,6 +20,7 @@ export const MANAGED_CAPABILITIES = [
 	"checkpoints",
 	"mcp",
 	"memory_relay",
+	"telemetry_relay",
 ] as const;
 
 /** Commands of the contract (Pi-compatible plus Veyra additions). Anything else is `unknown_command`. */

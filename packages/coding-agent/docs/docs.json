@@ -44,6 +44,10 @@
               "path": "containerization.md"
             },
             {
+              "title": "Trace Fingers with OpenTelemetry",
+              "path": "telemetry.md"
+            },
+            {
               "title": "Run Local Models",
               "path": "llama-cpp.md"
             },

@@ -464,6 +464,16 @@ export {
 	withFileMutationQueue,
 } from "./core/tools/index.ts";
 export { formatReadLineRange } from "./core/tools/render-utils.ts";
+// Telemetry (open core): the span shape ee's Eyes exporter receives, and the OTLP exporter options
+export type { OtlpExporterOptions } from "./core/tracing/otlp.ts";
+export type {
+	FingersSpan,
+	SpanAttributes,
+	SpanAttributeValue,
+	SpanExporter,
+	SpanKind,
+	SpanStatus,
+} from "./core/tracing/spans.ts";
 export {
 	hasTrustRequiringProjectResources,
 	type ProjectTrustDecision,

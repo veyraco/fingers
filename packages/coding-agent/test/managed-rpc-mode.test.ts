@@ -12,6 +12,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -748,5 +749,161 @@ describe("managed RPC memory relay", () => {
 		expect(logs.filter((log) => log.msg === "invalid memory_response ignored")).toHaveLength(1);
 		expect(logs.filter((log) => log.msg === "memory unavailable; continuing without it")).toHaveLength(2);
 		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
+	});
+});
+
+describe("managed RPC telemetry relay (F21)", () => {
+	const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+	const spansOf = (outs: Rec[]) => outs.filter((out) => out.type === "telemetry_span").map((out) => out.span as Rec);
+
+	it("announces telemetry_relay and sends no span with telemetry off (the default)", async () => {
+		const m = await startManaged([{ content: [{ type: "text", text: "ok" }], usage, stopReason: "stop" }]);
+		expect(m.outs[0]!.capabilities).toContain("telemetry_relay");
+		await m.configure();
+		await m.credentials();
+		await m.command({ type: "prompt", message: "hi" });
+		await m.waitFor("result");
+		expect(spansOf(m.outs)).toEqual([]);
+		const logs = m.stderr.map((line) => JSON.parse(line) as Rec);
+		expect(logs.find((log) => log.msg === "configured")).toMatchObject({ telemetry_mode: "off" });
+	});
+
+	it("relays a chat span per model call and an execute_tool span per tool call, on the run's trace", async () => {
+		const fetched: string[] = [];
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+			fetched.push(String(input instanceof Request ? input.url : input));
+			return realFetch(input, init);
+		});
+		cleanups.push(() => {
+			vi.unstubAllGlobals();
+		});
+		const m = await startManaged([
+			{
+				content: [{ type: "toolCall", id: "toolu_ls", name: "ls", arguments: {} }],
+				usage: { input: 100, output: 20, cacheRead: 900, cacheWrite: 0 },
+				stopReason: "toolUse",
+			},
+			{ content: [{ type: "text", text: "Empty." }], usage, stopReason: "stop" },
+		]);
+		await m.configure({ tools: { builtin: ["ls"], approval: "never" }, telemetry: { mode: "relay" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "look around" });
+		await m.waitFor("result");
+		const spans = spansOf(m.outs);
+		expect(spans.map((span) => span.name)).toEqual([
+			"chat claude-sonnet-4-5",
+			"execute_tool ls",
+			"chat claude-sonnet-4-5",
+		]);
+		for (const span of spans) {
+			expect(span.trace_id).toBe(TRACE_ID);
+			// Children of the host's span named by the prompt's traceparent.
+			expect(span.parent_span_id).toBe("00f067aa0ba90200");
+			expect(span.attributes).toMatchObject({
+				"veyra.run_id": "run_test",
+				"veyra.fingers.agent_id": "main",
+				"veyra.correlation_id": "req_test",
+				"gen_ai.conversation.id": expect.any(String),
+			});
+			for (const name of Object.keys(span.attributes))
+				expect(name).not.toMatch(/messages|instructions|arguments|result/);
+		}
+		expect(spans[0]!.attributes).toMatchObject({
+			"gen_ai.operation.name": "chat",
+			"gen_ai.provider.name": "anthropic",
+			"gen_ai.request.model": "claude-sonnet-4-5",
+			"gen_ai.usage.input_tokens": 1000,
+			"gen_ai.usage.cache_read.input_tokens": 900,
+			"gen_ai.usage.output_tokens": 20,
+			"gen_ai.response.finish_reasons": ["tool_call"],
+		});
+		expect(spans[1]!.attributes).toMatchObject({
+			"gen_ai.operation.name": "execute_tool",
+			"gen_ai.tool.name": "ls",
+			"gen_ai.tool.call.id": "toolu_ls",
+		});
+		// A model call's span is the one its request carried in `traceparent`.
+		const sent = m.anthropic.requests.map((request) => {
+			const value = request.headers.traceparent;
+			return Array.isArray(value) ? value.join(",") : value;
+		});
+		const chats = spans.filter((span) => span.name.startsWith("chat"));
+		expect(sent).toEqual(chats.map((span) => `00-${TRACE_ID}-${span.span_id}-01`));
+		// Each span follows the usage record of its call; nothing went anywhere but the model endpoint.
+		const order = m.outs
+			.filter((out) => out.type === "usage" || out.type === "telemetry_span")
+			.map((out) => out.type);
+		expect(order.slice(0, 2)).toEqual(["usage", "telemetry_span"]);
+		const anthropicUrl = `http://127.0.0.1:${(m.anthropic.server.address() as AddressInfo).port}`;
+		for (const url of fetched) expect(url.startsWith(anthropicUrl)).toBe(true);
+		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
+		const logs = m.stderr.map((line) => JSON.parse(line) as Rec);
+		expect(logs.find((log) => log.msg === "configured")).toMatchObject({
+			telemetry_mode: "relay",
+			telemetry_capture_content: false,
+		});
+	});
+
+	it("adds prompts, answers and tool calls only with capture_content, and never the credential", async () => {
+		const m = await startManaged([
+			{
+				content: [{ type: "toolCall", id: "toolu_ls", name: "ls", arguments: { path: "." } }],
+				usage,
+				stopReason: "toolUse",
+			},
+			{ content: [{ type: "text", text: `The token was ${TOKEN}.` }], usage, stopReason: "stop" },
+		]);
+		await m.configure({
+			tools: { builtin: ["ls"], approval: "never" },
+			telemetry: { mode: "relay", capture_content: true },
+			system_prompt: "Work in small steps.",
+		});
+		await m.credentials();
+		await m.command({ type: "prompt", message: `Check the token ${TOKEN} for me.` });
+		await m.waitFor("result");
+		const spans = spansOf(m.outs);
+		const [first, tool, last] = spans as [Rec, Rec, Rec];
+		expect(JSON.parse(first.attributes["gen_ai.input.messages"])[0]).toEqual({
+			role: "user",
+			parts: [{ type: "text", content: "Check the token [redacted] for me." }],
+		});
+		expect(first.attributes["gen_ai.system_instructions"]).toContain("Work in small steps.");
+		expect(JSON.parse(first.attributes["gen_ai.output.messages"])[0].parts[0]).toMatchObject({
+			type: "tool_call",
+			name: "ls",
+			arguments: { path: "." },
+		});
+		expect(tool.attributes["gen_ai.tool.call.arguments"]).toBe('{"path":"."}');
+		expect(JSON.parse(last.attributes["gen_ai.output.messages"])[0].parts[0].content).toBe(
+			"The token was [redacted].",
+		);
+		expect(JSON.stringify(m.outs)).not.toContain(TOKEN);
+		// The tracer masked the spans itself: the stdout scrubber had nothing to remove from them.
+		const logs = m.stderr.map((line) => JSON.parse(line) as Rec);
+		const scrubbed = logs.filter((log) => log.msg === "secret value removed from a protocol record");
+		expect(scrubbed.map((log) => log.record_type)).not.toContain("telemetry_span");
+		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
+	});
+
+	it("marks a failed model call with its error type and no provider text", async () => {
+		const m = await startManaged([
+			{
+				content: [],
+				usage,
+				stopReason: "error",
+				error: {
+					status: 400,
+					body: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "bad things" } }),
+				},
+			},
+		]);
+		await m.configure({ telemetry: { mode: "relay" } });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "hello" });
+		await m.waitFor("result");
+		const [span] = spansOf(m.outs);
+		expect(span).toMatchObject({ status: { code: "error" }, attributes: { "error.type": "provider_error" } });
+		expect(JSON.stringify(span)).not.toContain("bad things");
 	});
 });
