@@ -8,9 +8,9 @@ Fingers is a minimal, extensible agent harness that you can make your own.
 
 Adapt Fingers to your workflows, not the other way around. Customize Fingers with [extensions](docs/extensions.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), and [themes](docs/themes.md). Bundle them as [Fingers packages](docs/packages.md) and share via npm or git.
 
-Fingers ships with powerful defaults but skips features like sub-agents and plan mode. Ask Fingers to build what you want, or install a package that does it your way.
+Fingers ships with powerful defaults but skips features like plan mode. Ask Fingers to build what you want, or install a package that does it your way. Sub-agents, extra token saving, Brain memory and Eyes telemetry are Fingers ee features for Veyra organizations; see [Open core](docs/open-core.md).
 
-Use Fingers [interactively](docs/usage.md), automate it in [print or JSON mode](docs/cli.md), control it over [RPC](docs/rpc.md), or build apps with the [Fingers TypeScript SDK](docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
+Use Fingers [interactively](docs/usage.md), automate it in [print or JSON mode](docs/cli.md), control it over [RPC](docs/rpc.md), or build apps with the [Fingers TypeScript SDK](docs/sdk.md).
 
 ## Getting started
 

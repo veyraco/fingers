@@ -47,7 +47,7 @@ cd /path/to/project
 fingers
 ```
 
-Run `/login` inside Fingers to connect a provider, then give it a task.
+Run `/login <provider>` inside Fingers (for example `/login anthropic`) to connect a subscription or an API key, then give it a task. `fingers login` signs in to your Veyra account.
 
 The documentation lives in [`packages/coding-agent/docs`](packages/coding-agent/docs/index.md).
 
@@ -81,7 +81,7 @@ See [AGENTS.md](AGENTS.md) for the development rules and
 
 ## License
 
-The core is MIT. See [LICENSE](LICENSE). The `ee/` folder holds Fingers ee under the Veyra Fingers Enterprise License ([ee/LICENSE](ee/LICENSE)): its features switch on after `fingers login` when your organization's Veyra tier includes them, and the core runs without it. See [ee/README.md](ee/README.md).
+The core is MIT. See [LICENSE](LICENSE). The `ee/` folder holds Fingers ee under the Veyra Fingers Enterprise License ([ee/LICENSE](ee/LICENSE)): its features switch on after `fingers login` when your organization's Veyra tier includes them, and the core runs without it. [Open core](packages/coding-agent/docs/open-core.md) lists what is in each part; [ee/README.md](ee/README.md) describes the ee module.
 
 ## Links
 

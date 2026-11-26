@@ -153,6 +153,10 @@
           "path": "slash-commands.md"
         },
         {
+          "title": "Open Core",
+          "path": "open-core.md"
+        },
+        {
           "title": "Settings",
           "path": "settings.md"
         },

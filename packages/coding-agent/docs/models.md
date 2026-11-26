@@ -1,13 +1,13 @@
 # Choose a Model
 
-For a built-in provider, start with `/login`, then choose a model with `/model`. Use custom model configuration only when Fingers does not already include the provider or endpoint you need.
+For a built-in provider, start with `/login <provider>`, then choose a model with `/model`. Use custom model configuration only when Fingers does not already include the provider or endpoint you need.
 
 ## Choose a connection
 
 | What you have | Recommended setup |
 |---|---|
-| A supported subscription | Sign in through `/login` |
-| A provider API key | Store it through `/login` or set its environment variable |
+| A supported subscription | Sign in through `/login <provider>` |
+| A provider API key | Store it through `/login <provider>` or set its environment variable |
 | A local GGUF model | Connect Fingers to the llama.cpp router |
 | An OpenAI-, Anthropic-, or Google-compatible endpoint | Add it to `models.json` |
 | A provider with a custom protocol or authentication flow | Build or install a provider extension |
@@ -16,7 +16,7 @@ Fingers ships a model catalog with each release: providers, model IDs, capabilit
 
 ## Authenticate
 
-Run `/login` and select a provider. Fingers stores credentials in the [OS keychain](providers.md#where-credentials-are-stored) (`auth.json` where no keychain is available). Run `/logout` to remove stored credentials for a provider.
+Run `/login <provider>`, for example `/login openai`. Fingers stores credentials in the [OS keychain](providers.md#where-credentials-are-stored) (`auth.json` where no keychain is available). Run `/logout <provider>` to remove stored credentials for a provider.
 
 You can instead provide an API key through the provider's environment variable. This is useful in CI and other environments where Fingers should not write credentials. [Providers](providers.md) lists the variables and provider-specific setup.
 
