@@ -279,7 +279,7 @@ describe("sub-agent control on real child sessions", () => {
 		).toEqual(["write a.txt"]);
 		expect(existsSync(join(workdir, "b.txt"))).toBe(false);
 		const result = harness.session.messages.findLast(
-			(message) => message.role === "toolResult" && message.toolName === AGENTS_TOOL,
+			(message): message is Message => message.role === "toolResult" && message.toolName === AGENTS_TOOL,
 		);
 		expect(text(result)).toBe("sub_1: Back on track.");
 	});

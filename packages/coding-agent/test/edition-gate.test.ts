@@ -360,6 +360,17 @@ describe("EditionGate", () => {
 			steer: () => false,
 			stop: () => false,
 			list: () => [],
+			pause: () => false,
+			resume: async () => {
+				throw new Error("not used");
+			},
+			checkpoint: async () => {
+				throw new Error("not used");
+			},
+			transcript: () => undefined,
+			removeWorktree: async () => {
+				throw new Error("not used");
+			},
 		};
 		const module = fakeModule({
 			activate: (host) => {
