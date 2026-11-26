@@ -4,6 +4,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentTool } from "@veyraco/fingers-agent";
 import { fauxAssistantMessage, fauxToolCall } from "@veyraco/fingers-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { estimateTokens } from "../src/core/compaction/index.ts";
@@ -24,6 +25,9 @@ import { createReadTool } from "../src/core/tools/read.ts";
 import { createEditionExtension } from "../src/extensions/edition/index.ts";
 import { builtInExtensions } from "../src/extensions/index.ts";
 import { createHarness, createTestUiContext, type Harness } from "./suite/harness.ts";
+
+/** The built-in read tool as the harness takes it: `AgentTool<any>`, the type `createCodingTools` gives its tools. */
+const readTool = (): AgentTool<any> => createReadTool(process.cwd());
 
 const MATRIX: Record<EeFeatureId, VeyraTier> = {
 	token_saving: "low",
@@ -350,7 +354,7 @@ describe("the edition extension in a session", () => {
 
 	async function readTwice(hooks: EditionToolHooks, savings = new SavingsLedger()) {
 		const harness = await createHarness({
-			tools: [createReadTool(process.cwd())],
+			tools: [readTool()],
 			extensionFactories: [{ name: "edition", factory: createEditionExtension({ hooks, savings }) }],
 		});
 		harnesses.push(harness);
@@ -467,7 +471,7 @@ describe("the edition extension in a session", () => {
 		};
 		hooks.set([{ feature: "token_saving", hooks: { contextEdits } }], () => true);
 		const harness = await createHarness({
-			tools: [createReadTool(process.cwd())],
+			tools: [readTool()],
 			extensionFactories: [{ name: "edition", factory: createEditionExtension({ hooks }) }],
 		});
 		harnesses.push(harness);

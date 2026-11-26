@@ -6,7 +6,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentMessage } from "@veyraco/fingers-agent";
+import type { AgentMessage, AgentTool } from "@veyraco/fingers-agent";
 import { type AssistantMessage, fauxAssistantMessage, fauxToolCall, type Usage } from "@veyraco/fingers-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -34,6 +34,9 @@ import {
 	prunedNote,
 } from "../src/token-saving/context.ts";
 import { TokenSaving } from "../src/token-saving/index.ts";
+
+/** The built-in read tool as the harness takes it: `AgentTool<any>`, the type `createCodingTools` gives its tools. */
+const readTool = (): AgentTool<any> => createReadTool(process.cwd());
 
 const LOW: EeEntitlement = {
 	signedIn: true,
@@ -271,7 +274,7 @@ async function run(
 	const harness = await createHarness({
 		models: [{ id: "faux-40k", contextWindow: 40_000 }],
 		settings: { compaction: { ...COMPACTION, keepRecentTokens } },
-		tools: [createReadTool(process.cwd())],
+		tools: [readTool()],
 		extensionFactories: [{ name: "edition", factory: createEditionExtension({ hooks, savings }) }],
 	});
 	harnesses.push(harness);

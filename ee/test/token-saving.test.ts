@@ -27,6 +27,9 @@ import { TokenSaving } from "../src/token-saving/index.ts";
 import { ReadCache, readCacheNote } from "../src/token-saving/read-cache.ts";
 import { isErrorLine, TAIL_LINES, TRIM_MIN_LINES, trimToolOutput } from "../src/token-saving/trim.ts";
 
+/** The built-in read tool as the harness takes it: `AgentTool<any>`, the type `createCodingTools` gives its tools. */
+const readTool = (): AgentTool<any> => createReadTool(process.cwd());
+
 const BODY = Array.from({ length: 40 }, (_, index) => `line ${index + 1} of the notes, with enough text to count`).join(
 	"\n",
 );
@@ -289,7 +292,7 @@ describe("token saving in a session (real gate, edition extension and read tool)
 		const gate = new EditionGate({ loadModule: async () => ee, toolHooks: hooks, savings });
 		await gate.setEntitlement(entitlement);
 		const harness = await createHarness({
-			tools: [createReadTool(process.cwd()), longShell],
+			tools: [readTool(), longShell],
 			extensionFactories: [{ name: "edition", factory: createEditionExtension({ hooks, savings }) }],
 		});
 		harnesses.push(harness);
