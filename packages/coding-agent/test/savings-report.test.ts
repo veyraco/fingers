@@ -353,6 +353,44 @@ describe("token-saving report of a recorded task", () => {
 		expect(unpriced.caching).toEqual({ tokens: 210_000, costUsd: 0 });
 	});
 
+	it("puts sub-agents' calls under their provider as sub-tasks (F18)", () => {
+		const cost = (total: number) => ({
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total },
+		});
+		const agentsResult = entry(800_000, {
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "call_agents",
+				toolName: "agents",
+				content: [{ type: "text", text: "sub_1 done" }],
+				details: {
+					agents: [
+						{ id: "sub_1", model: { provider: "anthropic", id: "claude-haiku" }, usage: cost(0.004) },
+						{ id: "sub_2", model: { provider: "anthropic", id: "claude-haiku" }, usage: cost(0.002) },
+						{ id: "sub_3", usage: cost(0.5) },
+					],
+				},
+				usage: cost(0.007),
+				isError: false,
+				timestamp: T0 + 800_000,
+			},
+		});
+		const entries = [...recordedTask(), agentsResult];
+		const report = computeSavingsReport(recordedInput({ entries }));
+		const byProvider = Object.fromEntries(report.byProvider.map((row) => [row.provider, row.costUsd]));
+		expect(byProvider["anthropic (sub-tasks)"]).toBeCloseTo(0.006, 12);
+		// What no child names (here sub_3 without a model) stays "other", with the compaction.
+		expect(byProvider.other).toBeCloseTo(0.01 + 0.001, 12);
+		expect(report.byProvider.at(-1)!.provider).toBe("other");
+		expect(report.spentUsd).toBeCloseTo(0.1125 + 0.08175 + 0.00375 + 0.01 + 0.007, 12);
+	});
+
 	it("says what sign-in would change, and shows only what saved something", () => {
 		const signedOut = computeSavingsReport(
 			recordedInput({

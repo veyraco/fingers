@@ -404,6 +404,29 @@ export {
 	type SkillFrontmatter,
 } from "./core/skills.ts";
 export { createSyntheticSourceInfo } from "./core/source-info.ts";
+// Sub-agents (open core): the engine interface ee's sub-agents feature implements
+export {
+	MAX_SUBAGENT_LABEL_CHARS,
+	MAX_SUBAGENT_SUMMARY_CHARS,
+	MAX_SUBAGENT_TASK_CHARS,
+	MAX_SUBAGENTS_PER_CALL,
+	SUBAGENT_KINDS,
+	SUBAGENT_STATUSES,
+	type SubagentChild,
+	type SubagentChildOptions,
+	type SubagentChildOutcome,
+	type SubagentEndStatus,
+	type SubagentEngine,
+	type SubagentEvent,
+	type SubagentInfo,
+	type SubagentKind,
+	type SubagentModelRef,
+	type SubagentRunHost,
+	type SubagentRunRequest,
+	type SubagentRunResult,
+	type SubagentSpec,
+	type SubagentStatus,
+} from "./core/subagents/types.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools
 export {

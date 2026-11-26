@@ -5,6 +5,7 @@ import editionExtension from "./edition/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import memoryExtension from "./memory/index.ts";
+import subagentsExtension from "./subagents/index.ts";
 import telemetryExtension from "./telemetry/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 
@@ -22,6 +23,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "edition", factory: editionExtension, builtin: true },
 	// Open core: Brain memory (an ee feature) acts on sessions through it while it is on; core only, it does nothing.
 	{ name: "memory", factory: memoryExtension, builtin: true },
+	// Open core: sub-agents (an ee feature) get their `agents` tool and child sessions through it while they are on;
+	// core only, the tool is not offered.
+	{ name: "subagents", factory: subagentsExtension, builtin: true },
 	// Open core: spans of each run go to the person's own OTLP destination (FINGERS_OTLP_ENDPOINT) and to Eyes (an ee
 	// feature) while it is on; with neither it makes no span.
 	{ name: "telemetry", factory: telemetryExtension, builtin: true },
