@@ -118,6 +118,9 @@ import { detectLocalCredentials } from "../../core/first-run-providers.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
+import { projectRepository } from "../../core/memory/project.ts";
+import { memoryProviders } from "../../core/memory/registry.ts";
+import { memoryLabel } from "../../core/memory/types.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
 	defaultModelPerProvider,
@@ -774,6 +777,7 @@ export class InteractiveMode {
 		this.footer = new FooterComponent(this.session, this.footerDataProvider, {
 			getAccount: () => this.getVeyraAccountStatus(),
 			getBudget: () => this.budgetGuard.state(),
+			getMemory: () => this.getMemoryLabel(),
 		});
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
@@ -6413,12 +6417,38 @@ export class InteractiveMode {
 
 	private getEditionGate(): EditionGate {
 		// ee features act on tool results through the built-in `edition` extension, which calls these hooks.
-		this.editionGate ??= new EditionGate({
-			loadModule: () => loadEeModule(),
-			toolHooks: editionToolHooks,
-			savings: savingsLedger,
-		});
+		// Brain memory acts on sessions through the built-in `memory` extension, which uses these providers.
+		if (!this.editionGate) {
+			this.editionGate = new EditionGate({
+				loadModule: () => loadEeModule(),
+				toolHooks: editionToolHooks,
+				savings: savingsLedger,
+				memory: memoryProviders,
+				veyraApi: (app) => {
+					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
+					if (!auth) return undefined;
+					return {
+						app,
+						baseUrl: auth.apiBaseUrl(app),
+						accessToken: (options) => auth.getAccessToken(app, options),
+					};
+				},
+			});
+			// The status line names the memory once the session's repository is known.
+			memoryProviders.onChange(() => {
+				void memoryProviders
+					.providerFor(this.sessionManager.getCwd())
+					.catch(() => undefined)
+					.then(() => this.ui.requestRender());
+			});
+		}
 		return this.editionGate;
+	}
+
+	/** "Brain “web”" while a memory provider is live for the session's directory (canvas FingersTuiSession). */
+	private getMemoryLabel(): string | undefined {
+		const provider = memoryProviders.peek(this.sessionManager.getCwd());
+		return provider ? connectText(memoryLabel(provider)) : undefined;
 	}
 
 	/**
@@ -6466,6 +6496,8 @@ export class InteractiveMode {
 			try {
 				await handler({
 					args,
+					cwd: this.sessionManager.getCwd(),
+					repository: await projectRepository(this.sessionManager.getCwd()).catch(() => undefined),
 					entitlement: gate.entitlement,
 					showStatus: (message) => this.showStatus(message),
 					showWarning: (message) => this.showWarning(message),

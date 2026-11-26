@@ -16,6 +16,13 @@ import { findBrowserExecutable } from "../../../core/browser/browser-session.ts"
 import { HostPolicy, type NetworkConfig } from "../../../core/browser/host-policy.ts";
 import { costCapReached, endRunAfterTurnWhen, isListPriced } from "../../../core/budget.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
+import {
+	createMemoryExtension,
+	DEFAULT_MEMORY_CONTEXT_TOKENS,
+	MEMORY_CONTEXT_ENTRY,
+} from "../../../core/memory/extension.ts";
+import { type MemoryResponseRecord, RelayMemoryProvider } from "../../../core/memory/relay.ts";
+import type { MemoryUnavailableError } from "../../../core/memory/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../../core/trace-context.ts";
 import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
@@ -70,7 +77,8 @@ export interface ManagedConfigure {
 	/** Hosts the traffic Fingers carries itself (the browser tool) may reach. Absent: `open`. */
 	network?: NetworkConfig;
 	approvals?: { timeout_ms?: number };
-	memory?: { mode?: string };
+	/** `relay`: the memory provider asks the host (`memory_request`); `off` (default): no memory. */
+	memory?: { mode?: string; context_budget_tokens?: number };
 	telemetry?: { mode?: string; capture_content?: boolean };
 	checkpoints?: { dir?: string };
 }
@@ -164,6 +172,9 @@ export class ManagedRpcServer {
 	private policy?: PathPolicy;
 	private fileTracker?: FileChangeTracker;
 	private broker?: ApprovalBroker;
+	/** The memory relay (`memory.mode: relay`): Fingers never calls Brain, the host does. */
+	private memory?: RelayMemoryProvider;
+	private memoryNoticeSent = false;
 	private readonly credentials = new Map<string, { expiresAt?: string }>();
 	/**
 	 * The latest `credentials` message per provider, in memory only. A session replacement (fork, clone,
@@ -341,7 +352,21 @@ export class ManagedRpcServer {
 			this.broker.respond(record as Parameters<ApprovalBroker["respond"]>[0]);
 			return;
 		}
-		// memory_response arrives with the memory relay (not announced yet); extension UI is answered locally.
+		if (record.type === "memory_response") {
+			const validation = validateCommand(record);
+			if (!validation.ok) {
+				this.logger.warn("invalid memory_response ignored", {
+					memory_request_id: record.id,
+					error: validation.message,
+				});
+				return;
+			}
+			if (!this.memory?.respond(record as MemoryResponseRecord)) {
+				this.logger.warn("memory_response for no waiting request ignored", { memory_request_id: record.id });
+			}
+			return;
+		}
+		// Extension UI is answered locally.
 		this.logger.warn("reply ignored", { reply_type: record.type, reply_id: record.id });
 	}
 
@@ -380,6 +405,14 @@ export class ManagedRpcServer {
 				warn: (msg, fields) => this.logger.warn(msg, fields),
 				shellPath: () => this.session?.settingsManager.getShellPath(),
 			});
+			if (configure.memory?.mode === "relay") {
+				this.memory = new RelayMemoryProvider({
+					emit: (request) => {
+						this.logger.info("memory request", { memory_request_id: request.id, op: request.op });
+						this.emit(request);
+					},
+				});
+			}
 			this.runtime = await this.options.createRuntime({ configure, extension: this.createManagedExtension() });
 			this.runtime.setRebindSession(async () => {
 				await this.bindSession();
@@ -390,6 +423,8 @@ export class ManagedRpcServer {
 		} catch (error) {
 			this.configureState = "none";
 			this.configure = undefined;
+			this.memory?.close();
+			this.memory = undefined;
 			this.logger.error("configure failed", { err: error });
 			this.fail(configure.id, "configure", "invalid_command", `configure failed: ${errorMessage(error)}`);
 			await this.runtime?.dispose().catch(() => {});
@@ -408,6 +443,7 @@ export class ManagedRpcServer {
 			mcp_servers: (configure.mcp_servers ?? []).map((server) => server.name),
 			builtin_tools: configure.tools?.builtin,
 			network_mode: configure.network?.mode ?? "open",
+			memory_mode: this.memory ? "relay" : "off",
 			session_id: this.session.sessionId,
 		});
 		this.respond(configure.id, "configure", { session_id: this.session.sessionId });
@@ -427,6 +463,18 @@ export class ManagedRpcServer {
 						log: (level, msg, fields) => this.logger[level](msg, fields),
 					})(fingers);
 				}
+				const memory = this.memory;
+				if (memory) {
+					createMemoryExtension({
+						provider: async () => memory,
+						contextBudgetTokens: this.configure?.memory?.context_budget_tokens ?? DEFAULT_MEMORY_CONTEXT_TOKENS,
+						onUnavailable: (error) => this.onMemoryUnavailable(error),
+						ref: (ctx) =>
+							this.configure?.run_id
+								? { app: "hands", type: "run", id: this.configure.run_id }
+								: { app: "fingers", type: "session", id: ctx.sessionManager.getSessionId() },
+					})(fingers);
+				}
 				fingers.on("before_provider_headers", (event) => {
 					this.addCorrelationHeaders(event.headers);
 				});
@@ -444,6 +492,14 @@ export class ManagedRpcServer {
 				});
 			},
 		};
+	}
+
+	/** Memory is best effort: the run goes on without it, and the person watching hears it once per run. */
+	private onMemoryUnavailable(error: MemoryUnavailableError): void {
+		this.logger.warn("memory unavailable; continuing without it", { code: error.code, error: error.message });
+		if (this.memoryNoticeSent) return;
+		this.memoryNoticeSent = true;
+		this.notice("warn", "memory_unavailable", "Brain memory is unavailable; the run continues without it.");
 	}
 
 	/**
@@ -657,6 +713,11 @@ export class ManagedRpcServer {
 					this.run.limitNoticeSent = true;
 					this.notice("warn", "limit_reached", this.limitStop.notice);
 				}
+				return;
+			case "entry_appended":
+				// The task's memory is Fingers' own state (like approval records): kept in the session, not announced.
+				if (event.entry.type === "custom" && event.entry.customType === MEMORY_CONTEXT_ENTRY) return;
+				this.emit(record);
 				return;
 			case "agent_settled":
 				this.onAgentSettled(record);
@@ -1119,6 +1180,7 @@ export class ManagedRpcServer {
 		this.logger.info("shutting down", { reason });
 		if (this.durationTimer) clearTimeout(this.durationTimer);
 		this.broker?.cancelAll();
+		this.memory?.close();
 		try {
 			if (this.session && !this.session.isIdle) await this.session.abort();
 		} catch (error) {

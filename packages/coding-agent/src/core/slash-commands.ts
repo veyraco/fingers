@@ -32,6 +32,13 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "model", description: "Select model (opens selector UI)", argumentHint: "<provider/model>" },
 	// Canvas FingersTuiSlash: an ee feature (sub-agents). Locked until signed in with a tier that includes it.
 	{ name: "agents", description: "sub-agents: start, watch, steer, stop", edition: "ee" },
+	// Canvas FingersTuiSlash: an ee feature (Brain). Locked until signed in with a tier that includes it.
+	{
+		name: "memory",
+		description: "Brain memory: status, recall, remember, off/on",
+		argumentHint: "[recall <query> | remember <text> | off | on]",
+		edition: "ee",
+	},
 	{ name: "budget", description: "set or view the task budget", argumentHint: "<dollars> | off" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },

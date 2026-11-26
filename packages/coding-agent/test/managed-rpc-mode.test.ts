@@ -637,3 +637,116 @@ describe("CLI", () => {
 		expect(parseArgs(["--mode", "rpc"]).managed).toBeUndefined();
 	});
 });
+
+describe("managed RPC memory relay", () => {
+	const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
+	const text = (value: string): ScriptedResponse => ({
+		content: [{ type: "text", text: value }],
+		usage,
+		stopReason: "stop",
+	});
+
+	it("announces the relay and, with memory off, sends no memory request and offers no memory tools", async () => {
+		const m = await startManaged([text("ok")]);
+		expect(m.outs[0]!.capabilities).toContain("memory_relay");
+		await m.configure();
+		await m.credentials();
+		await m.command({ type: "prompt", message: "hi" });
+		await m.waitFor("result");
+		expect(m.outs.filter((out) => out.type === "memory_request")).toEqual([]);
+		const tools = (m.anthropic.requests[0]!.body.tools as Rec[]).map((tool) => tool.name);
+		expect(tools).not.toContain("memory_recall");
+		expect(JSON.stringify(m.anthropic.requests[0]!.body.system)).not.toContain("<memory>");
+	});
+
+	it("relays recall and remember to the host, ignores stray replies, and says once that memory is unavailable", async () => {
+		const m = await startManaged([
+			{
+				content: [{ type: "toolCall", id: "toolu_r", name: "memory_recall", arguments: { query: "flaky tests" } }],
+				usage,
+				stopReason: "toolUse",
+			},
+			{
+				content: [
+					{ type: "toolCall", id: "toolu_m", name: "memory_remember", arguments: { text: "Use STRIPE_FAKE=1." } },
+				],
+				usage,
+				stopReason: "toolUse",
+			},
+			text("done"),
+			text("again"),
+		]);
+		await m.configure({ memory: { mode: "relay", context_budget_tokens: 500 } });
+		await m.credentials();
+		// The host answers every request: context with nothing, recall with one item, remember with an id; the
+		// learning events fail.
+		const answered = new Set<string>();
+		const answer = async () => {
+			for (const request of m.outs.filter((out) => out.type === "memory_request")) {
+				if (answered.has(request.id)) continue;
+				answered.add(request.id);
+				if (request.op === "events") {
+					await m.send({
+						type: "memory_response",
+						id: request.id,
+						ok: false,
+						error: { code: "unavailable", message: "Brain is down" },
+					});
+				} else {
+					const data =
+						request.op === "context"
+							? { context: "", tokens: 0, items: [] }
+							: request.op === "recall"
+								? {
+										data: [
+											{
+												ref: "lt_1 v1",
+												kind: "fact",
+												text: "The checkout suite is flaky on CI.",
+												score: 0.8,
+											},
+										],
+									}
+								: { id: "lt_7", space_id: "sp_x", type: "fact", text: "Use STRIPE_FAKE=1." };
+					await m.send({ type: "memory_response", id: request.id, ok: true, data });
+				}
+			}
+		};
+		const timer = setInterval(() => void answer(), 5);
+		cleanups.push(() => clearInterval(timer));
+
+		await m.command({ type: "prompt", message: "Fix the flaky checkout test." });
+		await m.waitFor("result");
+		await m.command({ type: "prompt", message: "And the other one." });
+		await m.waitFor("result", 2);
+
+		const requests = m.outs.filter((out) => out.type === "memory_request");
+		expect(requests.map((request) => request.op)).toEqual(["context", "recall", "remember", "events", "events"]);
+		expect(requests[0]!.body).toMatchObject({ task: "Fix the flaky checkout test.", max_tokens: 500 });
+		expect(requests[1]!.body).toEqual({ query: "flaky tests", limit: 8 });
+		expect(requests[2]!.body).toEqual({
+			type: "fact",
+			text: "Use STRIPE_FAKE=1.",
+			refs: [{ app: "hands", type: "run", id: "run_test" }],
+		});
+		// The tool results reached the model.
+		expect(JSON.stringify(m.anthropic.requests[1]!.body.messages)).toContain("The checkout suite is flaky on CI.");
+		expect(JSON.stringify(m.anthropic.requests[2]!.body.messages)).toContain("Saved to memory as lt_7.");
+		// Two failed event reports, one notice for the run.
+		expect(m.outs.filter((out) => out.type === "notice" && out.code === "memory_unavailable")).toHaveLength(1);
+		expect(m.outs.filter((out) => out.type === "result").map((out) => out.status)).toEqual([
+			"completed",
+			"completed",
+		]);
+
+		// Replies the relay is not waiting for, or that break the contract, change nothing.
+		await m.send({ type: "memory_response", id: requests[0]!.id, ok: true, data: { context: "late" } });
+		await m.send({ type: "memory_response", id: "memreq_999", ok: true, data: {} });
+		await m.send({ type: "memory_response", id: "memreq_1", ok: true });
+		const logs = m.stderr.map((line) => JSON.parse(line) as Rec);
+		expect(logs.filter((log) => log.msg === "memory_response for no waiting request ignored")).toHaveLength(2);
+		expect(logs.filter((log) => log.msg === "invalid memory_response ignored")).toHaveLength(1);
+		expect(logs.filter((log) => log.msg === "memory unavailable; continuing without it")).toHaveLength(2);
+		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
+	});
+});

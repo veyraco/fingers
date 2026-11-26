@@ -10,6 +10,7 @@
  */
 
 import type { ImageContent, TextContent } from "@veyraco/fingers-ai";
+import type { MemoryProvider, MemoryProviderContext } from "../memory/types.ts";
 import type { SavingsEntry } from "../savings-ledger.ts";
 
 /**
@@ -18,8 +19,10 @@ import type { SavingsEntry } from "../savings-ledger.ts";
  * 3: context hooks (`EeToolHooks.contextEdits`, `beforeCompact`, `afterCompact`), for saving context (F15).
  * 4: model routing (`EeToolHooks.routeModel`, `afterRoute`) and a cost in savings entries, for cheaper-model routing
  *    of sub-tasks (F16).
+ * 5: memory providers (`EeHost.registerMemoryProvider`), the signed-in person's access to a Veyra app's API
+ *    (`EeHost.veyraApi`) and the session's directory in `EeCommandContext.cwd`, for Brain memory (F20).
  */
-export const EE_API_VERSION = 4;
+export const EE_API_VERSION = 5;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -81,6 +84,10 @@ export type EeFeatureState = { on: true } | { on: false; reason: EeLockReason; n
 export interface EeCommandContext {
 	/** The text after the command name, trimmed. */
 	args: string;
+	/** The session's working directory. */
+	cwd: string;
+	/** Its repository (`github.com/acme/web`, from the `origin` remote); undefined outside one. */
+	repository?: string;
 	entitlement: EeEntitlement;
 	showStatus(message: string): void;
 	showWarning(message: string): void;
@@ -107,6 +114,8 @@ export interface EeToolResult {
 	isError: boolean;
 	/** The session's working directory. */
 	cwd: string;
+	/** Its repository (`github.com/acme/web`, from the `origin` remote); undefined outside one. */
+	repository?: string;
 	/** For read, edit and write: the absolute path of the file, resolved as the tool resolved it. */
 	path?: string;
 }
@@ -272,6 +281,24 @@ export interface EeToolHooks {
 	afterRoute?(outcome: EeRouteOutcome): string | undefined;
 }
 
+/** The Veyra apps whose API an ee feature may call as the signed-in person. */
+export type EeVeyraApp = "brain" | "eyes";
+
+/**
+ * A Veyra app's public API as the signed-in person: the base URL (e.g. `https://api.veyra.so/brain/v1`) and an access
+ * token for that app only (`aud` = the app). The core keeps the sign-in; ee never sees a refresh token or a token for
+ * another app.
+ */
+export interface EeVeyraApi {
+	readonly app: EeVeyraApp;
+	readonly baseUrl: string;
+	/** A current access token; rejects when signed out or when Connect gives Fingers no token for the app. */
+	accessToken(options?: { signal?: AbortSignal }): Promise<string>;
+}
+
+/** Makes the memory provider for a directory, or undefined when there is none there (e.g. not a repository). */
+export type EeMemoryProviderFactory = (context: MemoryProviderContext) => MemoryProvider | undefined;
+
 /** What the core hands the ee module when it activates it. */
 export interface EeHost {
 	readonly apiVersion: number;
@@ -287,6 +314,13 @@ export interface EeHost {
 	registerToolHooks(feature: EeFeatureId, hooks: EeToolHooks): void;
 	/** Write what a token-saving technique saved to the session's savings ledger. */
 	recordSaving(entry: SavingsEntry): void;
+	/**
+	 * Register the memory provider of a feature (Brain). Only a feature that is on may register, and the core asks
+	 * again before every use, so memory stops the moment the feature goes off. The last registration wins.
+	 */
+	registerMemoryProvider(feature: EeFeatureId, factory: EeMemoryProviderFactory): void;
+	/** A Veyra app's API as the signed-in person; undefined when this Fingers has no sign-in to offer. */
+	veyraApi(app: EeVeyraApp): EeVeyraApi | undefined;
 }
 
 /** What `ee/` exports (its default export or the module namespace). */
