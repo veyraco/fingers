@@ -33,9 +33,17 @@ locked instead of running.
 
 Free includes no ee feature, matching Connect's tier catalog (`fingers.ee` is off on Free).
 
+## Token saving
+
+`src/token-saving/` (F14): no duplicate reads (`read-cache.ts`), trimmed shell output (`trim.ts`) and diff edits
+(`diff-edit.ts`). The module registers them with `host.registerToolHooks("token_saving", …)`; the core's built-in
+`edition` extension calls them on each tool result of the terminal app while token saving is on, and each saving goes
+to the core's savings ledger through `host.recordSaving`. See `packages/coding-agent/docs/slash-commands.md`
+("Token saving") for what the model gets.
+
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion`, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 2, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`

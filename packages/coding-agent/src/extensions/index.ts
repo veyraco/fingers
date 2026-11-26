@@ -1,6 +1,7 @@
 import type { InlineExtension } from "../core/extensions/types.ts";
 import approvalsExtension from "./approvals/index.ts";
 import codemodeExtension from "./codemode/index.ts";
+import editionExtension from "./edition/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
@@ -14,4 +15,7 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "codemode", factory: codemodeExtension, replaceable: true, builtin: true },
 	{ name: "tool-search", factory: toolSearchExtension, replaceable: true, builtin: true },
 	{ name: "mcp", factory: mcpExtension, replaceable: true, builtin: true },
+	// Open core: ee features (token saving) act on tool results through it while they are on; core only, it does
+	// nothing. Last, so ee sees each result after the other built-ins.
+	{ name: "edition", factory: editionExtension, builtin: true },
 ];

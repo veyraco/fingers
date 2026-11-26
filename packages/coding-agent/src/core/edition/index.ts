@@ -20,6 +20,7 @@ export {
 } from "./features.ts";
 export { EditionGate, type EditionGateOptions, eeFeatureState } from "./gate.ts";
 export { asEeModule, type EeLocation, eeModuleCandidates, loadEeModule } from "./loader.ts";
+export { EditionToolHooks, editionToolHooks, savingsLedger } from "./tool-hooks.ts";
 export {
 	EE_API_VERSION,
 	EE_FEATURE_IDS,
@@ -32,6 +33,9 @@ export {
 	type EeHost,
 	type EeLockReason,
 	type EeModule,
+	type EeToolHooks,
+	type EeToolResult,
+	type EeToolResultChange,
 	isVeyraTier,
 	SIGNED_OUT,
 	tierIncludes,

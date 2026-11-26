@@ -85,10 +85,12 @@ import {
 	EditionGate,
 	type EeFeatureId,
 	type EeFeatureState,
+	editionToolHooks,
 	formatFeatureList,
 	loadEeModule,
 	parseEeCommand,
 	SIGNED_OUT,
+	savingsLedger,
 } from "../../core/edition/index.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -6382,7 +6384,12 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private getEditionGate(): EditionGate {
-		this.editionGate ??= new EditionGate({ loadModule: () => loadEeModule() });
+		// ee features act on tool results through the built-in `edition` extension, which calls these hooks.
+		this.editionGate ??= new EditionGate({
+			loadModule: () => loadEeModule(),
+			toolHooks: editionToolHooks,
+			savings: savingsLedger,
+		});
 		return this.editionGate;
 	}
 

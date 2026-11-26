@@ -4,6 +4,7 @@
  * strings from Connect reach the screen without terminal escapes.
  */
 import { describe, expect, it, vi } from "vitest";
+import { editionToolHooks, savingsLedger } from "../src/core/edition/tool-hooks.ts";
 import { DeviceFlowError } from "../src/core/veyra/device-flow.ts";
 import { type VeyraAccount, VeyraSessionClearedError } from "../src/core/veyra/session-vault.ts";
 import { type VeyraLogoutResult, type VeyraOrganization, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
@@ -389,5 +390,17 @@ describe("/login racing a sign-out (F11a)", () => {
 		]);
 		expect(context.showWarning).toHaveBeenCalledTimes(1);
 		expect(context.veyraAccount).toBeUndefined();
+	});
+});
+
+describe("the terminal app's ee gate", () => {
+	it("hands ee features the process' tool hooks and savings ledger, which the built-in edition extension uses", () => {
+		const context: { editionGate?: unknown } = {};
+		const gate = (
+			InteractiveMode.prototype as unknown as { getEditionGate(this: object): unknown }
+		).getEditionGate.call(context);
+		const options = (gate as { options: { toolHooks?: unknown; savings?: unknown } }).options;
+		expect(options.toolHooks).toBe(editionToolHooks);
+		expect(options.savings).toBe(savingsLedger);
 	});
 });

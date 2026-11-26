@@ -38,6 +38,16 @@ Fingers checks your organization's tier and apps with Veyra Connect when it star
 
 The tiers are placeholders until launch. A build without the `ee/` folder runs as the MIT core only.
 
+### Token saving
+
+With token saving on (Low tier or higher), Fingers changes what the model is sent in the terminal app, never what your tools do:
+
+- **No duplicate reads.** Reading a file again that has not changed since the last read in this conversation (same file, offset and limit; same mtime, size and text) sends the model a one-line `[from cache, read once]` note instead of the text, which is still in its earlier read result. Reading it once more sends the text, a changed file is always read fresh, and after compaction, a move in `/tree` or another session every file is read fresh again.
+- **Trimmed tool output.** A bash or PowerShell output longer than 60 lines reaches the model as its error lines and its last 20 lines, under a `[output trimmed to N of M lines …]` summary that names the file with the full output (the core's own file when it already cut the output, otherwise a new file in the temporary directory that only you can read).
+- **Diff edits.** The system prompt asks the model to change existing files with `edit` instead of rewriting them with `write`.
+
+Each saving goes to the session's savings ledger (estimated tokens per technique), which the end-of-task report adds up. Managed RPC, print and JSON modes keep token saving off.
+
 ## Sessions and context
 
 | Command | Description |
