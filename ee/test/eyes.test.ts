@@ -8,14 +8,14 @@
  */
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { EeCommandContext, EeEntitlement, EeVeyraApi } from "@veyraco/fingers";
+import type { EeCommandContext, EeEntitlement, EeHost, EeVeyraApi, SpanExporter } from "@veyraco/fingers";
 import { fauxAssistantMessage, fauxToolCall } from "@veyraco/fingers-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { EditionGate } from "../../packages/coding-agent/src/core/edition/gate.ts";
 import { createTelemetryExtension } from "../../packages/coding-agent/src/core/tracing/extension.ts";
 import { TelemetryExporters } from "../../packages/coding-agent/src/core/tracing/registry.ts";
 import { createHarness, type Harness } from "../../packages/coding-agent/test/suite/harness.ts";
-import { eyesTraceLink, eyesTracesUrl } from "../src/eyes/index.ts";
+import { EyesTelemetry, eyesTraceLink, eyesTracesUrl } from "../src/eyes/index.ts";
 import * as ee from "../src/index.ts";
 
 /** The `veyra.*` attribute registry of contracts/v1/eyes-feed.md: Eyes drops any other `veyra.*` name. */
@@ -382,5 +382,40 @@ describe("Eyes addresses", () => {
 		);
 		expect(eyesTraceLink("https://api.veyra.so/eyes/v1", undefined, "4bf9")).toBeUndefined();
 		expect(eyesTraceLink("http://127.0.0.1:9/eyes/v1", "acme", "4bf9")).toBeUndefined();
+	});
+});
+
+describe("Eyes link for the savings report", () => {
+	it("hands the core the console link of the last run's trace through the exporter", () => {
+		const telemetry = new EyesTelemetry();
+		const sent: unknown[] = [];
+		const api: EeVeyraApi = {
+			app: "eyes",
+			baseUrl: "https://api.veyra.so/eyes/v1",
+			org: "org_acme",
+			orgCode: "acme",
+			accessToken: async () => "token",
+		};
+		telemetry.attach({
+			veyraApi: () => api,
+			createOtlpExporter: () => ({ export: (span: unknown) => sent.push(span), flush: async () => {} }),
+			registerTelemetryExporter: () => {},
+			registerCommand: () => {},
+		} as unknown as EeHost);
+		expect(telemetry.exporter.lastTraceLink?.()).toBeUndefined();
+		telemetry.exporter.export({
+			trace_id: "0af7651916cd43dd8448eb211c80319c",
+			span_id: "b7ad6b7169203331",
+			name: "invoke_agent fingers",
+			kind: "internal",
+			start_time_unix_nano: "1",
+			end_time_unix_nano: "2",
+			status: { code: "ok" },
+			attributes: {},
+		} as unknown as Parameters<SpanExporter["export"]>[0]);
+		expect(sent).toHaveLength(1);
+		expect(telemetry.exporter.lastTraceLink?.()).toBe(
+			"https://eyes.veyra.so/acme/traces/0af7651916cd43dd8448eb211c80319c",
+		);
 	});
 });

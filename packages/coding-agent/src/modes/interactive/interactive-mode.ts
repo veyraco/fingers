@@ -132,6 +132,7 @@ import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { compareProviders } from "../../core/preferred-providers.ts";
 import { findMatchingProviders } from "../../core/provider-matching.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
+import { computeSavingsReport, type TokenSavingState } from "../../core/savings-report.ts";
 import {
 	formatMissingSessionCwdPrompt,
 	getMissingSessionCwdOptions,
@@ -203,6 +204,7 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
+import { SavingsReportComponent } from "./components/savings-report.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -3576,6 +3578,11 @@ export class InteractiveMode {
 				await this.handleOrgCommand(argument);
 				return;
 			}
+			if (text === "/savings") {
+				this.editor.setText("");
+				this.handleSavingsCommand();
+				return;
+			}
 			if (text === "/budget" || text.startsWith("/budget ")) {
 				this.editor.setText("");
 				this.handleBudgetCommand(text.slice("/budget".length));
@@ -6749,6 +6756,29 @@ export class InteractiveMode {
 				return;
 			}
 		}
+		this.ui.requestRender();
+	}
+
+	/** `/savings`: the token-saving report of this conversation (canvas FingersTuiSavings). */
+	private handleSavingsCommand(): void {
+		const gate = this.editionGate;
+		const tokenSaving = gate?.state("token_saving");
+		const state: TokenSavingState = tokenSaving?.on
+			? "on"
+			: !this.veyraAccount || !tokenSaving || tokenSaving.reason === "signed_out"
+				? "signed_out"
+				: "off";
+		const report = computeSavingsReport({
+			entries: this.sessionManager.getBranch(),
+			ledger: savingsLedger.totals(),
+			prices: this.session.modelRuntime,
+			state,
+			budget: this.budgetGuard.state(),
+			eyesLink: telemetryExporters.lastTraceLink(),
+			title: this.sessionManager.getSessionName(),
+		});
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new SavingsReportComponent(report));
 		this.ui.requestRender();
 	}
 

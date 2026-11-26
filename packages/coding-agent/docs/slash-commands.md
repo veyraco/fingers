@@ -17,12 +17,23 @@ Extensions, prompt templates, and skills can add commands. The command menu in F
 | `/logout [provider]` | Without a provider, sign out of Veyra (revokes the device at Connect, clears the keychain); with one, remove that provider's stored credentials |
 | `/llama` | Manage models on the configured llama.cpp router |
 | `/budget [dollars \| off]` | Set, show or remove the task budget (see [Budget](#budget)) |
+| `/savings` | Show the token-saving report of this conversation (see [Savings report](#savings-report)) |
 
 ### Budget
 
 `/budget 5` (or `/budget $2.50`) sets a cost cap for the task in this session; `/budget` shows what was spent and what is left, `/budget off` removes the cap. The spend is what the session's model calls cost at the models' list prices, the same number as the cost on the status line, so summaries count too. The status line shows `budget $4.94 left of $5.00`.
 
 The cap is a hard stop: the model call that reaches it finishes, its tool calls finish, and Fingers makes no further model call. A new prompt is refused with `Budget reached: …` until you raise or remove the cap (extension commands still run). A new, resumed or forked session is a new task: its spend starts from what that session recorded, under the same cap. A model without a list price costs nothing as far as the budget can tell; Fingers says once that the budget cannot stop that task. Budgets are part of the MIT core and need no sign-in. In managed RPC mode, `limits.max_cost_usd` uses the same stop.
+
+### Savings report
+
+`/savings` shows what this conversation saved, technique by technique, in tokens and in dollars at the models' list prices, under the spend:
+
+- **Prompt caching (every provider)** is part of the MIT core: the tokens the providers read from their prompt cache, worth the model's input price less what the cache reads cost and less the premium of cache writes (so it can be negative early in a conversation). It comes from the usage the providers report.
+- **The ee token-saving rows** (with token saving on: cheaper model for sub-tasks, context pruning before compaction, tool-output trimming, no duplicate file reads, diff edits) come from the savings ledger. A saving in tokens is priced at the list price of the model in use when it was made: its input price, or its output price for a diff edit (the file the model did not have to write out). These are estimates (characters / 4), and a token a later turn no longer reads counts once.
+- **Saved** adds the rows up, with how much less the conversation cost than it would have without them. **Spent** is the conversation's cost (the status line's number), with the task budget when one is set, the tokens in and out and the cache hit ratio; **By provider** splits it by provider (summaries and tools without a model are `other`). With Eyes on, the report links the last run's trace.
+
+The last line says what signing in changes: signed out, only prompt caching saves; with token saving on, what you would have saved without it. When a run saved something with token saving, the terminal says so when it ends (`Token saving: 12.3k tokens ($0.04) saved in this run.`). The savings are kept in the session file (custom entries `fingers.savings`, numbers only: technique, tokens, dollars, model, tool call), so a resumed or forked conversation, or another branch in `/tree`, shows its own.
 
 ## ee features
 
@@ -58,7 +69,7 @@ With token saving on (Low tier or higher), Fingers changes what the model is sen
 - **Compaction estimate.** When a compaction starts (`/compact` or automatic), the terminal shows what it should save (`Token saving: this compaction should save about N tokens (before → about after).`), and under the new summary what it saved and the estimate.
 - **Cheaper-model routing.** A compaction summary runs on a cheaper model of the same provider (the same key) when one has room for it: the cheapest model whose blended price (three parts input, one part output) is at most 80% of the selected model's, on providers that serve several vendors (such as OpenRouter) only the selected model's vendor. The conversation stays on the model you selected. The terminal shows `Token saving: the compaction summary ran on <model> instead of <model> ($a instead of $b).`; when the cheaper model fails, the summary runs on the selected model. Sub-agents use the same rule for search tasks (cheapest) and review tasks (the strongest model between a quarter and 80% of the price). A virtual model's own router is never overridden. `"modelRouting": false` in [settings](settings.md) turns routing off.
 
-Each saving goes to the session's savings ledger (estimated tokens per technique: `read_cache`, `output_trim`, `diff_edit`, `context_prune`; dollars at list price for `model_routing`), which the end-of-task report adds up. Managed RPC, print and JSON modes keep token saving off.
+Each saving goes to the session's savings ledger (estimated tokens per technique: `read_cache`, `output_trim`, `diff_edit`, `context_prune`, priced at the model in use; dollars at list price for `model_routing`), which [`/savings`](#savings-report) adds up. Managed RPC, print and JSON modes keep token saving off.
 
 ### Brain memory
 

@@ -45,6 +45,8 @@ export interface SpanExporter {
 	export(span: FingersSpan): void;
 	/** Send what is queued now (a run ended, the session shuts down). */
 	flush?(): Promise<void>;
+	/** The console link of the last run's trace, when the destination has a console (Eyes); the savings report shows it. */
+	lastTraceLink?(): string | undefined;
 }
 
 /** Nanoseconds since the epoch, as a decimal string, for a time in milliseconds. */

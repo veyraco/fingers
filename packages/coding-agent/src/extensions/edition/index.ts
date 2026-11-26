@@ -5,10 +5,15 @@
  * them when the model's context was rebuilt, saves the context edits they ask for at the end of a turn, and shows
  * their lines around a compaction. With no hooks (core only, signed out, a tier without the feature, managed RPC,
  * print and JSON modes) it changes nothing, and it listens to turn ends only while some hook edits the context.
+ *
+ * It also keeps the conversation's savings ledger (F17): it prices each saving at the list price of the model in use,
+ * writes new savings to the session file as custom entries when a run settles (and before the session is left), reads
+ * them back when a conversation is opened or the tree is navigated, and says what a run saved when it ends.
  */
 
 import type { AgentMessage } from "@veyraco/fingers-agent";
 import type { Model } from "@veyraco/fingers-ai";
+import { isListPriced } from "../../core/budget.ts";
 import {
 	type CompactionPreparation,
 	computeFileLists,
@@ -25,8 +30,15 @@ import type {
 	TurnEndEvent,
 	TurnEndEventResult,
 } from "../../core/extensions/types.ts";
-import type { SavingsLedger } from "../../core/savings-ledger.ts";
-import { buildSessionProjection, type ProjectedSessionEntry } from "../../core/session-manager.ts";
+import {
+	parseSavingsRecord,
+	SAVINGS_ENTRY_TYPE,
+	type SavingsLedger,
+	type SavingsPricing,
+	type SavingsRecord,
+} from "../../core/savings-ledger.ts";
+import { runSavingsLine } from "../../core/savings-report.ts";
+import { buildSessionProjection, type ProjectedSessionEntry, type SessionEntry } from "../../core/session-manager.ts";
 import { resolveReadPathAsync, resolveToCwd } from "../../core/tools/path-utils.ts";
 
 export interface EditionExtensionOptions {
@@ -169,6 +181,28 @@ function compactionPreview(
 	};
 }
 
+/** The list price of `model`, or undefined for an unpriced one (local, virtual): its savings stay in tokens. */
+export function savingsPricing(model: Model<string> | undefined): SavingsPricing | undefined {
+	if (!model || !isListPriced(model)) return undefined;
+	return {
+		provider: model.provider,
+		model: model.id,
+		inputPerMTok: model.cost.input ?? 0,
+		outputPerMTok: model.cost.output ?? 0,
+	};
+}
+
+/** The savings the session file holds on this branch, oldest first. */
+export function savingsOnBranch(entries: readonly SessionEntry[]): SavingsRecord[] {
+	const records: SavingsRecord[] = [];
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== SAVINGS_ENTRY_TYPE) continue;
+		const record = parseSavingsRecord(entry.data);
+		if (record) records.push(record);
+	}
+	return records;
+}
+
 export function createEditionExtension(options: EditionExtensionOptions = {}): ExtensionFactory {
 	const hooks = options.hooks ?? editionToolHooks;
 	const savings = options.savings ?? savingsLedger;
@@ -276,13 +310,69 @@ export function createEditionExtension(options: EditionExtensionOptions = {}): E
 			compacting = undefined;
 		});
 
-		fingers.on("session_start", (event) => {
+		// The savings ledger belongs to the conversation: priced at the model in use, kept in the session file.
+		let model: Model<string> | undefined;
+		const track = (ctx: ExtensionContext) => {
+			model = ctx.model as Model<string> | undefined;
+		};
+		const stopPricing = savings.setPricing(() => savingsPricing(model));
+		let unsaved: SavingsRecord[] = [];
+		const stopRecord = savings.onRecord((record) => unsaved.push(record));
+		const persist = () => {
+			const pending = unsaved;
+			unsaved = [];
+			for (const record of pending) {
+				try {
+					fingers.appendEntry(SAVINGS_ENTRY_TYPE, record);
+				} catch {
+					// The session is gone (shut down): the saving stays in this process' ledger only.
+				}
+			}
+		};
+		const reload = (ctx: ExtensionContext) => {
+			unsaved = [];
+			savings.load(savingsOnBranch(ctx.sessionManager.getBranch()));
+		};
+		let runStart = 0;
+
+		fingers.on("session_start", (_event, ctx) => {
 			hooks.contextReset();
 			toolPaths.clear();
-			// Another conversation: its savings start from zero. A reload keeps the conversation and its ledger.
-			if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") savings.clear();
+			track(ctx);
+			// The conversation's own savings: none for a new one, the saved ones for a resumed, forked or reloaded one.
+			reload(ctx);
 		});
-		fingers.on("session_tree", () => hooks.contextReset());
+		fingers.on("session_tree", (_event, ctx) => {
+			hooks.contextReset();
+			// Another branch of the conversation: its savings.
+			reload(ctx);
+		});
+		fingers.on("session_before_tree", () => persist());
+		fingers.on("model_select", (event) => {
+			model = event.model as Model<string>;
+		});
+		fingers.on("turn_start", (_event, ctx) => track(ctx));
+		fingers.on("agent_start", (_event, ctx) => {
+			track(ctx);
+			runStart = savings.size;
+		});
+		fingers.on("agent_settled", (_event, ctx) => {
+			const added = savings.entries().slice(runStart);
+			runStart = savings.size;
+			persist();
+			const line = runSavingsLine({
+				tokens: added.reduce((sum, record) => sum + record.tokens, 0),
+				costUsd: added.reduce((sum, record) => sum + (record.costUsd ?? 0), 0),
+			});
+			if (line && ctx.hasUI && ctx.mode === "tui") ctx.ui.notify(line, "info");
+		});
+		fingers.on("session_compact", () => persist());
+		fingers.on("session_shutdown", () => {
+			// Written to the conversation being left, before the next one is opened.
+			persist();
+			stopRecord();
+			stopPricing();
+		});
 	};
 }
 
