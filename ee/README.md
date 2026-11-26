@@ -1,7 +1,8 @@
 # Fingers ee
 
 This folder holds the parts of Veyra Fingers that are not MIT: the ee features, under the
-[Veyra Fingers Enterprise License](LICENSE). Everything outside `ee/` is the MIT core.
+[Veyra Fingers Enterprise License](LICENSE). Everything outside `ee/` is the MIT core. What is in each part, for
+readers: [Open core](../packages/coding-agent/docs/open-core.md).
 
 ## How ee features switch on
 

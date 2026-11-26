@@ -56,7 +56,7 @@ Fingers checks your organization's tier and apps with Veyra Connect when it star
 | Medium | token saving, sub-agents, checkpoints, Brain memory, Eyes telemetry |
 | High | all of the above and organization hooks |
 
-The tiers are placeholders until launch. A build without the `ee/` folder runs as the MIT core only.
+The tiers are placeholders until launch. A build without the `ee/` folder runs as the MIT core only. [Open Core](open-core.md) lists what is in the core and what is in ee, and how the boundary is kept.
 
 ### Token saving
 

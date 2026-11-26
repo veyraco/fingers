@@ -95,7 +95,6 @@
 		"../test/subagent-extension.test.ts"
 	],
 	"exclude": [
-		"**/node_modules/**",
-		"./extensions/gondolin/**"
+		"**/node_modules/**"
 	]
 }

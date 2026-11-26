@@ -247,7 +247,7 @@ export default async function (fingers: ExtensionAPI) {
 }
 ```
 
-This pattern makes the fetched models available during normal startup and to `fingers --list-models`. For model lists that change while Fingers runs, implement `refreshModels` instead; see [fingers.registerProvider()](#piregisterprovidername-config).
+This pattern makes the fetched models available during normal startup and to `fingers --list-models`. For model lists that change while Fingers runs, implement `refreshModels` instead; see [fingers.registerProvider()](#fingersregisterprovidername-config).
 
 ### Long-lived resources and shutdown
 
@@ -1626,7 +1626,7 @@ fingers.registerTool({
 
 ### fingers.sendMessage(message, options?)
 
-Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`fingers.appendEntry()`](#piappendentrycustomtype-data) with [`fingers.registerEntryRenderer()`](#piregisterentryrenderercustomtype-renderer).
+Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`fingers.appendEntry()`](#fingersappendentrycustomtype-data) with [`fingers.registerEntryRenderer()`](#fingersregisterentryrenderercustomtype-renderer).
 
 ```typescript
 fingers.sendMessage({
@@ -2173,7 +2173,7 @@ export default function (fingers: ExtensionAPI) {
 }
 ```
 
-Rebuild from `getBranch()`, not from every entry: abandoned branches represent alternative histories. Use [`fingers.appendEntry()`](#piappendentrycustomtype-data) for durable data that should not reach the model.
+Rebuild from `getBranch()`, not from every entry: abandoned branches represent alternative histories. Use [`fingers.appendEntry()`](#fingersappendentrycustomtype-data) for durable data that should not reach the model.
 
 <a id="register-tools"></a>
 
@@ -2420,7 +2420,7 @@ The `create*ToolDefinition()` factories, such as `createReadToolDefinition()`, r
 
 **Operations interfaces:** `ReadOperations`, `WriteOperations`, `EditOperations`, `BashOperations`, `PowerShellOperations`, `LsOperations`, `GrepOperations`, `FindOperations`
 
-`GrepOperations` only covers the directory check: grep always runs the local `rg`. To search a remote system, override grep's `execute()` instead, as the [Gondolin example](../examples/extensions/gondolin/index.ts) does.
+`GrepOperations` only covers the directory check: grep always runs the local `rg`. To search a remote system, override grep's `execute()` instead.
 
 For `user_bash`, extensions can reuse Fingers' local shell backend via `createLocalBashOperations()` (or `createLocalPowerShellOperations()`) instead of reimplementing local process spawning, shell resolution, and process-tree termination.
 
@@ -3342,7 +3342,6 @@ All examples in [examples/extensions/](../examples/extensions/).
 | **Remote & Sandbox** |||
 | `ssh.ts` | SSH remote execution | `registerFlag`, `on("user_bash")`, `on("before_agent_start")`, tool operations |
 | `interactive-shell.ts` | Persistent shell session | `on("user_bash")` |
-| `gondolin/` | Route built-in tools and `!` commands into a Gondolin micro-VM | Tool operations, built-in tool overrides, `on("user_bash")` |
 | `subagent/` | Spawn sub-agents | `registerTool`, `exec` |
 | **Games** |||
 | `snake.ts` | Snake game | `registerCommand`, `ui.custom`, keyboard handling |
