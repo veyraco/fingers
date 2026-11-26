@@ -10,7 +10,7 @@ tier includes the feature.
 
 | Part | Where | License |
 | --- | --- | --- |
-| Core | Everything outside `ee/`, including every published `@veyraco/fingers*` package's own code | MIT ([`LICENSE`](https://github.com/veyraco/fingers/blob/main/LICENSE)): Copyright (c) 2026 Veyra, and Copyright (c) 2025 Mario Zechner for the open-source coding agent Fingers started from |
+| Core | Everything outside `ee/`, including every published `@veyraco/fingers*` package's own code | MIT ([`LICENSE`](https://github.com/veyraco/fingers/blob/main/LICENSE)), with two copyright notices: Veyra's, and the one of the open-source coding agent Fingers started from |
 | ee | `ee/`, built into `dist/ee/` of the `@veyraco/fingers` package with its `LICENSE` next to it | Veyra Fingers Enterprise License ([`ee/LICENSE`](https://github.com/veyraco/fingers/blob/main/ee/LICENSE)); the MIT grant does not cover it |
 
 ## What is in the core
