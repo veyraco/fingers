@@ -406,12 +406,15 @@ export {
 export { createSyntheticSourceInfo } from "./core/source-info.ts";
 // Sub-agents (open core): the engine interface ee's sub-agents feature implements
 export {
+	MAX_SUBAGENT_ACTIVITY,
 	MAX_SUBAGENT_LABEL_CHARS,
 	MAX_SUBAGENT_SUMMARY_CHARS,
 	MAX_SUBAGENT_TASK_CHARS,
 	MAX_SUBAGENTS_PER_CALL,
 	SUBAGENT_KINDS,
 	SUBAGENT_STATUSES,
+	type SubagentApprovalRequest,
+	type SubagentCheckpoint,
 	type SubagentChild,
 	type SubagentChildOptions,
 	type SubagentChildOutcome,
@@ -426,6 +429,7 @@ export {
 	type SubagentRunResult,
 	type SubagentSpec,
 	type SubagentStatus,
+	type SubagentTranscriptLine,
 } from "./core/subagents/types.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";
 // Tools

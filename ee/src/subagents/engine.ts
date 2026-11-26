@@ -16,12 +16,18 @@
  *   their spend counts toward the session's budget: once it is reached, every child is stopped. The budget is asked
  *   before each child starts too, so a call made when the budget is already reached starts no child.
  *
+ * - Control (F19, the `/agents` panel): a running child can be paused (held before its next model call) and resumed;
+ *   a checkpoint is a commit of its worktree plus the point of its transcript where it waits before a model call;
+ *   resuming from a checkpoint puts both back and the child goes on from there. Checkpoints live in this process
+ *   (the commits are objects no ref points to). An ended child's kept worktree can be removed.
+ *
  * Lifecycle events follow Fingers RPC v1 (`subagent_started` with `running` or `queued`, `subagent_updated` on each
  * status change, `subagent_finished` once).
  */
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type {
+	SubagentCheckpoint,
 	SubagentChild,
 	SubagentEndStatus,
 	SubagentEngine,
@@ -32,6 +38,7 @@ import type {
 	SubagentRunResult,
 	SubagentSpec,
 	SubagentStatus,
+	SubagentTranscriptLine,
 } from "@veyraco/fingers";
 import { nodeGit, type SubagentGit, WORKTREES_DIR } from "./git.ts";
 
@@ -46,6 +53,11 @@ const MAX_SUMMARY_CHARS = 4_000;
 const RESULT_SUMMARY_CHARS = 1_500;
 const KINDS: readonly SubagentKind[] = ["code", "search", "review"];
 const BUDGET_REACHED = "Stopped: the session's budget is reached.";
+/** Most checkpoints kept per child (the oldest goes first). */
+export const MAX_CHECKPOINTS_PER_AGENT = 20;
+const MAX_ACTIVITY = 3;
+const ROLLED_BACK_NOTE = (id: string) =>
+	`The person rolled you back to checkpoint ${id}: your files and this conversation are as they were then, and what you did after it is gone. Go on with your task from here.`;
 
 export function emptyUsage(): Usage {
 	return {
@@ -90,11 +102,24 @@ class Mutex {
 	}
 }
 
+interface CheckpointRecord extends SubagentCheckpoint {
+	/** The commit of the worktree. */
+	commit: string;
+	/** The point of the transcript (atRest's position). */
+	position: string | null;
+}
+
 interface Entry {
 	info: SubagentInfo;
 	spec: SubagentSpec;
+	/** The repository root. */
+	root: string;
 	/** Absolute path of the worktree. */
 	path: string;
+	checkpoints: CheckpointRecord[];
+	/** The transcript once the child's session is gone. */
+	transcript?: SubagentTranscriptLine[];
+	paused?: boolean;
 	base?: string;
 	child?: SubagentChild;
 	stopReason?: string;
@@ -109,6 +134,9 @@ function copyInfo(info: SubagentInfo): SubagentInfo {
 		dependsOn: [...info.dependsOn],
 		usage: { ...info.usage, cost: { ...info.usage.cost } },
 		...(info.model ? { model: { ...info.model } } : {}),
+		...(info.checkpoints ? { checkpoints: info.checkpoints.map((checkpoint) => ({ ...checkpoint })) } : {}),
+		...(info.pendingApproval ? { pendingApproval: { ...info.pendingApproval } } : {}),
+		...(info.activity ? { activity: [...info.activity] } : {}),
 	};
 }
 
@@ -178,11 +206,25 @@ function relativeCwd(root: string, cwd: string): string {
 export interface SubagentEngineOptions {
 	git?: SubagentGit;
 	maxParallel?: number;
+	/** Whether checkpoints are on (the `checkpoints` feature); default on. Asked before every checkpoint and roll-back. */
+	checkpointsOn?: () => boolean;
+}
+
+/** Why an action of the panel cannot be done, in words for the person. */
+export class SubagentActionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "SubagentActionError";
+	}
 }
 
 export class SubagentEngineImpl implements SubagentEngine {
 	private sequence = 0;
+	private checkpointSequence = 0;
 	private readonly entries = new Map<string, Entry>();
+	private checkpointsOn: () => boolean;
+	/** Reports a change of a child outside a run's own events (pause, resume, checkpoint), set per run. */
+	private readonly reporters = new Map<string, (entry: Entry) => void>();
 	private readonly git: SubagentGit;
 	private readonly maxParallel: number;
 	/** One per repository root. */
@@ -191,6 +233,12 @@ export class SubagentEngineImpl implements SubagentEngine {
 	constructor(options: SubagentEngineOptions = {}) {
 		this.git = options.git ?? nodeGit;
 		this.maxParallel = Math.max(1, Math.floor(options.maxParallel ?? DEFAULT_MAX_PARALLEL));
+		this.checkpointsOn = options.checkpointsOn ?? (() => true);
+	}
+
+	/** Whether checkpoints are on, asked before every checkpoint and roll-back (the ee module sets the feature's gate). */
+	setCheckpointsGate(isOn: () => boolean): void {
+		this.checkpointsOn = isOn;
 	}
 
 	list(): readonly SubagentInfo[] {
@@ -212,17 +260,123 @@ export class SubagentEngineImpl implements SubagentEngine {
 		return true;
 	}
 
-	async run(request: SubagentRunRequest, host: SubagentRunHost): Promise<SubagentRunResult> {
-		const specs = validateSpecs(request.agents);
-		const root = await this.git.root(host.cwd);
-		await this.git.prepare(root);
-		const rel = relativeCwd(root, host.cwd);
+	pause(id: string): boolean {
+		const entry = this.entries.get(id);
+		if (!entry?.child || entry.ended || entry.paused) return false;
+		if (!entry.child.pause()) return false;
+		entry.paused = true;
+		this.reporters.get(id)?.(entry);
+		return true;
+	}
+
+	async resume(id: string, checkpoint?: string): Promise<void> {
+		const entry = this.entries.get(id);
+		if (!entry) throw new SubagentActionError(`There is no sub-agent ${id}.`);
+		if (entry.ended || !entry.child) throw new SubagentActionError(`${id} is not running, so it cannot be resumed.`);
+		if (!entry.paused) throw new SubagentActionError(`${id} is not paused.`);
+		if (checkpoint === undefined) {
+			if (!entry.child.resume()) throw new SubagentActionError(`${id} is not paused.`);
+			entry.paused = false;
+			this.reporters.get(id)?.(entry);
+			return;
+		}
+		if (!this.checkpointsOn()) throw new SubagentActionError("Checkpoints are not on for your organization's tier.");
+		const record = entry.checkpoints.find((candidate) => candidate.id === checkpoint);
+		if (!record) throw new SubagentActionError(`${id} has no checkpoint ${checkpoint}.`);
+		const child = entry.child;
+		try {
+			await child.rollBack(record.position, ROLLED_BACK_NOTE(record.id), () =>
+				this.lockOf(entry.root).run(() => this.git.restore(entry.path, record.commit)),
+			);
+		} catch (error) {
+			throw new SubagentActionError(
+				`Could not resume ${id} from ${record.id}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		// What came after the checkpoint is gone.
+		entry.checkpoints = entry.checkpoints.filter((candidate) => candidate.at <= record.at);
+		entry.info.checkpoints = entry.checkpoints.map(({ id: cp, at, filesChanged }) => ({ id: cp, at, filesChanged }));
+		entry.paused = false;
+		this.reporters.get(id)?.(entry);
+	}
+
+	async checkpoint(id: string): Promise<SubagentCheckpoint> {
+		const entry = this.entries.get(id);
+		if (!entry) throw new SubagentActionError(`There is no sub-agent ${id}.`);
+		if (!this.checkpointsOn()) throw new SubagentActionError("Checkpoints are not on for your organization's tier.");
+		if (entry.ended || !entry.child || !entry.base) {
+			throw new SubagentActionError(`${id} is not running, so there is nothing to keep a checkpoint of.`);
+		}
+		const base = entry.base;
+		const record = await entry.child
+			.atRest(async (position) => {
+				const checkpointId = `cp-${++this.checkpointSequence}`;
+				return this.lockOf(entry.root).run(async () => {
+					const commit = await this.git.snapshot(
+						entry.path,
+						`Fingers checkpoint ${checkpointId} of sub-agent ${entry.info.id}`,
+					);
+					const { files } = await this.git.changes(entry.path, base);
+					const created: CheckpointRecord = {
+						id: checkpointId,
+						at: Date.now(),
+						filesChanged: files.length,
+						commit,
+						position,
+					};
+					return created;
+				});
+			})
+			.catch((error: unknown) => {
+				throw new SubagentActionError(
+					`Could not keep a checkpoint of ${id}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
+		entry.checkpoints.push(record);
+		if (entry.checkpoints.length > MAX_CHECKPOINTS_PER_AGENT) entry.checkpoints.shift();
+		entry.info.checkpoints = entry.checkpoints.map(({ id: cp, at, filesChanged }) => ({ id: cp, at, filesChanged }));
+		this.reporters.get(id)?.(entry);
+		return { id: record.id, at: record.at, filesChanged: record.filesChanged };
+	}
+
+	transcript(id: string): SubagentTranscriptLine[] | undefined {
+		const entry = this.entries.get(id);
+		if (!entry) return undefined;
+		if (entry.transcript) return entry.transcript;
+		if (!entry.child) return [];
+		try {
+			return entry.child.transcript();
+		} catch {
+			return [];
+		}
+	}
+
+	async removeWorktree(id: string): Promise<void> {
+		const entry = this.entries.get(id);
+		if (!entry) throw new SubagentActionError(`There is no sub-agent ${id}.`);
+		if (!entry.ended) throw new SubagentActionError(`${id} is still going; stop it first.`);
+		if (!entry.info.keptWorktree) throw new SubagentActionError(`${id} kept no worktree.`);
+		await this.lockOf(entry.root).run(() => this.git.removeWorktree(entry.root, entry.path));
+		delete entry.info.keptWorktree;
+		entry.checkpoints = [];
+		delete entry.info.checkpoints;
+	}
+
+	private lockOf(root: string): Mutex {
 		let lock = this.locks.get(root);
 		if (!lock) {
 			lock = new Mutex();
 			this.locks.set(root, lock);
 		}
-		const repoLock = lock;
+		return lock;
+	}
+
+	async run(request: SubagentRunRequest, host: SubagentRunHost): Promise<SubagentRunResult> {
+		const specs = validateSpecs(request.agents);
+		const root = await this.git.root(host.cwd);
+		await this.git.prepare(root);
+		const rel = relativeCwd(root, host.cwd);
+		const repoLock = this.lockOf(root);
 
 		const byLabel = new Map<string, Entry>();
 		const entries: Entry[] = specs.map((spec) => {
@@ -243,7 +397,7 @@ export class SubagentEngineImpl implements SubagentEngine {
 			};
 			const model = host.pickModel(spec.kind);
 			if (model) info.model = model;
-			const entry: Entry = { info, spec, path: join(root, WORKTREES_DIR, id), ended: false };
+			const entry: Entry = { info, spec, root, path: join(root, WORKTREES_DIR, id), checkpoints: [], ended: false };
 			byLabel.set(spec.label, entry);
 			this.entries.set(id, entry);
 			return entry;
@@ -267,6 +421,9 @@ export class SubagentEngineImpl implements SubagentEngine {
 		const finish = (entry: Entry, status: SubagentEndStatus, summary: string) => {
 			if (entry.ended) return;
 			entry.ended = true;
+			entry.paused = false;
+			delete entry.info.pendingApproval;
+			this.reporters.delete(entry.info.id);
 			entry.info.status = status;
 			entry.info.summary = cut(summary, MAX_SUMMARY_CHARS);
 			entry.info.endedAt = Date.now();
@@ -282,7 +439,16 @@ export class SubagentEngineImpl implements SubagentEngine {
 			for (const entry of entries) entry.stopReason = BUDGET_REACHED;
 		}
 
+		// The status a running child shows: paused wins over waiting for an approval.
+		const liveStatus = (entry: Entry): SubagentStatus =>
+			entry.paused ? "paused" : entry.info.pendingApproval ? "waiting_approval" : "running";
 		for (const entry of entries) {
+			this.reporters.set(entry.info.id, (changed) => {
+				if (changed.ended) return;
+				const status = changed.child ? liveStatus(changed) : changed.info.status;
+				if (changed.info.status !== status) setStatus(changed, status);
+				else report("subagent_updated", changed);
+			});
 			entry.stopNow = () => {
 				if (entry.info.startedAt === undefined)
 					finish(entry, "stopped", entry.stopReason ?? "Stopped before it started.");
@@ -347,8 +513,18 @@ export class SubagentEngineImpl implements SubagentEngine {
 							stopAll(BUDGET_REACHED);
 						}
 					}),
-					child.onApproval((waiting) => {
-						if (!entry.ended) setStatus(entry, waiting ? "waiting_approval" : "running");
+					child.onApproval((waiting, question) => {
+						if (entry.ended) return;
+						if (waiting) entry.info.pendingApproval = question ?? { command: "", reason: "" };
+						else delete entry.info.pendingApproval;
+						const status = liveStatus(entry);
+						if (entry.info.status !== status) setStatus(entry, status);
+						else report("subagent_updated", entry);
+					}),
+					child.onActivity((line) => {
+						if (entry.ended) return;
+						entry.info.activity = [...(entry.info.activity ?? []), line].slice(-MAX_ACTIVITY);
+						report("subagent_updated", entry);
 					}),
 				);
 				// Stopped while its session was being made.
@@ -392,6 +568,11 @@ export class SubagentEngineImpl implements SubagentEngine {
 				for (const stop of unsubscribe) stop();
 				if (child) {
 					entry.info.usage = child.usage();
+					try {
+						entry.transcript = child.transcript();
+					} catch {
+						entry.transcript = [];
+					}
 					child.dispose();
 				}
 			}

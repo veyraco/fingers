@@ -4,7 +4,8 @@
  * checked out at a snapshot of the parent's working tree (tracked changes and new files that are not ignored, so a
  * child sees the parent's unfinished work), and a finished child's changes come back as a binary patch applied to
  * the parent's working tree. None of this touches the parent's index, branch, HEAD or stash: the snapshot is built
- * in a temporary index and is a commit no branch points to.
+ * in a temporary index and is a commit no branch points to. A checkpoint of a child (F19) is such a commit of its
+ * worktree; rolling back resets the worktree to it.
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -77,7 +78,12 @@ export interface SubagentGit {
 	/** Makes `<root>/.fingers/worktrees` and keeps it out of git (its own `.gitignore`). */
 	prepare(root: string): Promise<void>;
 	/** A commit of the working tree as it is now (tracked and new files that are not ignored). */
-	snapshot(root: string): Promise<string>;
+	snapshot(root: string, message?: string): Promise<string>;
+	/**
+	 * Makes the worktree at `path` hold exactly the files of `commit` (a snapshot of it): tracked files reset, files
+	 * that are not in it and not ignored removed. Ignored files stay.
+	 */
+	restore(path: string, commit: string): Promise<void>;
 	/** Checks out `commit` into a new detached worktree at `path`. */
 	addWorktree(root: string, path: string, commit: string): Promise<void>;
 	/** What the worktree changed since `base`: the files and a binary patch (empty when nothing changed). */
@@ -109,7 +115,7 @@ export const nodeGit: SubagentGit = {
 		if (!existsSync(ignore)) writeFileSync(ignore, "*\n");
 	},
 
-	async snapshot(root) {
+	async snapshot(root, message = "Fingers sub-agent base (the working tree when the sub-agent started)") {
 		const scratch = mkdtempSync(join(tmpdir(), "fingers-snapshot-"));
 		try {
 			const env = { GIT_INDEX_FILE: join(scratch, "index"), ...SNAPSHOT_IDENTITY };
@@ -121,7 +127,6 @@ export const nodeGit: SubagentGit = {
 			await runGit(["add", "--all", "--", "."], { cwd: root, env });
 			const tree = (await runGit(["write-tree"], { cwd: root, env })).trim();
 			const parent = head ? ["-p", head] : [];
-			const message = "Fingers sub-agent base (the working tree when the sub-agent started)";
 			// Never signed (commit.gpgSign would ask for a key) and never the person's identity.
 			return (
 				await runGit(["commit-tree", "--no-gpg-sign", tree, ...parent, "-m", message], { cwd: root, env })
@@ -129,6 +134,13 @@ export const nodeGit: SubagentGit = {
 		} finally {
 			rmSync(scratch, { recursive: true, force: true });
 		}
+	},
+
+	async restore(path, commit) {
+		// No hooks, as for the worktree itself. HEAD of the detached worktree moves to the checkpoint; changes() diffs
+		// against the child's base, so what merges later is still everything it changed.
+		await runGit(["-c", `core.hooksPath=${devNull}`, "reset", "--quiet", "--hard", commit], { cwd: path });
+		await runGit(["clean", "--force", "-d", "--quiet"], { cwd: path });
 	},
 
 	async addWorktree(root, path, commit) {

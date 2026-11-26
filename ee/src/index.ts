@@ -12,7 +12,7 @@ import { minimumTier, TIER_MATRIX_VERSION } from "./tier-matrix.ts";
 import { TokenSaving } from "./token-saving/index.ts";
 
 /** The core contract this module was built for (the core's EE_API_VERSION). */
-export const apiVersion = 7;
+export const apiVersion = 8;
 
 export const matrixVersion = TIER_MATRIX_VERSION;
 

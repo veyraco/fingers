@@ -182,6 +182,7 @@ import { ensureTool, type ToolStatus } from "../../utils/tools-manager.ts";
 import { checkForNewFingersVersion, type LatestFingersRelease } from "../../utils/version-check.ts";
 import { reportBug } from "./bug-report.ts";
 import { createChatViewport } from "./chat-viewport.ts";
+import { AgentsPanelComponent } from "./components/agents-panel.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
@@ -684,6 +685,7 @@ export class InteractiveMode {
 	private extensionDialogs: Array<{ component: ExtensionDialogComponent; blocked: BlockedStatus | undefined }> = [];
 	/** Numbers the program status sources of blocking overlays, so closing one keeps the others. */
 	private nextBlockingOverlayId = 0;
+	private agentsPanelOpen = false;
 	/**
 	 * Open extension overlays (custom with overlay: true) and the function that removes each, in opening
 	 * order. Reset removes only these, not fingers' own overlays.
@@ -6599,6 +6601,7 @@ export class InteractiveMode {
 					entitlement: gate.entitlement,
 					showStatus: (message) => this.showStatus(message),
 					showWarning: (message) => this.showWarning(message),
+					openAgentsPanel: () => this.showAgentsPanel(),
 				});
 			} catch (error) {
 				this.showError(`/${name} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -6610,6 +6613,30 @@ export class InteractiveMode {
 			return;
 		}
 		await this.showEeLockedBox(feature, state);
+	}
+
+	/**
+	 * `/agents`: the sub-agents panel in place of the editor (canvas FingersTuiAgents), also while a run goes on.
+	 * Children's approval questions wait in it until the person opens them there; esc closes it.
+	 */
+	private showAgentsPanel(): void {
+		if (this.agentsPanelOpen) return;
+		this.agentsPanelOpen = true;
+		void this.showExtensionCustom<void>((tui, _theme, _keybindings, done) => {
+			return new AgentsPanelComponent({
+				engines: subagentEngines,
+				parentModel: this.session.model?.id,
+				task: this.session.getUserMessagesForForking().at(-1)?.text,
+				onClose: () => done(),
+				requestRender: () => tui.requestRender(),
+			});
+		})
+			.catch((error: unknown) => {
+				this.showError(`/agents failed: ${error instanceof Error ? error.message : String(error)}`);
+			})
+			.finally(() => {
+				this.agentsPanelOpen = false;
+			});
 	}
 
 	/** The locked box in place of the editor; "Sign in now" runs the Veyra sign-in. */

@@ -5,6 +5,12 @@
  * outside-the-project write asks in the parent's terminal, one question at a time, naming the child. A child gets
  * the default built-in tools and no extension of its own beyond those approvals: no `agents` tool (no grandchildren),
  * no MCP servers, no memory and no telemetry. Its transcript stays in memory.
+ *
+ * The `/agents` panel (F19) controls a child through it: while the panel is open, a child's approval question waits
+ * on the registry's approval desk until the person opens it there; pause holds the child before its next model call
+ * (a step that runs finishes first; nothing of its transcript or files changes); atRest runs a task at such a point,
+ * where every step has its result (a checkpoint is taken there); rollBack takes a held child's transcript back to such
+ * a point and lets it go on with a note.
  */
 import type { ThinkingLevel } from "@veyraco/fingers-agent";
 import type { AssistantMessage, Usage } from "@veyraco/fingers-ai";
@@ -16,12 +22,15 @@ import { DefaultResourceLoader } from "../../core/resource-loader.ts";
 import { createAgentSession } from "../../core/sdk.ts";
 import { type SessionEntry, SessionManager } from "../../core/session-manager.ts";
 import { type Settings, SettingsManager } from "../../core/settings-manager.ts";
+import { SubagentApprovalDesk } from "../../core/subagents/registry.ts";
 import {
 	emptyUsage,
 	MAX_SUBAGENT_SUMMARY_CHARS,
+	type SubagentApprovalRequest,
 	type SubagentChild,
 	type SubagentChildOptions,
 	type SubagentChildOutcome,
+	type SubagentTranscriptLine,
 } from "../../core/subagents/types.ts";
 import { combineUsage } from "../../core/usage-totals.ts";
 import { type AskForApproval, askInTerminal, createApprovalsExtension } from "../approvals/index.ts";
@@ -70,6 +79,8 @@ export interface ChildSessionDeps {
 	agentDir?: string;
 	/** One approval question at a time across every child of the process. */
 	approvalQueue?: ApprovalQueue;
+	/** Where a question waits while the `/agents` panel is open (default: asked at once). */
+	approvalDesk?: SubagentApprovalDesk;
 }
 
 /** Runs approval questions one after another, so two children never draw two boxes at once. */
@@ -105,6 +116,65 @@ function assistantText(message: AssistantMessage): string {
 		.trim();
 }
 
+/** One line without terminal escapes or line breaks. */
+function flat(text: string, max: number): string {
+	return cut(
+		text
+			.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+			.replace(/\s+/g, " ")
+			.trim(),
+		max,
+	);
+}
+
+/** "edit src/a.ts", "bash pnpm test": a tool call in a few words. */
+export function toolStepText(toolName: string, args: unknown): string {
+	const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+	const pick = (...keys: string[]) => {
+		for (const key of keys) {
+			const value = record[key];
+			if (typeof value === "string" && value.trim()) return value;
+		}
+		return undefined;
+	};
+	const what = pick("command", "path", "file_path", "pattern", "url", "query");
+	return flat(what ? `${toolName} ${what}` : toolName, 160);
+}
+
+function messageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((block): block is { type: "text"; text: string } => block?.type === "text")
+		.map((block) => block.text)
+		.join("\n");
+}
+
+/** The current branch of a session as transcript lines (tool results and long texts cut). */
+export function transcriptLines(session: AgentSession, task: string): SubagentTranscriptLine[] {
+	const lines: SubagentTranscriptLine[] = [];
+	for (const message of session.messages) {
+		if (message.role === "user") {
+			const text = messageText(message.content);
+			lines.push({ kind: lines.length === 0 && text === task ? "task" : "user", text: cut(text, 2_000) });
+		} else if (message.role === "assistant") {
+			const assistant = message as AssistantMessage;
+			const text = assistantText(assistant);
+			if (text) lines.push({ kind: "assistant", text: cut(text, 4_000) });
+			for (const block of assistant.content) {
+				if (block.type === "toolCall")
+					lines.push({ kind: "tool", text: toolStepText(block.name, block.arguments) });
+			}
+			if (assistant.stopReason === "error" && assistant.errorMessage) {
+				lines.push({ kind: "error", text: cut(assistant.errorMessage, 500) });
+			}
+		} else if (message.role === "toolResult") {
+			lines.push({ kind: "tool_result", text: flat(messageText(message.content), 300) });
+		}
+	}
+	return lines;
+}
+
 /** Makes the child session; rejects when its model is unknown. */
 export async function createChildSession(
 	options: SubagentChildOptions,
@@ -124,24 +194,74 @@ export async function createChildSession(
 	});
 	settingsManager.applyOverrides({ cacheWarming: "off" });
 
-	const waiting = new Set<(waiting: boolean) => void>();
+	const waiting = new Set<(waiting: boolean, request?: SubagentApprovalRequest) => void>();
 	const queue = deps.approvalQueue ?? defaultApprovalQueue;
+	const desk = deps.approvalDesk ?? new SubagentApprovalDesk();
 	const ask = deps.ask ?? askInTerminal;
-	const childAsk: AskForApproval = (_childCtx, request) =>
-		queue.run(async () => {
-			for (const listener of waiting) listener(true);
-			try {
-				return await ask(deps.parent, {
+	// The child waits for the person from the moment it asks: while the panel holds the question, and while another
+	// child's box is open (one box at a time).
+	// Aborted when the child stops or is rolled back: a question still waiting in the panel is then dropped (denied).
+	let questions = new AbortController();
+	const childAsk: AskForApproval = async (_childCtx, request) => {
+		const question: SubagentApprovalRequest = { command: request.command, reason: request.reason };
+		const signal = questions.signal;
+		for (const listener of waiting) listener(true, question);
+		try {
+			await desk.turn(options.id, signal);
+			if (signal.aborted) return { decision: "deny" };
+			return await queue.run(() =>
+				ask(deps.parent, {
 					...request,
 					reason: `Sub-agent ${options.id} (${options.label}): ${request.reason}`,
-				});
-			} finally {
-				for (const listener of waiting) listener(false);
-			}
-		});
+				}),
+			);
+		} finally {
+			for (const listener of waiting) listener(false);
+		}
+	};
 	const approvals: InlineExtension = {
 		name: "approvals",
 		factory: createApprovalsExtension({ ask: childAsk }),
+	};
+
+	// Pause, checkpoints and roll-back: every model call of the child passes this gate first (its `context` event),
+	// at a point where each step it started has its result.
+	let session!: AgentSession;
+	let paused = false;
+	let held: (() => void) | undefined;
+	const restTasks: Array<{ run: (position: string | null) => Promise<void>; fail: (error: Error) => void }> = [];
+	let rollBackTo:
+		| {
+				position: string | null;
+				note: string;
+				prepare: () => Promise<void>;
+				done: () => void;
+				fail: (error: Error) => void;
+		  }
+		| undefined;
+	const atGate = async () => {
+		for (;;) {
+			while (restTasks.length > 0) await restTasks.shift()!.run(session.sessionManager.getLeafId());
+			if (!paused || aborted || rollBackTo) return;
+			await new Promise<void>((resolve) => {
+				held = resolve;
+			});
+			held = undefined;
+		}
+	};
+	const release = () => {
+		const resolve = held;
+		held = undefined;
+		resolve?.();
+	};
+	const control: InlineExtension = {
+		name: "subagent-control",
+		factory: (fingers) => {
+			fingers.on("context", async () => {
+				await atGate();
+				return undefined;
+			});
+		},
 	};
 	const rules = subagentRules({ id: options.id, label: options.label, cwd: options.cwd });
 	const resourceLoader = new DefaultResourceLoader({
@@ -149,13 +269,13 @@ export async function createChildSession(
 		agentDir,
 		settingsManager,
 		noExtensions: true,
-		extensionFactories: [approvals],
+		extensionFactories: [approvals, control],
 		noPromptTemplates: true,
 		noThemes: true,
 		appendSystemPromptOverride: (base) => [...base, rules],
 	});
 	await resourceLoader.reload();
-	const { session } = await createAgentSession({
+	({ session } = await createAgentSession({
 		cwd: options.cwd,
 		agentDir,
 		modelRuntime: runtime,
@@ -164,12 +284,24 @@ export async function createChildSession(
 		settingsManager,
 		sessionManager: SessionManager.inMemory(options.cwd),
 		resourceLoader,
-	});
+	}));
 	await session.bindExtensions({ uiContext: deps.ui, mode: deps.mode, onError: () => {} });
 
 	const usageListeners = new Set<(usage: Usage) => void>();
+	const activityListeners = new Set<(line: string) => void>();
 	const usage = () => sessionUsage(session.sessionManager.getEntries());
 	const unsubscribe = session.subscribe((event) => {
+		if (event.type === "tool_execution_start") {
+			const line = toolStepText(event.toolName, event.args);
+			for (const listener of activityListeners) {
+				try {
+					listener(line);
+				} catch {
+					// A listener's failure must not stop the child.
+				}
+			}
+			return;
+		}
 		if (event.type !== "message_end" || event.message.role !== "assistant") return;
 		const current = usage();
 		for (const listener of usageListeners) {
@@ -184,20 +316,63 @@ export async function createChildSession(
 	let running = false;
 	let aborted = false;
 	let disposed = false;
+	let ended = false;
+	const endRest = () => {
+		ended = true;
+		const error = new Error(`${options.id} ended before its next model call.`);
+		for (const task of restTasks.splice(0)) task.fail(error);
+		const pending = rollBackTo;
+		rollBackTo = undefined;
+		pending?.fail(error);
+	};
+	/** After a roll-back: the transcript back at the checkpoint, the files put back, and the note to go on with. */
+	const applyRollBack = async (target: NonNullable<typeof rollBackTo>): Promise<string> => {
+		let prompt = target.note;
+		if (target.position === null) {
+			session.sessionManager.resetLeaf();
+			session.refreshContext();
+			prompt = `${options.task}\n\n${target.note}`;
+		} else {
+			const { editorText } = await session.navigateTree(target.position);
+			// The checkpoint was before its first model call: the task itself is sent again.
+			if (editorText !== undefined) prompt = `${editorText}\n\n${target.note}`;
+		}
+		await target.prepare();
+		return prompt;
+	};
 	const child: SubagentChild = {
 		id: options.id,
 		async run(): Promise<SubagentChildOutcome> {
 			if (aborted) return { status: "stopped", summary: "Stopped before it started." };
 			running = true;
+			let prompt = options.task;
 			try {
-				await session.prompt(options.task, { expandPromptTemplates: false, source: "extension" });
-				await session.waitForIdle();
+				for (;;) {
+					try {
+						await session.prompt(prompt, { expandPromptTemplates: false, source: "extension" });
+						await session.waitForIdle();
+					} catch (error) {
+						if (!rollBackTo) throw error;
+					}
+					const target = rollBackTo;
+					if (!target || aborted) break;
+					rollBackTo = undefined;
+					try {
+						prompt = await applyRollBack(target);
+					} catch (error) {
+						target.fail(error instanceof Error ? error : new Error(String(error)));
+						throw error;
+					}
+					paused = false;
+					target.done();
+				}
 			} catch (error) {
 				if (aborted) return { status: "stopped", summary: "Stopped." };
 				const message = error instanceof Error ? error.message : String(error);
 				return { status: "failed", summary: cut(message, MAX_SUBAGENT_SUMMARY_CHARS) };
 			} finally {
 				running = false;
+				endRest();
 			}
 			const last = lastAssistant(session);
 			const text = last ? assistantText(last) : "";
@@ -223,7 +398,61 @@ export async function createChildSession(
 		},
 		abort(): void {
 			aborted = true;
+			questions.abort();
 			void session.abort().catch(() => undefined);
+			release();
+		},
+		pause(): boolean {
+			if (!running || aborted || disposed || paused) return false;
+			paused = true;
+			return true;
+		},
+		resume(): boolean {
+			if (!paused || aborted || disposed || rollBackTo) return false;
+			paused = false;
+			release();
+			return true;
+		},
+		atRest<T>(task: (position: string | null) => Promise<T>): Promise<T> {
+			if (ended || aborted || disposed || rollBackTo)
+				return Promise.reject(new Error(`${options.id} is not running.`));
+			return new Promise<T>((resolve, reject) => {
+				const entry = {
+					run: async (position: string | null) => {
+						try {
+							resolve(await task(position));
+						} catch (error) {
+							reject(error);
+						}
+					},
+					fail: reject,
+				};
+				if (held) {
+					// Held before a model call: run it now, the child stays held.
+					void entry.run(session.sessionManager.getLeafId());
+				} else restTasks.push(entry);
+			});
+		},
+		rollBack(position: string | null, note: string, prepare: () => Promise<void>): Promise<void> {
+			if (!paused || !running || ended || aborted || disposed || rollBackTo) {
+				return Promise.reject(new Error(`${options.id} is not paused.`));
+			}
+			return new Promise<void>((resolve, reject) => {
+				rollBackTo = { position, note, prepare, done: resolve, fail: reject };
+				// What it is doing now (the model call it waits for, or a step that still runs) is dropped; run() then
+				// takes the transcript back and goes on. A question it still waits on in the panel is dropped too.
+				questions.abort();
+				questions = new AbortController();
+				void session.abort().catch(() => undefined);
+				release();
+			});
+		},
+		transcript(): SubagentTranscriptLine[] {
+			return transcriptLines(session, options.task);
+		},
+		onActivity(listener) {
+			activityListeners.add(listener);
+			return () => activityListeners.delete(listener);
 		},
 		usage,
 		onUsage(listener) {
@@ -239,7 +468,9 @@ export async function createChildSession(
 			disposed = true;
 			unsubscribe();
 			usageListeners.clear();
+			activityListeners.clear();
 			waiting.clear();
+			release();
 			session.dispose();
 		},
 	};

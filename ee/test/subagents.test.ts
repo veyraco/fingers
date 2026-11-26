@@ -50,7 +50,7 @@ import { AGENTS_TOOL, createSubagentsExtension } from "../../packages/coding-age
 import { createHarness, createTestUiContext, type Harness } from "../../packages/coding-agent/test/suite/harness.ts";
 import * as ee from "../src/index.ts";
 import { addUsage, emptyUsage, resultText, SubagentEngineImpl, validateSpecs } from "../src/subagents/engine.ts";
-import { agentListLine, Subagents } from "../src/subagents/index.ts";
+import { AGENTS_USAGE, agentListLine, Subagents } from "../src/subagents/index.ts";
 
 type Usage = SubagentInfo["usage"];
 
@@ -103,7 +103,13 @@ interface ChildControl {
 	aborted: Promise<void>;
 	isAborted(): boolean;
 	setUsage(usage: Usage): void;
-	approval(waiting: boolean): void;
+	approval(waiting: boolean, request?: { command: string; reason: string }): void;
+	activity(line: string): void;
+	/** pause()/resume() calls, and the roll-backs asked for. */
+	paused: boolean;
+	rollBacks: { position: string | null; note: string }[];
+	/** The position atRest() hands out next. */
+	position: string | null;
 }
 
 type Script = (child: ChildControl) => Promise<SubagentChildOutcome>;
@@ -143,7 +149,8 @@ function fakeHost(cwd: string, scripts: Record<string, Script>, budget?: (costUs
 				onAbort = resolve;
 			});
 			const usageListeners = new Set<(usage: Usage) => void>();
-			const approvalListeners = new Set<(waiting: boolean) => void>();
+			const approvalListeners = new Set<(waiting: boolean, request?: { command: string; reason: string }) => void>();
+			const activityListeners = new Set<(line: string) => void>();
 			let active = false;
 			const control: ChildControl = {
 				options,
@@ -154,9 +161,15 @@ function fakeHost(cwd: string, scripts: Record<string, Script>, budget?: (costUs
 					usage = next;
 					for (const listener of usageListeners) listener(next);
 				},
-				approval(waiting) {
-					for (const listener of approvalListeners) listener(waiting);
+				approval(waiting, request) {
+					for (const listener of approvalListeners) listener(waiting, request);
 				},
+				activity(line) {
+					for (const listener of activityListeners) listener(line);
+				},
+				paused: false,
+				rollBacks: [],
+				position: "entry-1",
 			};
 			host.children.set(options.id, control);
 			return {
@@ -192,6 +205,31 @@ function fakeHost(cwd: string, scripts: Record<string, Script>, budget?: (costUs
 					approvalListeners.add(listener);
 					return () => approvalListeners.delete(listener);
 				},
+				onActivity(listener) {
+					activityListeners.add(listener);
+					return () => activityListeners.delete(listener);
+				},
+				pause() {
+					if (!active || control.paused) return false;
+					control.paused = true;
+					return true;
+				},
+				resume() {
+					if (!control.paused) return false;
+					control.paused = false;
+					return true;
+				},
+				async atRest(task) {
+					if (!active) throw new Error(`${options.id} is not running.`);
+					return task(control.position);
+				},
+				async rollBack(position, note, prepare) {
+					if (!control.paused) throw new Error(`${options.id} is not paused.`);
+					control.rollBacks.push({ position, note });
+					await prepare();
+					control.paused = false;
+				},
+				transcript: () => [{ kind: "task", text: options.task }],
 				dispose() {},
 			};
 		},
@@ -743,18 +781,228 @@ describe("sub-agent engine", () => {
 		subagents.command(context("stop sub_1"));
 		subagents.command(context("steer"));
 		subagents.command(context("bogus"));
-		expect(warned).toEqual([
-			"sub_1 is not running.",
-			"sub_1 is not running or queued.",
-			"Usage: /agents, /agents steer <id> <message>, /agents stop <id>",
-			"Usage: /agents, /agents steer <id> <message>, /agents stop <id>",
-		]);
+		expect(warned).toEqual(["sub_1 is not running.", "sub_1 is not running or queued.", AGENTS_USAGE, AGENTS_USAGE]);
 		const empty: string[] = [];
 		new Subagents().command({ ...context(""), showStatus: (message) => empty.push(message) });
 		expect(empty[0]).toContain("No sub-agents yet");
 		expect(agentListLine({ ...subagents.engine.list()[0]!, label: "a\u001b[31mred\nnext" })).not.toMatch(
 			/[\u001b\n]/,
 		);
+	});
+});
+
+describe("sub-agent control (F19)", () => {
+	it("pauses and resumes a running child; paused wins over waiting for an approval", async () => {
+		const root = repo();
+		const engine = new SubagentEngineImpl();
+		const started = deferred();
+		const go = deferred();
+		const host = fakeHost(root, {
+			a: async (child) => {
+				started.resolve();
+				await go.promise;
+				child.approval(true, { command: "pnpm test", reason: "Not in your allow list." });
+				child.approval(false);
+				child.activity("edit src/a.ts");
+				return { status: "done", summary: "ok" };
+			},
+		});
+		const run = engine.run({ toolCallId: "c", agents: specs({ label: "a", task: "a" }) }, host);
+		await started.promise;
+		expect(engine.pause("sub_9")).toBe(false);
+		expect(engine.pause("sub_1")).toBe(true);
+		expect(engine.pause("sub_1")).toBe(false);
+		expect(engine.list()[0]!.status).toBe("paused");
+		expect(host.children.get("sub_1")!.paused).toBe(true);
+		await expect(engine.resume("sub_1", "cp-1")).rejects.toThrow("sub_1 has no checkpoint cp-1.");
+		await engine.resume("sub_1");
+		expect(host.children.get("sub_1")!.paused).toBe(false);
+		await expect(engine.resume("sub_1")).rejects.toThrow("sub_1 is not paused.");
+		expect(engine.pause("sub_1")).toBe(true);
+		go.resolve();
+		await until(() => host.events.some((event) => event.agent.activity?.includes("edit src/a.ts")));
+		await engine.resume("sub_1");
+		await run;
+		expect(statusLog(host)).toEqual([
+			"started:a:running",
+			"updated:a:paused",
+			"updated:a:running",
+			"updated:a:paused",
+			// The approval came while paused: the status stays paused, the question is in the info.
+			"updated:a:paused",
+			"updated:a:paused",
+			"updated:a:paused",
+			"updated:a:running",
+			"finished:a:done",
+		]);
+		const asking = host.events.find((event) => event.agent.pendingApproval);
+		expect(asking?.agent.pendingApproval).toEqual({ command: "pnpm test", reason: "Not in your allow list." });
+		const done = engine.list()[0]!;
+		expect(done.pendingApproval).toBeUndefined();
+		expect(done.activity).toEqual(["edit src/a.ts"]);
+		expect(engine.pause("sub_1")).toBe(false);
+		await expect(engine.resume("sub_1")).rejects.toThrow("sub_1 is not running, so it cannot be resumed.");
+		await expect(engine.checkpoint("sub_1")).rejects.toThrow("sub_1 is not running");
+		expect(engine.transcript("sub_1")).toEqual([{ kind: "task", text: "a" }]);
+		expect(engine.transcript("sub_9")).toBeUndefined();
+	});
+
+	it("keeps checkpoints of a child's worktree; resuming from one puts its files back and rolls its transcript back", async () => {
+		const root = repo();
+		const engine = new SubagentEngineImpl();
+		const atCheckpoint = deferred();
+		const kept = deferred();
+		const changedMore = deferred();
+		const rolledBack = deferred();
+		const host = fakeHost(root, {
+			a: async (child) => {
+				const dir = child.options.cwd;
+				writeFileSync(join(dir, "a.txt"), "A at checkpoint\n");
+				writeFileSync(join(dir, "new.txt"), "new\n");
+				child.position = "entry-7";
+				atCheckpoint.resolve();
+				await kept.promise;
+				// After the checkpoint: more changes, one of them a file it deletes.
+				writeFileSync(join(dir, "a.txt"), "A later\n");
+				writeFileSync(join(dir, "later.txt"), "later\n");
+				rmSync(join(dir, "b.txt"));
+				changedMore.resolve();
+				await rolledBack.promise;
+				writeFileSync(join(dir, "after.txt"), "after\n");
+				return { status: "done", summary: "done after the roll-back" };
+			},
+		});
+		const run = engine.run({ toolCallId: "c", agents: specs({ label: "a", task: "a" }) }, host);
+		await atCheckpoint.promise;
+		const checkpoint = await engine.checkpoint("sub_1");
+		expect(checkpoint).toMatchObject({ id: expect.stringMatching(/^cp-\d+$/), filesChanged: 2 });
+		expect(engine.list()[0]!.checkpoints).toEqual([checkpoint]);
+		kept.resolve();
+		await changedMore.promise;
+		const worktree = join(root, ".fingers", "worktrees", "sub_1");
+		expect(existsSync(join(worktree, "later.txt"))).toBe(true);
+
+		await expect(engine.resume("sub_1", checkpoint.id)).rejects.toThrow("sub_1 is not paused.");
+		expect(engine.pause("sub_1")).toBe(true);
+		await engine.resume("sub_1", checkpoint.id);
+		// The files are as they were at the checkpoint; ignored files and the parent's tree are untouched.
+		expect(readFileSync(join(worktree, "a.txt"), "utf8")).toBe("A at checkpoint\n");
+		expect(readFileSync(join(worktree, "new.txt"), "utf8")).toBe("new\n");
+		expect(readFileSync(join(worktree, "b.txt"), "utf8")).toBe("b1\n");
+		expect(existsSync(join(worktree, "later.txt"))).toBe(false);
+		expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a1\na2\na3\n");
+		const rollBacks = host.children.get("sub_1")!.rollBacks;
+		expect(rollBacks).toHaveLength(1);
+		expect(rollBacks[0]!.position).toBe("entry-7");
+		expect(rollBacks[0]!.note).toContain(`rolled you back to checkpoint ${checkpoint.id}`);
+		expect(engine.list()[0]!.status).toBe("running");
+		rolledBack.resolve();
+		const result = await run;
+		// What merges is everything it changed since it started: the checkpoint's files plus what it did after.
+		expect(result.agents[0]).toMatchObject({ status: "done", merged: true, filesChanged: 3 });
+		expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("A at checkpoint\n");
+		expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("new\n");
+		expect(readFileSync(join(root, "after.txt"), "utf8")).toBe("after\n");
+		expect(existsSync(join(root, "later.txt"))).toBe(false);
+		expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b1\n");
+		expect(git(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
+		// No ref points at the checkpoint commits; nothing shows in the parent's status but the merged files.
+		expect(git(root, "for-each-ref").trim().split("\n")).toHaveLength(1);
+	});
+
+	it("refuses checkpoints and roll-backs while the checkpoints feature is off", async () => {
+		const root = repo();
+		let on = false;
+		const engine = new SubagentEngineImpl({ checkpointsOn: () => on });
+		const go = deferred();
+		const started = deferred();
+		const host = fakeHost(root, {
+			a: async () => {
+				started.resolve();
+				await go.promise;
+				return { status: "done", summary: "ok" };
+			},
+		});
+		const run = engine.run({ toolCallId: "c", agents: specs({ label: "a", task: "a" }) }, host);
+		await started.promise;
+		await expect(engine.checkpoint("sub_1")).rejects.toThrow("Checkpoints are not on for your organization's tier.");
+		on = true;
+		const checkpoint = await engine.checkpoint("sub_1");
+		on = false;
+		engine.pause("sub_1");
+		await expect(engine.resume("sub_1", checkpoint.id)).rejects.toThrow("Checkpoints are not on");
+		await engine.resume("sub_1");
+		go.resolve();
+		await run;
+		expect(host.children.get("sub_1")!.rollBacks).toEqual([]);
+	});
+
+	it("removes the worktree an ended child kept", async () => {
+		const root = repo();
+		const engine = new SubagentEngineImpl();
+		const host = fakeHost(root, {
+			a: async (child) => {
+				writeFileSync(join(child.options.cwd, "half.txt"), "half\n");
+				return { status: "failed", summary: "Model error" };
+			},
+		});
+		const result = await engine.run({ toolCallId: "c", agents: specs({ label: "a", task: "a" }) }, host);
+		expect(result.agents[0]!.keptWorktree).toBe(".fingers/worktrees/sub_1");
+		await engine.removeWorktree("sub_1");
+		expect(existsSync(join(root, ".fingers", "worktrees", "sub_1"))).toBe(false);
+		expect(git(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
+		expect(engine.list()[0]!.keptWorktree).toBeUndefined();
+		await expect(engine.removeWorktree("sub_1")).rejects.toThrow("sub_1 kept no worktree.");
+		await expect(engine.removeWorktree("sub_9")).rejects.toThrow("There is no sub-agent sub_9.");
+	});
+
+	it("opens the panel for /agents where there is one; pause, resume, checkpoint and remove as text commands", async () => {
+		const subagents = new Subagents();
+		const root = repo();
+		const go = deferred();
+		const started = deferred();
+		const host = fakeHost(root, {
+			a: async () => {
+				started.resolve();
+				await go.promise;
+				return { status: "done", summary: "ok" };
+			},
+		});
+		const run = subagents.engine.run({ toolCallId: "c", agents: specs({ label: "a", task: "a" }) }, host);
+		await started.promise;
+		const shown: string[] = [];
+		const warned: string[] = [];
+		let opened = 0;
+		const context = (args: string, panel = false): EeCommandContext => ({
+			args,
+			cwd: root,
+			entitlement: MEDIUM,
+			showStatus: (message) => shown.push(message),
+			showWarning: (message) => warned.push(message),
+			...(panel ? { openAgentsPanel: () => opened++ } : {}),
+		});
+		await subagents.command(context("", true));
+		expect(opened).toBe(1);
+		expect(shown).toEqual([]);
+		await subagents.command(context("checkpoint sub_1"));
+		expect(shown.at(-1)).toMatch(/^Kept cp-\d+ of sub_1 \(0 files changed\)\./);
+		const cp = /Kept (cp-\d+)/.exec(shown.at(-1)!)![1]!;
+		await subagents.command(context(""));
+		expect(shown.at(-1)).toContain(`checkpoints ${cp}`);
+		await subagents.command(context("pause sub_1"));
+		expect(shown.at(-1)).toBe("Pausing sub_1: it holds before its next model call.");
+		await subagents.command(context(`resume sub_1 ${cp}`));
+		expect(shown.at(-1)).toBe(`sub_1 goes on from ${cp}.`);
+		await subagents.command(context("resume sub_1"));
+		expect(warned.at(-1)).toBe("sub_1 is not paused.");
+		await subagents.command(context("pause"));
+		expect(warned.at(-1)).toBe(AGENTS_USAGE);
+		go.resolve();
+		await run;
+		await subagents.command(context("remove sub_1"));
+		expect(warned.at(-1)).toBe("sub_1 kept no worktree.");
+		await subagents.command(context("pause sub_1"));
+		expect(warned.at(-1)).toBe("sub_1 is not running.");
 	});
 });
 
@@ -924,6 +1172,82 @@ describe("sub-agents through the gate, the ee module and real child sessions", (
 		const before = calls.length;
 		await harness.session.prompt("And now?");
 		expect(calls[before]!.tools).not.toContain(AGENTS_TOOL);
+	});
+
+	it("keeps a checkpoint of a real child, pauses it and resumes it from the checkpoint (files and transcript)", async () => {
+		const { harness, engines, root } = await setup(MEDIUM);
+		const engine = ee.subagents.engine;
+		let id = "";
+		engines.onEvent((event) => {
+			if (event.type === "subagent_started") id = event.agent.id;
+		});
+		const childCalls: Message[][] = [];
+		const taken: { checkpoint?: Promise<{ id: string }> } = {};
+		const step = (context: { messages: Message[] }) => {
+			const system = JSON.stringify(context.messages.filter((message) => message.role === "system"));
+			const messages = context.messages.filter((message) => message.role !== "system");
+			const turn = messages.filter((message) => message.role === "assistant").length;
+			if (!system.includes("You are sub-agent sub_")) {
+				return turn === 0
+					? fauxAssistantMessage([fauxToolCall(AGENTS_TOOL, { start: [{ label: "w", task: "Write a.txt" }] })], {
+							stopReason: "toolUse",
+						})
+					: fauxAssistantMessage("Parent done.");
+			}
+			childCalls.push(messages);
+			const last = messages.at(-1);
+			if (last?.role === "user" && messageText(last).includes("rolled you back")) {
+				return fauxAssistantMessage("Back at the checkpoint; a.txt is enough.");
+			}
+			if (turn === 0) {
+				// Kept at its next model call, once a.txt is written.
+				taken.checkpoint = engine.checkpoint(id);
+				return fauxAssistantMessage([fauxToolCall("write", { path: "a.txt", content: "a\n" })], {
+					stopReason: "toolUse",
+				});
+			}
+			// After the checkpoint it writes b.txt; the person pauses it meanwhile.
+			expect(engine.pause(id)).toBe(true);
+			return fauxAssistantMessage([fauxToolCall("write", { path: "b.txt", content: "b\n" })], {
+				stopReason: "toolUse",
+			});
+		};
+		harness.setResponses(Array.from({ length: 8 }, () => step));
+		const run = harness.session.prompt("Write a.txt with a sub-agent.");
+
+		await until(() => taken.checkpoint !== undefined);
+		const kept = await taken.checkpoint!;
+		const worktree = join(root, ".fingers", "worktrees", id);
+		await until(() => existsSync(join(worktree, "b.txt")));
+		await until(() => engine.list().find((agent) => agent.id === id)?.status === "paused");
+		const callsWhilePaused = childCalls.length;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(childCalls).toHaveLength(callsWhilePaused);
+		expect(
+			engine
+				.transcript(id)!
+				.filter((line) => line.kind === "tool")
+				.map((line) => line.text),
+		).toEqual(["write a.txt", "write b.txt"]);
+
+		await engine.resume(id, kept.id);
+		await run;
+
+		const last = childCalls.at(-1)!;
+		expect(last.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user"]);
+		expect(JSON.stringify(last)).not.toContain("b.txt");
+		expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+		expect(existsSync(join(root, "b.txt"))).toBe(false);
+		const info = engine.list().find((agent) => agent.id === id)!;
+		expect(info).toMatchObject({ status: "done", merged: true, filesChanged: 1 });
+		expect(info.summary).toBe("Back at the checkpoint; a.txt is enough.");
+		expect(
+			engine
+				.transcript(id)!
+				.filter((line) => line.kind === "tool")
+				.map((line) => line.text),
+		).toEqual(["write a.txt"]);
+		expect(git(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
 	});
 
 	it("offers no tool and no /agents below the tier that includes sub-agents", async () => {
