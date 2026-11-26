@@ -53,15 +53,26 @@ export class BrainMemory {
 		this.providers.clear();
 	}
 
-	/** The core's factory: a provider for a repository, none outside one, when paused or without a sign-in. */
+	/**
+	 * The core's factory: a provider for a repository in the signed-in organization; none outside a repository, when
+	 * paused, without a sign-in or without an organization. A provider is never reused for another organization.
+	 */
 	provider(context: MemoryProviderContext): MemoryProvider | undefined {
 		const api = this.api;
 		const repository = context.repository;
-		if (!api || !repository || this.paused.has(repository)) return undefined;
-		let provider = this.providers.get(repository);
+		const org = api?.org;
+		if (!api || !org || !repository || this.paused.has(repository)) return undefined;
+		const cacheKey = `${org}:${repository}`;
+		let provider = this.providers.get(cacheKey);
 		if (!provider) {
-			provider = new BrainMemoryProvider({ api, repository, scope: shortName(repository), fetch: this.fetchImpl });
-			this.providers.set(repository, provider);
+			provider = new BrainMemoryProvider({
+				api,
+				org,
+				repository,
+				scope: shortName(repository),
+				fetch: this.fetchImpl,
+			});
+			this.providers.set(cacheKey, provider);
 		}
 		return provider;
 	}

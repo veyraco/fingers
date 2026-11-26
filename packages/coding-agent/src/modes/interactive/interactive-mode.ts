@@ -6427,9 +6427,14 @@ export class InteractiveMode {
 				veyraApi: (app) => {
 					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
 					if (!auth) return undefined;
+					const account = () => this.veyraAccount;
 					return {
 						app,
 						baseUrl: auth.apiBaseUrl(app),
+						// Live: `/org switch` signs in again and replaces the account (and the tokens) in place.
+						get org() {
+							return account()?.org || undefined;
+						},
 						accessToken: (options) => auth.getAccessToken(app, options),
 					};
 				},

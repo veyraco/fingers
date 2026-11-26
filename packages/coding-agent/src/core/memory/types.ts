@@ -89,6 +89,13 @@ export interface MemoryProvider {
 	readonly name: string;
 	/** What the memory is about, e.g. the repository's short name; shown after the name. */
 	readonly scope?: string;
+	/**
+	 * Whose memory this is: the organization and what in it (Brain: `<org_id>:<repository>`; relay: the Hands run).
+	 * A session keeps the task's memory with this key and reuses it only for a provider with the same key, so one
+	 * organization's memory never reaches a run of another (`/org switch`, a resume while signed in to another org).
+	 * Never empty.
+	 */
+	readonly key: string;
 	context(request: MemoryContextRequest, options?: MemoryCallOptions): Promise<MemoryContextResult>;
 	recall(request: MemoryRecallRequest, options?: MemoryCallOptions): Promise<MemoryRecallItem[]>;
 	remember(request: MemoryRememberRequest, options?: MemoryCallOptions): Promise<MemoryRememberResult>;

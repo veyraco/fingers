@@ -9,7 +9,7 @@ import { MemoryUnavailableError } from "../src/core/memory/types.ts";
 
 function relay(timeoutMs?: ConstructorParameters<typeof RelayMemoryProvider>[0]["timeoutMs"]) {
 	const sent: MemoryRequestRecord[] = [];
-	const provider = new RelayMemoryProvider({ emit: (record) => sent.push(record), timeoutMs });
+	const provider = new RelayMemoryProvider({ emit: (record) => sent.push(record), key: "hands-run:run_1", timeoutMs });
 	return { provider, sent };
 }
 
@@ -24,6 +24,11 @@ async function rejection(promise: Promise<unknown>): Promise<MemoryUnavailableEr
 }
 
 describe("relay memory provider", () => {
+	it("is the run's own memory and refuses to start without an owner key", () => {
+		expect(relay().provider.key).toBe("hands-run:run_1");
+		expect(() => new RelayMemoryProvider({ emit: () => {}, key: "" })).toThrow(/needs a key/);
+	});
+
 	it("sends each operation as a memory_request and returns the host's answer", async () => {
 		const { provider, sent } = relay();
 		const context = provider.context({ task: "t", max_tokens: 100, format: "markdown" });

@@ -66,6 +66,8 @@ function invalid(op: MemoryRelayOp): MemoryUnavailableError {
 export class RelayMemoryProvider implements MemoryProvider {
 	readonly name = "Brain";
 	readonly scope = undefined;
+	/** The run's own memory: the host's run (`hands-run:<run_id>`), never another run's kept context. */
+	readonly key: string;
 	private readonly pending = new Map<string, Pending>();
 	private next = 0;
 	private readonly emit: (record: MemoryRequestRecord) => void;
@@ -74,8 +76,12 @@ export class RelayMemoryProvider implements MemoryProvider {
 
 	constructor(options: {
 		emit(record: MemoryRequestRecord): void;
+		/** Whose memory the host relays to (MemoryProvider.key), e.g. `hands-run:<run_id>`. Must not be empty. */
+		key: string;
 		timeoutMs?: Partial<Record<MemoryRelayOp, number>>;
 	}) {
+		if (typeof options.key !== "string" || !options.key) throw new Error("A memory relay needs a key");
+		this.key = options.key;
 		this.emit = options.emit;
 		this.timeouts = { ...DEFAULT_TIMEOUT_MS, ...options.timeoutMs };
 	}

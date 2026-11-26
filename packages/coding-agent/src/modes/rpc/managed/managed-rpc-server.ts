@@ -9,6 +9,7 @@
  * `credentials`), `seq` and `traceparent` correlation, structured stderr logs, the managed path policy,
  * approvals, `usage`, `file_changed`, limits, checkpoints and a `result` after every `agent_settled`.
  */
+import { randomUUID } from "node:crypto";
 import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
@@ -407,6 +408,9 @@ export class ManagedRpcServer {
 			});
 			if (configure.memory?.mode === "relay") {
 				this.memory = new RelayMemoryProvider({
+					// The run's memory only: a checkpoint of another run (or of a session without a run id) keeps no
+					// context this run reuses.
+					key: configure.run_id ? `hands-run:${configure.run_id}` : `hands-configure:${randomUUID()}`,
 					emit: (request) => {
 						this.logger.info("memory request", { memory_request_id: request.id, op: request.op });
 						this.emit(request);

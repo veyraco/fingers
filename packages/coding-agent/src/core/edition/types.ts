@@ -292,6 +292,11 @@ export type EeVeyraApp = "brain" | "eyes";
 export interface EeVeyraApi {
 	readonly app: EeVeyraApp;
 	readonly baseUrl: string;
+	/**
+	 * The signed-in organization (`org_…`), read live from the sign-in the tokens come from: it changes with
+	 * `/org switch`. Memory and telemetry are kept per organization by it; undefined: no organization, no org data.
+	 */
+	readonly org: string | undefined;
 	/** A current access token; rejects when signed out or when Connect gives Fingers no token for the app. */
 	accessToken(options?: { signal?: AbortSignal }): Promise<string>;
 }

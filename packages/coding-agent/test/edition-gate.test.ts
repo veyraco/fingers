@@ -296,6 +296,7 @@ describe("EditionGate", () => {
 		const providers = new MemoryProviders({ lookupRepository: async () => "github.com/acme/web" });
 		const provider = {
 			name: "Brain",
+			key: "org_acme:github.com/acme/web",
 			context: async () => ({ context: "", tokens: 0 }),
 			recall: async () => [],
 			remember: async () => ({ id: "lt_1" }),

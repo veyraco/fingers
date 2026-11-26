@@ -57,6 +57,9 @@ Brain has no memory of yet is an empty answer. `index.ts` registers the provider
 `host.registerMemoryProvider("brain", …)` and handles `/memory` (status, `recall`, `remember`, `off`, `on`). The
 core's built-in `memory` extension does the rest (task-start context, the `memory_recall` and `memory_remember` tools,
 the outcome event at the end of a run). Managed RPC never loads it: there the core relays memory to the host.
+A provider belongs to the organization signed in when it was made (`host.veyraApi("brain").org`): its `key` is
+`<org_id>:<repository>`, the core reuses kept memory only for the same key and keeps other keys' memory out of model
+requests, and the provider refuses every call (`org_changed`) once the sign-in moved to another organization.
 
 ## Layout and checks
 

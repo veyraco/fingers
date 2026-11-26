@@ -35,6 +35,7 @@ function fakeProvider(overrides: Partial<MemoryProvider> = {}): MemoryProvider &
 	return {
 		name: "Brain",
 		scope: "web",
+		key: "org_a:github.com/acme/web",
 		calls,
 		async context(request) {
 			calls.context.push(request);
@@ -150,6 +151,137 @@ describe("memory extension", () => {
 		await resumed.harness.session.prompt("Go on.");
 		expect(provider.calls.context).toHaveLength(1);
 		expect(resumed.captures[0]!.system).toContain("checkout tests need STRIPE_FAKE=1");
+	});
+
+	it("never carries one organization's memory into another's run (switch inside a session)", async () => {
+		const orgA = fakeProvider({
+			key: "org_a:github.com/acme/web",
+			context: async () => ({ context: "- ORG_A_ONLY note", tokens: 5 }),
+		});
+		const orgB = fakeProvider({
+			key: "org_b:github.com/acme/web",
+			context: async (request) => {
+				orgB.calls.context.push(request);
+				return { context: "- ORG_B note", tokens: 5 };
+			},
+		});
+		let live: MemoryProvider = orgA;
+		const { harness, captures, capture } = await session({ provider: async () => live });
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Fix the flaky checkout test.");
+		expect(captures[0]!.system).toContain("ORG_A_ONLY");
+
+		// `/org switch`: the same session now runs for org B.
+		live = orgB;
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Go on.");
+		expect(orgB.calls.context).toHaveLength(1);
+		expect(orgB.calls.context[0]!.task).toBe("Go on.");
+		expect(captures[1]!.system).not.toContain("ORG_A_ONLY");
+		expect(captures[1]!.latest.memory).toContain("ORG_B note");
+		expect(captures[1]!.latest.memory).not.toContain("ORG_A_ONLY");
+
+		// Back to org A: its own memory again, assembled for it, never org B's.
+		live = orgA;
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("And once more.");
+		expect(captures[2]!.latest.memory).toContain("ORG_A_ONLY");
+		expect(captures[2]!.latest.memory).not.toContain("ORG_B note");
+	});
+
+	it("takes another organization's recall results out of the next organization's requests", async () => {
+		const orgA = fakeProvider({
+			recall: async () => [{ ref: "lt_1 v1", kind: "fact", text: "ORG_A_RECALLED secret path", score: 0.9 }],
+		});
+		const orgB = fakeProvider({
+			key: "org_b:github.com/acme/web",
+			context: async () => ({ context: "- ORG_B note", tokens: 5 }),
+		});
+		let live: MemoryProvider = orgA;
+		const { harness, captures, capture } = await session({ provider: async () => live });
+		harness.setResponses([
+			capture(
+				fauxAssistantMessage([fauxToolCall("memory_recall", { query: "paths" }, { id: "call_1" })], {
+					stopReason: "toolUse",
+				}),
+			),
+			capture(fauxAssistantMessage("done")),
+		]);
+		await harness.session.prompt("Where do the secrets live?");
+		// Org A's own run sees its own result.
+		expect(captures[1]!.messages).toContain("ORG_A_RECALLED");
+
+		live = orgB;
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Go on.");
+		expect(captures[2]!.messages).not.toContain("ORG_A_RECALLED");
+		expect(captures[2]!.messages).toContain("belongs to another organization's or session's memory");
+		expect(captures[2]!.system).not.toContain("STRIPE_FAKE");
+		expect(captures[2]!.system).toContain("ORG_B note");
+
+		// Signed out (no memory live): nobody's memory goes into the request.
+		const off = await session({ provider: async () => undefined }, { sessionManager: harness.sessionManager });
+		off.harness.setResponses([off.capture(fauxAssistantMessage("ok"))]);
+		await off.harness.session.prompt("And now?");
+		expect(off.captures[0]!.messages).not.toContain("ORG_A_RECALLED");
+		expect(off.captures[0]!.system).not.toContain("STRIPE_FAKE");
+		expect(off.captures[0]!.system).not.toContain("ORG_B note");
+	});
+
+	it("drops the other organization's memory when the new owner's memory does not answer", async () => {
+		const orgA = fakeProvider({ context: async () => ({ context: "- ORG_A_ONLY note", tokens: 5 }) });
+		const orgB = fakeProvider({
+			key: "org_b:github.com/acme/web",
+			context: async () => {
+				throw new MemoryUnavailableError("unavailable", "Brain is down");
+			},
+		});
+		let live: MemoryProvider = orgA;
+		const { harness, captures, capture } = await session({ provider: async () => live });
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Fix the flaky checkout test.");
+		live = orgB;
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Go on.");
+		expect(captures[1]!.system).not.toContain("ORG_A_ONLY");
+		expect(captures[1]!.latest.memory).toBeNull();
+	});
+
+	it("a session resumed under another organization does not keep the first one's memory", async () => {
+		const orgA = fakeProvider({ context: async () => ({ context: "- ORG_A_ONLY note", tokens: 5 }) });
+		const orgB = fakeProvider({
+			key: "org_b:github.com/acme/web",
+			context: async (request) => {
+				orgB.calls.context.push(request);
+				return { context: "- ORG_B note", tokens: 5 };
+			},
+		});
+		const first = await session({ provider: async () => orgA });
+		first.harness.setResponses([first.capture(fauxAssistantMessage("ok"))]);
+		await first.harness.session.prompt("Fix the flaky checkout test.");
+		expect(first.captures[0]!.system).toContain("ORG_A_ONLY");
+
+		const resumed = await session({ provider: async () => orgB }, { sessionManager: first.harness.sessionManager });
+		resumed.harness.setResponses([resumed.capture(fauxAssistantMessage("ok again"))]);
+		await resumed.harness.session.prompt("Go on.");
+		expect(orgB.calls.context).toHaveLength(1);
+		expect(resumed.captures[0]!.system).not.toContain("ORG_A_ONLY");
+		expect(resumed.captures[0]!.system).toContain("ORG_B note");
+	});
+
+	it("does not reuse a kept memory that names no owner", async () => {
+		const provider = fakeProvider();
+		const { harness, captures, capture } = await session({ provider: async () => provider });
+		harness.sessionManager.appendCustomEntry(MEMORY_CONTEXT_ENTRY, {
+			text: "- UNOWNED note",
+			tokens: 3,
+			provider: "Brain",
+		});
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Fix the flaky checkout test.");
+		expect(provider.calls.context).toHaveLength(1);
+		expect(captures[0]!.system).not.toContain("UNOWNED");
+		expect(captures[0]!.system).toContain("checkout tests need STRIPE_FAKE=1");
 	});
 
 	it("gives the model recall and remember on the provider", async () => {

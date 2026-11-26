@@ -122,6 +122,7 @@ const validators = Object.fromEntries(
 
 const TOKEN = "eyJ.brain-token.sig";
 const REPO = "github.com/acme/web";
+const ORG = "org_acme";
 const ROUTE = /^\/brain\/v1\/spaces\/([^/]+)\/(context|recall|memories|events)$/;
 
 interface BrainRequest {
@@ -215,7 +216,7 @@ async function brain(options: Parameters<typeof startBrain>[0] = {}) {
 	const mock = startBrain(options);
 	const url = await listen(mock.server);
 	cleanups.push(() => new Promise<void>((resolve) => mock.server.close(() => resolve())));
-	const api: EeVeyraApi = { app: "brain", baseUrl: `${url}/brain/v1`, accessToken: async () => TOKEN };
+	const api: EeVeyraApi = { app: "brain", baseUrl: `${url}/brain/v1`, org: ORG, accessToken: async () => TOKEN };
 	return { ...mock, url, api };
 }
 
@@ -224,7 +225,7 @@ async function brain(options: Parameters<typeof startBrain>[0] = {}) {
 describe("Brain provider against the contract mock", () => {
 	it("works on the repository's project space as the signed-in person", async () => {
 		const mock = await brain();
-		const provider = new BrainMemoryProvider({ api: mock.api, repository: REPO, scope: "web" });
+		const provider = new BrainMemoryProvider({ api: mock.api, org: ORG, repository: REPO, scope: "web" });
 		// No memory of the repository yet: empty answers, not errors.
 		expect(
 			await provider.context({ task: "Fix the flaky checkout test.", max_tokens: 2000, format: "markdown" }),
@@ -282,7 +283,7 @@ describe("Brain provider against the contract mock", () => {
 
 	it("turns Brain's refusals, an unreachable Brain and a missing token into memory errors", async () => {
 		const refused = await brain({ failWith: problem(403, "permission_denied", "Permission denied") });
-		const provider = new BrainMemoryProvider({ api: refused.api, repository: REPO, scope: "web" });
+		const provider = new BrainMemoryProvider({ api: refused.api, org: ORG, repository: REPO, scope: "web" });
 		await expect(provider.context({ task: "t", max_tokens: 100 })).rejects.toMatchObject({
 			name: "MemoryUnavailableError",
 			code: "permission_denied",
@@ -290,10 +291,11 @@ describe("Brain provider against the contract mock", () => {
 		});
 		const capped = await brain({ failWith: problem(402, "spend_limit_reached", "Spend limit") });
 		await expect(
-			new BrainMemoryProvider({ api: capped.api, repository: REPO, scope: "web" }).recall({ query: "q" }),
+			new BrainMemoryProvider({ api: capped.api, org: ORG, repository: REPO, scope: "web" }).recall({ query: "q" }),
 		).rejects.toMatchObject({ code: "spend_limit_reached" });
 		const down = new BrainMemoryProvider({
-			api: { app: "brain", baseUrl: "http://127.0.0.1:9/brain/v1", accessToken: async () => TOKEN },
+			api: { app: "brain", baseUrl: "http://127.0.0.1:9/brain/v1", org: ORG, accessToken: async () => TOKEN },
+			org: ORG,
 			repository: REPO,
 			scope: "web",
 		});
@@ -305,16 +307,19 @@ describe("Brain provider against the contract mock", () => {
 			api: {
 				app: "brain",
 				baseUrl: refused.api.baseUrl,
+				org: ORG,
 				accessToken: async () => {
 					throw new Error("Connect gives Fingers no brain token");
 				},
 			},
+			org: ORG,
 			repository: REPO,
 			scope: "web",
 		});
 		await expect(noToken.remember({ type: "fact", text: "x" })).rejects.toMatchObject({ code: "no_token" });
 		const garbled = new BrainMemoryProvider({
 			api: refused.api,
+			org: ORG,
 			repository: REPO,
 			scope: "web",
 			fetch: async () => new Response("<html>gateway</html>", { status: 200 }),
@@ -374,6 +379,37 @@ describe("Brain memory through the gate", () => {
 		expect(mock.requests).toEqual([]);
 	});
 
+	it("keys a provider by organization and repository, and makes none without an organization", async () => {
+		const mock = await brain();
+		let org: string | undefined = ORG;
+		const api: EeVeyraApi = {
+			app: "brain",
+			baseUrl: mock.api.baseUrl,
+			get org() {
+				return org;
+			},
+			accessToken: async () => TOKEN,
+		};
+		const { providers } = await gateWith(MEDIUM, api, REPO);
+		const first = await providers.providerFor("/work/web");
+		expect(first?.key).toBe(`${ORG}:${REPO}`);
+		org = "org_beta";
+		const second = await providers.providerFor("/work/web");
+		expect(second).not.toBe(first);
+		expect(second?.key).toBe(`org_beta:${REPO}`);
+		// The first organization's provider refuses once the sign-in moved on: no request with the new org's token.
+		await expect(first!.recall({ query: "checkout" })).rejects.toMatchObject({
+			name: "MemoryUnavailableError",
+			code: "org_changed",
+		});
+		expect(mock.requests).toEqual([]);
+		org = undefined;
+		expect(await providers.providerFor("/work/web")).toBeUndefined();
+		expect(() => new BrainMemoryProvider({ api, org: "", repository: REPO, scope: "web" })).toThrow(
+			/signed-in organization/,
+		);
+	});
+
 	it("hands ee a Brain API only while signed in, and no other app's", async () => {
 		const asked: string[] = [];
 		const providers = new MemoryProviders({ lookupRepository: async () => REPO });
@@ -387,7 +423,12 @@ describe("Brain memory through the gate", () => {
 				},
 			}),
 			memory: providers,
-			veyraApi: (app) => ({ app, baseUrl: `https://api.veyra.so/${app}/v1`, accessToken: async () => TOKEN }),
+			veyraApi: (app) => ({
+				app,
+				baseUrl: `https://api.veyra.so/${app}/v1`,
+				org: ORG,
+				accessToken: async () => TOKEN,
+			}),
 		});
 		await gate.setEntitlement(MEDIUM);
 		await gate.setEntitlement({ signedIn: false, source: "none", fingersEnabled: false });
@@ -430,6 +471,51 @@ describe("a session with Brain memory", () => {
 		expect(mock.requests[1]!.body).toMatchObject({
 			events: [{ kind: "outcome", outcome: { status: "succeeded" }, ref: { app: "fingers", type: "session" } }],
 		});
+	});
+
+	it("never carries one organization's Brain memory into a run for another (`/org switch`)", async () => {
+		const orgA = await brain();
+		orgA.spaces.set(`subject:project:${REPO}`, ["ORG_A_ONLY: checkout tests need STRIPE_FAKE=1."]);
+		const orgB = await brain();
+		orgB.spaces.set(`subject:project:${REPO}`, ["ORG_B: deploys go through the release train."]);
+		// The core's live sign-in: `/org switch` replaces the organization and its tokens in place.
+		let signedIn = { org: ORG, mock: orgA };
+		const api: EeVeyraApi = {
+			app: "brain",
+			get baseUrl() {
+				return signedIn.mock.api.baseUrl;
+			},
+			get org() {
+				return signedIn.org;
+			},
+			accessToken: async () => TOKEN,
+		};
+		const providers = new MemoryProviders({ lookupRepository: async () => REPO });
+		const gate = new EditionGate({ loadModule: async () => ee, memory: providers, veyraApi: () => api });
+		await gate.setEntitlement(MEDIUM);
+		const harness = await createHarness({
+			extensionFactories: [{ name: "memory", factory: createBuiltinMemoryExtension(providers) }],
+		});
+		harnesses.push(harness);
+		const systems: string[] = [];
+		const answer = (text: string) => (context: { messages: Message[] }) => {
+			systems.push(JSON.stringify(context.messages.filter((message) => message.role === "system")));
+			return fauxAssistantMessage(text);
+		};
+		harness.setResponses([answer("ok")]);
+		await harness.session.prompt("Fix the flaky checkout test.");
+		expect(systems[0]).toContain("ORG_A_ONLY");
+
+		signedIn = { org: "org_beta", mock: orgB };
+		await gate.setEntitlement({ ...MEDIUM, org: "org_beta", orgName: "Beta" });
+		harness.setResponses([answer("ok")]);
+		await harness.session.prompt("Go on.");
+		expect(systems[1]).not.toContain("ORG_A_ONLY");
+		expect(systems[1]).toContain("ORG_B: deploys go through the release train.");
+		expect(orgB.requests.map((request) => request.op)).toEqual(["context", "events"]);
+		// Org A got only its own run: nothing of org B's run reached it.
+		expect(orgA.requests.map((request) => request.op)).toEqual(["context", "events"]);
+		expect(JSON.stringify(orgB.requests.map((request) => request.body))).not.toContain("ORG_A_ONLY");
 	});
 
 	it("changes nothing on a tier without Brain", async () => {

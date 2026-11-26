@@ -7,6 +7,10 @@
  * `subject:project:<id>`, so every clone and every member of the organization shares it and Brain creates it on the
  * first write. A read of a repository Brain has no memory of yet is an empty answer, not an error. The token is for
  * Brain only (`aud` = brain) and comes from the core for every call; nothing here stores it.
+ *
+ * A provider belongs to one organization (the one signed in when it was made): its key is `<org_id>:<repository>`,
+ * and once the sign-in moves to another organization (`/org switch`) it refuses every call instead of sending that
+ * organization's token with the first one's memory.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import type {
@@ -40,6 +44,8 @@ type Fetch = typeof fetch;
 
 export interface BrainProviderOptions {
 	api: EeVeyraApi;
+	/** The organization (`org_…`) whose memory this is: the one signed in now. */
+	org: string;
 	/** `github.com/acme/web`. */
 	repository: string;
 	/** Shown in the status line: `web`. */
@@ -69,12 +75,18 @@ export class BrainMemoryProvider implements MemoryProvider {
 	readonly name = "Brain";
 	readonly scope: string;
 	readonly repository: string;
+	readonly org: string;
+	/** `<org_id>:<repository>` (MemoryProvider.key). */
+	readonly key: string;
 	private readonly api: EeVeyraApi;
 	private readonly fetch: Fetch;
 
 	constructor(options: BrainProviderOptions) {
 		this.api = options.api;
+		if (!options.org) throw new Error("Brain memory needs the signed-in organization");
+		this.org = options.org;
 		this.repository = options.repository;
+		this.key = `${options.org}:${options.repository}`;
 		this.scope = options.scope;
 		this.fetch = options.fetch ?? fetch;
 	}
@@ -89,6 +101,13 @@ export class BrainMemoryProvider implements MemoryProvider {
 		body: unknown,
 		options: MemoryCallOptions | undefined,
 	): Promise<Record<string, unknown>> {
+		// The sign-in moved to another organization: never this organization's memory with that one's token.
+		if (this.api.org !== this.org) {
+			throw new BrainUnavailableError(
+				"org_changed",
+				"the signed-in organization changed; this memory belongs to the previous one",
+			);
+		}
 		let token: string;
 		try {
 			token = await this.api.accessToken({ signal: options?.signal });
