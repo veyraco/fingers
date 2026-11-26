@@ -13,8 +13,9 @@
  * - Sign out revokes the refresh token at Connect (RFC 7009) and deletes the sign-in from the keychain, even when
  *   Connect can't be reached, and even when another fingers process holds the lock past the wait.
  *
- * Callers: F12 (ee gate: `organization()` for tier and apps), F13 (model connections: `getAccessToken("connect")`),
- * Brain and Eyes features (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
+ * Callers: F12 (ee gate: `organization()` for tier and apps), F13 (model connections: `listModelConnections()`, and
+ * `getAccessToken("hands")` on every model call through Hands' proxy), Brain and Eyes features
+ * (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
  */
 
 import { raceWithAbortSignal } from "../../utils/abort.ts";
@@ -428,6 +429,23 @@ export class VeyraAuth {
 		};
 		await this.rememberOrganization(organization);
 		return organization;
+	}
+
+	/**
+	 * Connect's list of the organization's chat model connections open to Fingers (`GET <api>/connect/v1/
+	 * organizations/{org}/model-connections?app=fingers&capability=chat`, Connect `models:read`). Keys are never in it.
+	 * model-connections.ts reads and filters the answer.
+	 */
+	async listModelConnections(options: { signal?: AbortSignal } = {}): Promise<unknown> {
+		const org = this.account()?.org;
+		if (!org) throw new VeyraSignedOutError("not_signed_in");
+		const token = await this.getAccessToken("connect", options);
+		return this.client.getJson(
+			`${this.apiBaseUrl("connect")}/organizations/${encodeURIComponent(org)}/model-connections?app=fingers&capability=chat`,
+			token,
+			newVeyraTrace(),
+			options.signal,
+		);
 	}
 
 	/**

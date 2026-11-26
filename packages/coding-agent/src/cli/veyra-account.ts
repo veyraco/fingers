@@ -28,6 +28,7 @@ import {
 	signInNotKeptText,
 	WAITING_TEXT,
 } from "../core/veyra/login-text.ts";
+import { fetchModelConnections, modelConnectionsSummary } from "../core/veyra/model-connections.ts";
 import { ConnectUnavailableError } from "../core/veyra/oidc-client.ts";
 import { VeyraSessionClearedError } from "../core/veyra/session-vault.ts";
 import {
@@ -275,16 +276,30 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 		lookup = { error };
 	}
 	const ee = await eeSummary(auth, lookup, options);
+	const connections = await connectionsSummary(auth, options.signal);
 	terminal.write("");
 	terminal.write(
 		`✓ ${signedInSummary({ email: account.email, subject: account.subject, orgName: org?.name ?? account.org, tier: org?.tier })}`,
 	);
+	terminal.write(connections.ok ? `✓ ${connections.text}` : `  ${connections.text}`);
 	if (ee?.on) terminal.write(`✓ ee features on: ${formatFeatureList(ee.features)}`);
 	else if (ee) terminal.write(`  Core only: ${connectText(ee.reason)}`);
 	terminal.write(
 		`  Token stored in your OS keychain. Sign out with ${APP_NAME} logout or revoke the device in Connect.`,
 	);
 	return 0;
+}
+
+/** The canvas line "✓ 3 model connections from Connect: …", or why there is none (F13). */
+async function connectionsSummary(auth: VeyraAuth, signal: AbortSignal): Promise<{ ok: boolean; text: string }> {
+	try {
+		const list = await fetchModelConnections(auth, {
+			signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+		});
+		return modelConnectionsSummary(list);
+	} catch (error) {
+		return { ok: false, text: `Model connections not loaded: ${connectErrorText(error)}` };
+	}
 }
 
 function loginErrorMessage(error: unknown): string {

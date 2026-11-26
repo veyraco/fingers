@@ -154,6 +154,7 @@ import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { telemetryExporters } from "../../core/tracing/registry.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
+import { veyraModelConnections } from "../../core/veyra/connection-provider.ts";
 import {
 	connectedAppsUrl,
 	createVeyraAuth,
@@ -164,6 +165,7 @@ import {
 	VeyraSignedOutError,
 } from "../../core/veyra/index.ts";
 import { connectErrorText, connectText, signInNotKeptText } from "../../core/veyra/login-text.ts";
+import { type ModelConnectionsList, modelConnectionsSummary } from "../../core/veyra/model-connections.ts";
 import { VeyraSessionClearedError } from "../../core/veyra/session-vault.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../../utils/clipboard.ts";
@@ -333,6 +335,8 @@ function isUsageSessionEntry(item: RenderSessionItem): item is Extract<SessionEn
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN", "ENOTTY"]);
 /** How often the running app asks Connect again for the organization's tier and apps (the ee gate). */
 const EDITION_RECHECK_MS = 60 * 60 * 1000;
+/** How long a start or /login waits for Connect's list of model connections. */
+const MODEL_CONNECTIONS_TIMEOUT_MS = 10_000;
 /** How long one such check may take before the gate keeps what it had. */
 const EDITION_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -572,6 +576,8 @@ export class InteractiveMode {
 	/** The Veyra sign-in (`/login`, `/org`, `/logout`), created on first use. */
 	private veyraAuth: VeyraAuth | undefined;
 	private veyraAuthError: string | undefined;
+	/** Why the last load of the organization's model connections failed. */
+	private modelConnectionsProblem: string | undefined;
 	/** Who is signed in to Veyra, for the status line; read from the keychain at startup. */
 	private veyraAccount: VeyraAccount | undefined;
 	/** The task budget (/budget): a hard stop at the cap for the current session's model calls (F16). */
@@ -6432,7 +6438,62 @@ export class InteractiveMode {
 		if (this.veyraAccount) {
 			this.ui.requestRender();
 			void this.startEdition();
+			// The organization's model connections for /model (F13); a start that needed them already has them.
+			if (!veyraModelConnections.list) void this.loadModelConnections();
 		}
+	}
+
+	/**
+	 * The organization's model connections from Connect (canvas FingersTuiLogin), registered as providers in this
+	 * session's model runtime and in every later one (/new, /resume). Undefined when not signed in, offline, or Connect
+	 * could not answer (`modelConnectionsProblem` says why).
+	 */
+	private async loadModelConnections(): Promise<ModelConnectionsList | undefined> {
+		const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
+		if (!auth || process.env.FINGERS_OFFLINE) return undefined;
+		try {
+			const signal = AbortSignal.timeout(MODEL_CONNECTIONS_TIMEOUT_MS);
+			const list = await veyraModelConnections.load(auth, { signal });
+			await veyraModelConnections.applyNow(this.session.modelRuntime, signal);
+			this.modelConnectionsProblem = undefined;
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.ui.requestRender();
+			return list;
+		} catch (error) {
+			this.modelConnectionsProblem = connectErrorText(error);
+			return undefined;
+		}
+	}
+
+	/**
+	 * First run, option 1: the default model of the first usable connection (Fingers' default for its provider, else
+	 * its first model). True when one was selected.
+	 */
+	private async selectModelConnectionModel(): Promise<boolean> {
+		const runtime = this.session.modelRuntime;
+		for (const offered of veyraModelConnections.list?.offered ?? []) {
+			const models = runtime.getModels(offered.providerId);
+			const builtinDefault = (defaultModelPerProvider as Record<string, string | undefined>)[
+				offered.route.fingersProvider
+			];
+			const model = models.find((candidate) => candidate.id === builtinDefault) ?? models[0];
+			if (!model) continue;
+			try {
+				await this.session.setModel(model, { persist: true });
+			} catch (error) {
+				this.showError(`Could not select ${model.id}: ${error instanceof Error ? error.message : String(error)}`);
+				return false;
+			}
+			await this.updateAvailableProviderCount();
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+			this.showStatus(
+				`Using ${model.id} through your organization’s model connection “${connectText(offered.connection.name)}”. /model lists the others.`,
+			);
+			return true;
+		}
+		return false;
 	}
 
 	// =========================================================================
@@ -6637,6 +6698,20 @@ export class InteractiveMode {
 					0,
 				),
 			);
+			const connections = await this.loadModelConnections();
+			const summary = connections ? modelConnectionsSummary(connections) : undefined;
+			this.chatContainer.addChild(
+				new Text(
+					summary?.ok
+						? `${theme.bold(theme.fg("success", "✓"))} ${theme.fg("text", summary.text)}`
+						: theme.fg(
+								"dim",
+								`  ${summary?.text ?? `Model connections not loaded: ${this.modelConnectionsProblem ?? "unknown error"}`}`,
+							),
+					1,
+					0,
+				),
+			);
 			// The organization lookup above kept the tier and apps with the sign-in: the ee gate starts from them.
 			await this.startEdition({ askConnect: false });
 			const gate = this.getEditionGate();
@@ -6682,6 +6757,9 @@ export class InteractiveMode {
 			return;
 		}
 		this.veyraAccount = undefined;
+		// No connection of the signed-out organization stays in /model.
+		veyraModelConnections.clear();
+		void this.updateAvailableProviderCount();
 		if (this.editionTimer) clearInterval(this.editionTimer);
 		this.editionTimer = undefined;
 		await this.getEditionGate().setEntitlement(SIGNED_OUT);
@@ -6957,11 +7035,14 @@ export class InteractiveMode {
 							this.showFirstRunChooser(fallbackMessage);
 							return;
 						}
-						// Signing in adds no model yet: org model connections from Connect come with a later version.
-						this.showFirstRunChooser(fallbackMessage, [
-							"Signed in to Veyra. Models from your organization’s connections in Connect are not in this build yet:",
-							"choose 2 or 3 to give Fingers a model.",
-						]);
+						void this.selectModelConnectionModel().then((selected) => {
+							if (selected) return;
+							const list = veyraModelConnections.list;
+							this.showFirstRunChooser(fallbackMessage, [
+								`Signed in to Veyra. ${list ? modelConnectionsSummary(list).text : `Model connections not loaded: ${this.modelConnectionsProblem ?? "unknown error"}`}`,
+								"Choose 2 or 3 to give Fingers a model.",
+							]);
+						});
 					});
 					return;
 				} else if (choice.kind === "env") {

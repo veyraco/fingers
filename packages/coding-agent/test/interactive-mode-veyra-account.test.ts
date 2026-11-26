@@ -3,13 +3,16 @@
  * /login alone is the Veyra sign-in, /login <provider> configures a provider), what /org and /logout show, and that
  * strings from Connect reach the screen without terminal escapes.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { editionToolHooks, savingsLedger } from "../src/core/edition/tool-hooks.ts";
+import { veyraModelConnections } from "../src/core/veyra/connection-provider.ts";
 import { DeviceFlowError } from "../src/core/veyra/device-flow.ts";
+import type { ModelConnectionsList } from "../src/core/veyra/model-connections.ts";
 import { type VeyraAccount, VeyraSessionClearedError } from "../src/core/veyra/session-vault.ts";
 import { type VeyraLogoutResult, type VeyraOrganization, VeyraSignedOutError } from "../src/core/veyra/veyra-auth.ts";
 import type { FingersAccountStatus } from "../src/modes/interactive/components/footer.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 type Mock = ReturnType<typeof vi.fn>;
 
@@ -53,6 +56,11 @@ interface AccountContext {
 	getEditionGate(this: AccountContext): FakeEditionGate;
 	startEdition: Mock;
 	editionTimer?: ReturnType<typeof setInterval>;
+	/** F13: the organization's model connections. */
+	loadModelConnections: Mock;
+	updateAvailableProviderCount: Mock;
+	chatContainer: { addChild: Mock };
+	modelConnectionsProblem?: string;
 }
 
 interface FakeEditionGate {
@@ -147,7 +155,20 @@ function accountContext(auth: FakeAuth | undefined, options: { signedIn?: boolea
 			return this.editionGate;
 		},
 		startEdition: vi.fn(async () => {}),
+		loadModelConnections: vi.fn(async () => undefined),
+		updateAvailableProviderCount: vi.fn(async () => {}),
+		chatContainer: { addChild: vi.fn() },
 	};
+}
+
+/** The text of every line the context added to the chat, without styling. */
+function chatLines(context: AccountContext): string[] {
+	return (
+		context.chatContainer.addChild.mock.calls
+			.map(([component]) => (component as { text?: string }).text)
+			.filter((text): text is string => typeof text === "string")
+			.map((text) => text.replace(/\u001b\[[0-9;]*m/g, ""))
+	);
 }
 
 /** Every message the context showed, of any kind. */
@@ -316,7 +337,10 @@ describe("/logout (Veyra)", () => {
 	it("revokes, clears the account from the status line and says so", async () => {
 		const auth = fakeAuth();
 		const context = accountContext(auth);
+		const clear = vi.spyOn(veyraModelConnections, "clear");
 		await prototype.handleVeyraLogout.call(context);
+		// No model connection of the signed-out organization stays in /model (F13).
+		expect(clear).toHaveBeenCalledTimes(1);
 		expect(auth.logout).toHaveBeenCalledTimes(1);
 		// The revoke's 15 s start at the revoke, after any wait for the lock: no timer is started up front.
 		expect(auth.logout).toHaveBeenCalledWith({ revokeTimeoutMs: 15_000 });
@@ -402,6 +426,48 @@ describe("Connect's strings on the terminal app's screen", () => {
 		const [line] = context.showError.mock.calls.map(([message]) => String(message));
 		expect(line).toContain("Connect refused the sign-in");
 		expect(line).not.toMatch(CONTROL);
+	});
+});
+
+describe("/login and the organization's model connections (F13, canvas FingersTuiLogin)", () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	const LIST: ModelConnectionsList = {
+		org: "org_7aR2cT",
+		offered: ["Claude", "OpenAI", "OpenRouter"].map((name, index) => ({
+			connection: { id: `mc_${index}`, provider: "anthropic", name, apps: [], groups: [], capabilities: [] },
+			route: { wire: "anthropic", fingersProvider: "anthropic", label: "Anthropic" },
+			providerId: `veyra-mc_${index}`,
+			displayName: `${name} (Veyra)`,
+		})),
+		notOffered: [],
+	};
+
+	it("shows the connections line between the signed-in line and the ee line", async () => {
+		initTheme("dark");
+		const context = accountContext(fakeAuth(), { signedIn: false });
+		context.loadModelConnections.mockResolvedValue(LIST);
+		expect(await prototype.handleVeyraLogin.call(context)).toBe(true);
+		expect(context.loadModelConnections).toHaveBeenCalledTimes(1);
+		const lines = chatLines(context).map((line) => line.trim());
+		expect(lines[0]).toMatch(/^✓ Signed in as ada@example.com/);
+		expect(lines[1]).toBe("✓ 3 model connections from Connect: Claude, OpenAI, OpenRouter");
+		expect(lines[2]).toMatch(/^✓ ee features on: /);
+		expect(lines[3]).toMatch(/^Token stored in your OS keychain/);
+	});
+
+	it("says why when Connect gave no list", async () => {
+		initTheme("dark");
+		const context = accountContext(fakeAuth(), { signedIn: false });
+		context.loadModelConnections.mockImplementation(async function (this: AccountContext) {
+			this.modelConnectionsProblem =
+				"Your group (Viewer) in Acme Robotics may not see model connections (Connect models:read). Ask an admin of the organization.";
+			return undefined;
+		});
+		expect(await prototype.handleVeyraLogin.call(context)).toBe(true);
+		expect(chatLines(context).map((line) => line.trim())[1]).toBe(
+			"Model connections not loaded: Your group (Viewer) in Acme Robotics may not see model connections (Connect models:read). Ask an admin of the organization.",
+		);
 	});
 });
 
