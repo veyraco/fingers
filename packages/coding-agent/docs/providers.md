@@ -9,11 +9,11 @@ Use `/login [provider]` to see the methods supported by a provider. Amazon Bedro
 
 ## Authenticate interactively
 
-Run `/login` and select a provider. Fingers guides you through its OAuth or API-key flow and saves the resulting credential in your [OS keychain](#where-credentials-are-stored).
+Run `/login <provider>`, for example `/login anthropic`; part of a name lists the providers that match it. (`/login` alone signs in to your Veyra account; see [Veyra account commands](cli.md#veyra-account-commands).) Fingers guides you through its OAuth or API-key flow and saves the resulting credential in your [OS keychain](#where-credentials-are-stored).
 
 On a remote or headless machine, an OAuth callback may not reach the local process. When prompted, paste the final redirect URL or authorization code back into Fingers.
 
-Run `/logout` and select a provider to remove its stored credential. This does not unset environment variables, remove authentication from `models.json`, or revoke the credential at the provider.
+Run `/logout <provider>` to remove a provider's stored credential (`/logout` alone signs out of your Veyra account when you are signed in, and otherwise lists the providers). This does not unset environment variables, remove authentication from `models.json`, or revoke the credential at the provider.
 
 ## Where credentials are stored
 

@@ -47,7 +47,7 @@ cd /path/to/project
 fingers
 ```
 
-Run `/login` inside Fingers to connect a provider, then give it a task.
+Run `/login <provider>` inside Fingers (for example `/login anthropic`) to connect a subscription or an API key, then give it a task. `fingers login` signs in to your Veyra account.
 
 The documentation lives in [`packages/coding-agent/docs`](packages/coding-agent/docs/index.md).
 
