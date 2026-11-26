@@ -288,7 +288,7 @@ describe("the agents tool", () => {
 		expect(childCalls.every((call) => call.model === "big")).toBe(true);
 
 		const result = toolResult(harness);
-		const details = result.details as { agents: SubagentInfo[] };
+		const details = result.details as unknown as { agents: SubagentInfo[] };
 		expect(details.agents.map((agent) => [agent.id, agent.status, agent.summary])).toEqual([
 			["sub_1", "done", "Wrote alpha.txt."],
 			["sub_2", "done", "Wrote beta.txt."],
@@ -400,7 +400,7 @@ describe("the agents tool", () => {
 		expect(reasons[1]).toMatch(/^Sub-agent sub_2 \(two\): \S/);
 		expect(maxOpen).toBe(1);
 		expect(waiting).toEqual([true, false, true, false]);
-		const details = toolResult(harness).details as { agents: SubagentInfo[] };
+		const details = toolResult(harness).details as unknown as { agents: SubagentInfo[] };
 		for (const agent of details.agents) {
 			expect(agent.summary).toContain("The user did not allow this command and said what to do instead: Not now.");
 		}
@@ -605,7 +605,7 @@ describe("the agents tool", () => {
 			["review", "big"],
 		]);
 		expect(calls.filter((call) => call.child).map((call) => call.model)).toEqual(["small", "small"]);
-		const details = toolResult(harness).details as { agents: SubagentInfo[] };
+		const details = toolResult(harness).details as unknown as { agents: SubagentInfo[] };
 		expect(details.agents.map((agent) => agent.model)).toEqual([
 			{ provider: harness.getModel().provider, id: "small" },
 			{ provider: harness.getModel().provider, id: "small" },

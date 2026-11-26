@@ -26,12 +26,12 @@ const SNAPSHOT_IDENTITY = {
 const REPOSITORY_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"];
 
 export class GitError extends Error {
-	constructor(
-		message: string,
-		readonly stderr: string,
-	) {
+	readonly stderr: string;
+
+	constructor(message: string, stderr: string) {
 		super(message);
 		this.name = "GitError";
+		this.stderr = stderr;
 	}
 }
 

@@ -114,7 +114,8 @@ function copyInfo(info: SubagentInfo): SubagentInfo {
 
 /** Checks the request; returns the specs with their kinds, or throws a message the model can act on. */
 export function validateSpecs(specs: readonly SubagentSpec[]): (SubagentSpec & { kind: SubagentKind })[] {
-	if (!Array.isArray(specs) || specs.length === 0) throw new Error("agents: start at least one sub-agent.");
+	// `specs as unknown`: Array.isArray on the parameter itself would narrow it to `any[]` and untype every spec below.
+	if (!Array.isArray(specs as unknown) || specs.length === 0) throw new Error("agents: start at least one sub-agent.");
 	if (specs.length > MAX_AGENTS_PER_CALL) {
 		throw new Error(`agents: at most ${MAX_AGENTS_PER_CALL} sub-agents per call (got ${specs.length}).`);
 	}
