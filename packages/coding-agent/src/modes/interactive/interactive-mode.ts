@@ -118,6 +118,9 @@ import { detectLocalCredentials } from "../../core/first-run-providers.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
+import { projectRepository } from "../../core/memory/project.ts";
+import { memoryProviders } from "../../core/memory/registry.ts";
+import { memoryLabel } from "../../core/memory/types.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
 	defaultModelPerProvider,
@@ -774,6 +777,7 @@ export class InteractiveMode {
 		this.footer = new FooterComponent(this.session, this.footerDataProvider, {
 			getAccount: () => this.getVeyraAccountStatus(),
 			getBudget: () => this.budgetGuard.state(),
+			getMemory: () => this.getMemoryLabel(),
 		});
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
@@ -3536,8 +3540,19 @@ export class InteractiveMode {
 				await this.handleEeCommand(eeCommand.name, eeCommand.args);
 				return;
 			}
+			// A run belongs to the organization it started in (its memory, its Brain and Eyes): the Veyra sign-in does not
+			// change while one streams. The command stays in the editor, to send once the run is over.
+			const accountChangeWhileRunning = () => {
+				if (!this.session.isStreaming) return false;
+				this.showWarning(
+					"A run is going on. Wait for it to finish, or press Esc to stop it, before you change the Veyra sign-in or organization.",
+				);
+				this.editor.setText(text);
+				return true;
+			};
 			if (text === "/login" || text.startsWith("/login ")) {
 				const providerRef = text.startsWith("/login ") ? text.slice(7).trim() : undefined;
+				if (!providerRef && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				// Canvas FingersTuiSlash: /login alone is the Veyra sign-in; with a provider it configures that provider.
 				if (providerRef) await this.handleLoginCommand(providerRef);
@@ -3546,6 +3561,7 @@ export class InteractiveMode {
 			}
 			if (text === "/logout" || text.startsWith("/logout ")) {
 				const providerRef = text.startsWith("/logout ") ? text.slice(8).trim() : undefined;
+				if (!providerRef && this.veyraAccount && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				if (providerRef) this.showOAuthSelector("logout", providerRef);
 				else if (this.veyraAccount) await this.handleVeyraLogout();
@@ -3554,6 +3570,7 @@ export class InteractiveMode {
 			}
 			if (text === "/org" || text.startsWith("/org ")) {
 				const argument = text.startsWith("/org ") ? text.slice(5).trim() : "";
+				if (argument === "switch" && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				await this.handleOrgCommand(argument);
 				return;
@@ -6413,12 +6430,43 @@ export class InteractiveMode {
 
 	private getEditionGate(): EditionGate {
 		// ee features act on tool results through the built-in `edition` extension, which calls these hooks.
-		this.editionGate ??= new EditionGate({
-			loadModule: () => loadEeModule(),
-			toolHooks: editionToolHooks,
-			savings: savingsLedger,
-		});
+		// Brain memory acts on sessions through the built-in `memory` extension, which uses these providers.
+		if (!this.editionGate) {
+			this.editionGate = new EditionGate({
+				loadModule: () => loadEeModule(),
+				toolHooks: editionToolHooks,
+				savings: savingsLedger,
+				memory: memoryProviders,
+				veyraApi: (app) => {
+					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
+					if (!auth) return undefined;
+					const account = () => this.veyraAccount;
+					return {
+						app,
+						baseUrl: auth.apiBaseUrl(app),
+						// Live: `/org switch` signs in again and replaces the account (and the tokens) in place.
+						get org() {
+							return account()?.org || undefined;
+						},
+						accessToken: (options) => auth.getAccessToken(app, options),
+					};
+				},
+			});
+			// The status line names the memory once the session's repository is known.
+			memoryProviders.onChange(() => {
+				void memoryProviders
+					.providerFor(this.sessionManager.getCwd())
+					.catch(() => undefined)
+					.then(() => this.ui.requestRender());
+			});
+		}
 		return this.editionGate;
+	}
+
+	/** "Brain “web”" while a memory provider is live for the session's directory (canvas FingersTuiSession). */
+	private getMemoryLabel(): string | undefined {
+		const provider = memoryProviders.peek(this.sessionManager.getCwd());
+		return provider ? connectText(memoryLabel(provider)) : undefined;
 	}
 
 	/**
@@ -6466,6 +6514,8 @@ export class InteractiveMode {
 			try {
 				await handler({
 					args,
+					cwd: this.sessionManager.getCwd(),
+					repository: await projectRepository(this.sessionManager.getCwd()).catch(() => undefined),
 					entitlement: gate.entitlement,
 					showStatus: (message) => this.showStatus(message),
 					showWarning: (message) => this.showWarning(message),

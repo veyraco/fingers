@@ -31,6 +31,7 @@ Commands tagged `ee` in the command menu are part of Fingers ee, under the Veyra
 | Command | Description |
 |---|---|
 | `/agents` | Sub-agents: start, watch, steer and stop them (Medium tier or higher) |
+| `/memory [recall <query> \| remember <text> \| off \| on]` | Brain memory for this repository: status, search, save, off and on for the session (Medium tier or higher; see [Brain memory](#brain-memory)) |
 
 ### Open core
 
@@ -57,6 +58,17 @@ With token saving on (Low tier or higher), Fingers changes what the model is sen
 - **Cheaper-model routing.** A compaction summary runs on a cheaper model of the same provider (the same key) when one has room for it: the cheapest model whose blended price (three parts input, one part output) is at most 80% of the selected model's, on providers that serve several vendors (such as OpenRouter) only the selected model's vendor. The conversation stays on the model you selected. The terminal shows `Token saving: the compaction summary ran on <model> instead of <model> ($a instead of $b).`; when the cheaper model fails, the summary runs on the selected model. Sub-agents use the same rule for search tasks (cheapest) and review tasks (the strongest model between a quarter and 80% of the price). A virtual model's own router is never overridden. `"modelRouting": false` in [settings](settings.md) turns routing off.
 
 Each saving goes to the session's savings ledger (estimated tokens per technique: `read_cache`, `output_trim`, `diff_edit`, `context_prune`; dollars at list price for `model_routing`), which the end-of-task report adds up. Managed RPC, print and JSON modes keep token saving off.
+
+### Brain memory
+
+With Brain on (Medium tier or higher), Fingers keeps one memory per repository in Veyra Brain: the repository of the `origin` remote (`github.com/acme/web`, the same for every clone and every member of the organization; credentials in the remote URL are never sent). A directory without a git remote has no memory. In the terminal app:
+
+- **At the start of a task** (the first prompt of a session), Fingers asks Brain what to know for it, within 2,000 tokens, and adds the answer to the system prompt as a `<memory>` section framed as notes, not instructions. The answer is kept in the session, so later prompts, a resume or a fork keep the same section (and the prompt cache stays warm).
+- **The model** gets `memory_recall` (search) and `memory_remember` (save one lasting fact, preference, procedure or episode; never secrets or personal data).
+- **When a run ends**, Fingers sends Brain how it went (an `outcome` learning event with the task and the final answer, idempotent by run), so Brain learns from it.
+- **One organization's memory stays in it.** The memory is the signed-in organization's (`<org_id>:<repository>`). After `/org switch`, or when you resume a session made while signed in to another organization, the kept `<memory>` section is not used: Fingers asks the new organization's Brain for the next prompt, and the earlier organization's memory section and recall results are taken out of every request to the model. The conversation itself (your prompts and the model's answers) stays as it is, so start a new session (`/new`) when you change organizations. A run belongs to the organization it started in: `/login`, `/logout` (Veyra) and `/org switch` wait until the run is over (the command stays in the editor), and if the sign-in still changes during a run, memory is off for the rest of that run (no recall, no save, no learning event to either organization).
+
+Memory is best effort: when Brain does not answer in time (3 seconds at task start) or refuses, the session goes on without it and says so once. The status line shows `memory: Brain “web”` while it is on. `/memory off` turns it off for the repository until `/memory on` or a restart. Managed RPC mode never calls Brain itself: with `memory.mode: relay` it asks the host (see [Managed RPC](rpc-managed.md)); print and JSON modes have no memory.
 
 ## Sessions and context
 

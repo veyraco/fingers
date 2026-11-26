@@ -23,6 +23,7 @@ import {
 	SIGNED_OUT,
 	type VeyraTier,
 } from "../src/core/edition/index.ts";
+import { MemoryProviders } from "../src/core/memory/registry.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
 import { ConnectUnavailableError, VeyraApiError } from "../src/core/veyra/oidc-client.ts";
 import { openVeyraSessionVault, type VeyraAccount } from "../src/core/veyra/session-vault.ts";
@@ -43,7 +44,7 @@ function fakeModule(overrides: Partial<EeModule> = {}): EeModule {
 		org_hooks: "high",
 	};
 	return {
-		apiVersion: 4,
+		apiVersion: 5,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => matrix[feature],
 		activate: (host) => {
@@ -291,6 +292,35 @@ describe("EditionGate", () => {
 		expect(registered).toEqual(["off", "on", "off"]);
 	});
 
+	it("lets the ee module register a memory provider only for a feature that is on (F20)", async () => {
+		const providers = new MemoryProviders({ lookupRepository: async () => "github.com/acme/web" });
+		const provider = {
+			name: "Brain",
+			key: "org_acme:github.com/acme/web",
+			context: async () => ({ context: "", tokens: 0 }),
+			recall: async () => [],
+			remember: async () => ({ id: "lt_1" }),
+			reportEvents: async () => ({ accepted: 0, duplicates: 0 }),
+		};
+		const module = fakeModule({
+			activate: (host) => {
+				// A module that tries to register regardless of the tier, and for a feature that does not exist.
+				host.registerMemoryProvider("not_a_feature" as never, () => provider);
+				host.registerMemoryProvider("brain", () => provider);
+			},
+		});
+		const gate = new EditionGate({ loadModule: async () => module, memory: providers });
+		await gate.setEntitlement({ ...SIGNED_IN, tier: "low" });
+		expect(providers.hasFactory).toBe(false);
+		expect(await providers.providerFor("/w")).toBeUndefined();
+		await gate.setEntitlement(SIGNED_IN);
+		expect(providers.hasFactory).toBe(true);
+		expect(await providers.providerFor("/w")).toBe(provider);
+		await gate.setEntitlement(SIGNED_OUT);
+		expect(providers.hasFactory).toBe(false);
+		expect(await providers.providerFor("/w")).toBeUndefined();
+	});
+
 	it("is core only without an ee module, whatever the tier", async () => {
 		const gate = new EditionGate({ loadModule: async () => undefined });
 		await gate.setEntitlement({ ...SIGNED_IN, tier: "high" });
@@ -346,7 +376,7 @@ describe("the ee module loader", () => {
 		writeFileSync(path, text);
 	}
 
-	const VALID = `export const apiVersion = 4; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
+	const VALID = `export const apiVersion = 5; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
 
 	it("looks next to a binary, in a source checkout's ee/src, then in dist/ee", () => {
 		const packageDir = join(dir, "packages", "coding-agent");
@@ -378,16 +408,16 @@ describe("the ee module loader", () => {
 		const other = join(dir, "pkg2");
 		writeModule(
 			join(other, "dist", "ee", "index.js"),
-			`export default { apiVersion: 4, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
+			`export default { apiVersion: 5, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
 		);
 		expect((await loadEeModule({ packageDir: other, isBunBinary: false, execPath: "" }))?.matrixVersion).toBe("d");
 	});
 
 	it("refuses a module built for another contract version, one without the exports, and one that throws", async () => {
 		for (const [name, text] of [
-			["v3", VALID.replace("apiVersion = 4", "apiVersion = 3")],
-			["v5", VALID.replace("apiVersion = 4", "apiVersion = 5")],
-			["partial", `export const apiVersion = 4; export const matrixVersion = "x";`],
+			["v4", VALID.replace("apiVersion = 5", "apiVersion = 4")],
+			["v6", VALID.replace("apiVersion = 5", "apiVersion = 6")],
+			["partial", `export const apiVersion = 5; export const matrixVersion = "x";`],
 			["throws", `throw new Error("broken ee");`],
 		]) {
 			const packageDir = join(dir, name);

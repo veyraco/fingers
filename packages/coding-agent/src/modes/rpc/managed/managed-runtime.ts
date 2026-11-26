@@ -17,6 +17,7 @@ import {
 } from "../../../core/agent-session-runtime.ts";
 import { AuthStorage } from "../../../core/auth-storage.ts";
 import type { InlineExtension } from "../../../core/extensions/types.ts";
+import { MEMORY_TOOL_NAMES } from "../../../core/memory/extension.ts";
 import { ModelRuntime } from "../../../core/model-runtime.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { DEFAULT_TOOL_NAMES, type Settings, SettingsManager } from "../../../core/settings-manager.ts";
@@ -42,7 +43,12 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 		const builtin = builtInExtensions.filter(
 			(entry) => typeof entry !== "function" && MANAGED_BUILTIN_EXTENSIONS.has(entry.name),
 		);
-		const tools = [...(configure.tools?.builtin ?? DEFAULT_TOOL_NAMES), "mcp__*"];
+		const tools = [
+			...(configure.tools?.builtin ?? DEFAULT_TOOL_NAMES),
+			"mcp__*",
+			// The memory relay's tools (the managed extension registers them with `memory.mode: relay`).
+			...(configure.memory?.mode === "relay" ? MEMORY_TOOL_NAMES : []),
+		];
 		// `configure.system_prompt` is added after any append prompt the loader found. It goes through the
 		// override, not `appendSystemPrompt`: the loader reads an `appendSystemPrompt` entry that names an
 		// existing file as that file, and the host's text must reach the model verbatim.

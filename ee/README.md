@@ -46,9 +46,24 @@ each tool result, at the end of each turn (`contextEdits`, saved as context edit
 savings ledger through `host.recordSaving`. See `packages/coding-agent/docs/slash-commands.md`
 ("Token saving") for what the model gets.
 
+## Brain memory
+
+`src/brain/` (F20, Medium tier or higher): `provider.ts` is the core's memory provider interface
+(`packages/coding-agent/src/core/memory/types.ts`) on Brain's public API (`api.veyra.so/brain/v1`) as the signed-in
+person, with a token for Brain only from `host.veyraApi("brain")`. One memory per repository: the `project` subject
+whose id is the repository (`github.com/acme/web`, from the `origin` remote, never with credentials), addressed as
+`subject:project:<id>`, so Brain creates it on the first write and every member shares it; a read of a repository
+Brain has no memory of yet is an empty answer. `index.ts` registers the provider with
+`host.registerMemoryProvider("brain", …)` and handles `/memory` (status, `recall`, `remember`, `off`, `on`). The
+core's built-in `memory` extension does the rest (task-start context, the `memory_recall` and `memory_remember` tools,
+the outcome event at the end of a run). Managed RPC never loads it: there the core relays memory to the host.
+A provider belongs to the organization signed in when it was made (`host.veyraApi("brain").org`): its `key` is
+`<org_id>:<repository>`, the core reuses kept memory only for the same key and keeps other keys' memory out of model
+requests, and the provider refuses every call (`org_changed`) once the sign-in moved to another organization.
+
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion` 4, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 5, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`

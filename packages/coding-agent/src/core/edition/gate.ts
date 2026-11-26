@@ -7,6 +7,7 @@
  * `fingers` app on, Connect's tier is one Fingers knows, and the tier is at least the feature's minimum tier in the
  * ee module's tier matrix.
  */
+import type { MemoryProviders } from "../memory/registry.ts";
 import type { SavingsLedger } from "../savings-ledger.ts";
 import { type EntitlementSource, resolveEntitlement } from "./entitlement.ts";
 import { EE_COMMANDS } from "./features.ts";
@@ -19,8 +20,11 @@ import {
 	type EeFeatureId,
 	type EeFeatureState,
 	type EeHost,
+	type EeMemoryProviderFactory,
 	type EeModule,
 	type EeToolHooks,
+	type EeVeyraApi,
+	type EeVeyraApp,
 	isVeyraTier,
 	SIGNED_OUT,
 	tierIncludes,
@@ -62,6 +66,13 @@ export interface EditionGateOptions {
 	toolHooks?: EditionToolHooks;
 	/** The savings ledger ee's token saving writes to. Without it savings are not recorded. */
 	savings?: SavingsLedger;
+	/**
+	 * Where the memory provider of a feature that is on goes (the terminal app passes the process' providers, which
+	 * the built-in `memory` extension uses). Without it ee registers no memory.
+	 */
+	memory?: MemoryProviders;
+	/** The signed-in person's access to a Veyra app's API (the terminal app's Veyra sign-in). */
+	veyraApi?: (app: EeVeyraApp) => EeVeyraApi | undefined;
 }
 
 export class EditionGate {
@@ -148,8 +159,11 @@ export class EditionGate {
 		this.commands = new Map();
 		const toolHooks = this.options.toolHooks;
 		toolHooks?.clear();
+		const memory = this.options.memory;
+		memory?.clear();
 		const module = this.module;
 		if (!module) return;
+		let memoryProvider: { feature: EeFeatureId; factory: EeMemoryProviderFactory } | undefined;
 		const commands = new Map<string, EeCommandHandler>();
 		const hooks: { feature: EeFeatureId; hooks: EeToolHooks }[] = [];
 		const savings = this.options.savings;
@@ -171,11 +185,25 @@ export class EditionGate {
 				if (!this.isOn()) return;
 				savings?.record(entry);
 			},
+			registerMemoryProvider: (feature, factory) => {
+				if (!(EE_FEATURE_IDS as readonly string[]).includes(feature) || !this.state(feature).on) return;
+				if (typeof factory !== "function") return;
+				memoryProvider = { feature, factory };
+			},
+			veyraApi: (app) => {
+				if (app !== "brain" && app !== "eyes") return undefined;
+				if (!this.current.signedIn) return undefined;
+				return this.options.veyraApi?.(app);
+			},
 		};
 		try {
 			module.activate(host);
 			this.commands = commands;
 			toolHooks?.set(hooks, (feature) => this.state(feature).on);
+			if (memoryProvider) {
+				const { feature, factory } = memoryProvider;
+				memory?.set(factory, () => this.state(feature).on);
+			}
 		} catch (error) {
 			this.options.onActivateError?.(error);
 		}

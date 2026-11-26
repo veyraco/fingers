@@ -96,7 +96,13 @@ describe("the ee module", () => {
 		const handler = gate.commandHandler("agents");
 		expect(handler).toBeTypeOf("function");
 		const showStatus = vi.fn();
-		await handler?.({ args: "", entitlement: gate.entitlement, showStatus, showWarning: vi.fn() });
+		await handler?.({
+			args: "",
+			entitlement: gate.entitlement,
+			cwd: "/work/web",
+			showStatus,
+			showWarning: vi.fn(),
+		});
 		expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("Sub-agents are on for Acme (tier medium)"));
 	});
 });

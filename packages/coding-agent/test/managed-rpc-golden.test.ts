@@ -17,6 +17,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -225,10 +226,11 @@ function isSystemMessageEvent(record: Rec): boolean {
 	);
 }
 
-function eventTypes(records: Rec[]): string[] {
+function eventTypes(records: Rec[], ignore: readonly string[] = []): string[] {
 	return records
 		.filter(
 			(record) =>
+				!ignore.includes(record.type) &&
 				record.type !== "response" &&
 				record.type !== "message_update" &&
 				record.type !== "tool_execution_update" &&
@@ -253,10 +255,11 @@ function expectCloseTotals(actual: Rec, expected: Rec): void {
 		expect(actual.cost_usd[key], key).toBeCloseTo(expected.cost_usd[key], 9);
 }
 
-function checkCommon(golden: Line[], run: Replay): void {
+/** `notYet`: event types of the transcript this build does not emit yet (each names the item that adds it). */
+function checkCommon(golden: Line[], run: Replay, notYet: readonly string[] = []): void {
 	const goldenOuts = golden.filter((line) => line.dir === "out").map((line) => line.record);
 	// Same events in the same order.
-	expect(eventTypes(run.outs)).toEqual(eventTypes(goldenOuts));
+	expect(eventTypes(run.outs)).toEqual(eventTypes(goldenOuts, notYet));
 	// Every record conforms to the contract's schemas; seq strictly increases from 1.
 	let seq = 0;
 	for (const record of run.outs) {
@@ -393,6 +396,54 @@ describe("managed RPC golden transcripts", () => {
 		});
 		checkCommon(golden, run);
 		expect(run.anthropic.requests).toHaveLength(1);
+	});
+
+	it("memory-telemetry-relay: memory through the host, one answer and one failure", async () => {
+		const fetched: string[] = [];
+		const realFetch = globalThis.fetch;
+		vi.stubGlobal("fetch", (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+			fetched.push(String(input instanceof Request ? input.url : input));
+			return realFetch(input, init);
+		});
+		cleanups.push(() => {
+			vi.unstubAllGlobals();
+		});
+		const { golden, run } = await replay("memory-telemetry-relay", () => {});
+		// telemetry_span comes with the telemetry relay (Fingers F21).
+		checkCommon(golden, run, ["telemetry_span"]);
+		const requests = run.outs.filter((record) => record.type === "memory_request");
+		const goldenRequests = golden
+			.filter((line) => line.dir === "out" && line.record.type === "memory_request")
+			.map((line) => line.record);
+		expect(requests.map((record) => [record.id, record.op])).toEqual(goldenRequests.map((r) => [r.id, r.op]));
+		// Context at task start: the task and the configured budget, no space or organization.
+		expect(requests[0]!.body).toMatchObject(goldenRequests[0]!.body);
+		expect(requests[0]!.body.run_ref).toEqual({ app: "hands", type: "run", id: "run_01JDK2M8Q" });
+		expect(requests[0]!.timeout_ms).toBe(3000);
+		// The run's outcome, idempotent by an id tied to the run and its last entry.
+		const [event] = requests[1]!.body.events;
+		expect(event).toMatchObject({ kind: "outcome", ref: { app: "hands", type: "run", id: "run_01JDK2M8Q" } });
+		expect(event.id).toMatch(/^run_01JDK2M8Q:[^:]+:outcome$/);
+		expect(event.outcome).toEqual({ status: "succeeded" });
+		expect(event.text).toBe("Task: Fix the flaky checkout test.\n\nResult: Set STRIPE_FAKE=1 in the test setup.");
+		for (const request of requests) {
+			for (const key of ["space_id", "space_ids", "brain_space_id", "org_id", "organization_id"])
+				expect(request.body).not.toHaveProperty(key);
+		}
+		// The host's context reached the model in the system prompt, framed as notes.
+		const system = JSON.stringify(run.anthropic.requests[0]!.body.system);
+		expect(system).toContain("<memory>");
+		expect(system).toContain("checkout tests need STRIPE_FAKE=1");
+		// The memory tools were offered.
+		const tools = (run.anthropic.requests[0]!.body.tools as Rec[]).map((tool) => tool.name);
+		expect(tools).toEqual(expect.arrayContaining(["memory_recall", "memory_remember"]));
+		// Relay mode: Fingers called no memory service; its only HTTP went to the model endpoint.
+		const anthropicUrl = `http://127.0.0.1:${(run.anthropic.server.address() as AddressInfo).port}`;
+		expect(fetched.length).toBeGreaterThan(0);
+		for (const url of fetched) expect(url.startsWith(anthropicUrl)).toBe(true);
+		const logs = run.stderr.map((line) => JSON.parse(line) as Rec);
+		expect(logs.find((log) => log.msg === "configured")).toMatchObject({ memory_mode: "relay" });
+		expect(logs.filter((log) => log.msg === "memory request").map((log) => log.op)).toEqual(["context", "events"]);
 	});
 
 	it("checkpoint-fork: export after a run, fork from the checkpoint, continue in the fork", async () => {

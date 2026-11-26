@@ -4,6 +4,7 @@ import codemodeExtension from "./codemode/index.ts";
 import editionExtension from "./edition/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
+import memoryExtension from "./memory/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
@@ -18,4 +19,6 @@ export const builtInExtensions: InlineExtension[] = [
 	// Open core: ee features (token saving) act on tool results through it while they are on; core only, it does
 	// nothing. Last, so ee sees each result after the other built-ins.
 	{ name: "edition", factory: editionExtension, builtin: true },
+	// Open core: Brain memory (an ee feature) acts on sessions through it while it is on; core only, it does nothing.
+	{ name: "memory", factory: memoryExtension, builtin: true },
 ];

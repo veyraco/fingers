@@ -4,6 +4,7 @@
  * instead of running; signed in with a tier that includes it, the ee module's handler runs. The status line says
  * "ee on" or "core only". A stand-in ee module is used, so these tests pass without the ee/ folder.
  */
+import { tmpdir } from "node:os";
 import { setKeybindings } from "@veyraco/fingers-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -39,7 +40,7 @@ const MATRIX: Record<EeFeatureId, VeyraTier> = {
 
 function eeModule(): EeModule {
 	return {
-		apiVersion: 4,
+		apiVersion: 5,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => MATRIX[feature],
 		activate: (host) => {
@@ -180,6 +181,8 @@ describe("/agents in the terminal app", () => {
 			showWarning: vi.fn(),
 			showError: vi.fn(),
 			handleVeyraLogin: vi.fn(async () => true),
+			// ee commands get the session's directory and its repository (F20).
+			runtimeHost: { session: { sessionManager: { getCwd: () => tmpdir() } } },
 		});
 		return {
 			instance,

@@ -72,6 +72,7 @@ export {
 	type EeEntitlement,
 	type EeFeatureId,
 	type EeHost,
+	type EeMemoryProviderFactory,
 	type EeModelFacts,
 	type EeModule,
 	type EeRouteChoice,
@@ -81,6 +82,8 @@ export {
 	type EeToolHooks,
 	type EeToolResult,
 	type EeToolResultChange,
+	type EeVeyraApi,
+	type EeVeyraApp,
 	isVeyraTier,
 	tierIncludes,
 	VEYRA_TIERS,
@@ -259,6 +262,24 @@ export {
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
 export type { RegisteredMcpServer } from "./core/mcp-servers.ts";
+// Memory (open core): the provider interface ee's Brain provider implements
+export {
+	MEMORY_TYPES,
+	type MemoryCallOptions,
+	type MemoryContextRequest,
+	type MemoryContextResult,
+	type MemoryEventsResult,
+	type MemoryLearningEvent,
+	type MemoryProvider,
+	type MemoryProviderContext,
+	type MemoryRecallItem,
+	type MemoryRecallRequest,
+	type MemoryRef,
+	type MemoryRememberRequest,
+	type MemoryRememberResult,
+	type MemoryType,
+	MemoryUnavailableError,
+} from "./core/memory/types.ts";
 export { convertToLlm } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export {
