@@ -2,13 +2,13 @@
  * The savings ledger: what each token-saving technique saved in this conversation, in estimated tokens.
  *
  * Techniques write an entry each time they save something (ee token saving: a read served from the cache, a trimmed
- * tool output, an edit sent as a diff instead of the whole file). The end-of-task report (F17) adds up the entries per
- * technique. The ledger holds no file content and no tool output: only the technique, the token estimate and the tool
- * call it came from.
+ * tool output, an edit sent as a diff instead of the whole file, an old tool result pruned from the context). The
+ * end-of-task report (F17) adds up the entries per technique. The ledger holds no file content and no tool output:
+ * only the technique, the token estimate and the tool call it came from.
  */
 
 /** The techniques that write to the ledger. */
-export const SAVINGS_TECHNIQUES = ["read_cache", "output_trim", "diff_edit"] as const;
+export const SAVINGS_TECHNIQUES = ["read_cache", "output_trim", "diff_edit", "context_prune"] as const;
 export type SavingsTechnique = (typeof SAVINGS_TECHNIQUES)[number];
 
 /** One saving, as a technique reports it. */

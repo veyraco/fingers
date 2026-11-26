@@ -1,6 +1,7 @@
 import type { Usage } from "@veyraco/fingers-ai";
 import { Container } from "@veyraco/fingers-tui";
 import { describe, expect, test, vi } from "vitest";
+import { editionToolHooks } from "../src/core/edition/tool-hooks.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -203,6 +204,78 @@ describe("InteractiveMode compaction events", () => {
 			usage,
 		});
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
+	});
+
+	test("shows ee token saving's compaction lines after the redrawn chat, and drops them when it failed", async () => {
+		const order: string[] = [];
+		const fakeThis = {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			programStatus: { handleEvent: vi.fn() },
+			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
+			defaultEditor: {},
+			chatContainer: { clear: vi.fn(() => order.push("clear")) },
+			sessionManager: {
+				buildContextEntries: vi.fn().mockReturnValue([
+					{
+						type: "compaction",
+						id: "c",
+						parentId: null,
+						timestamp: "2025-01-02T00:00:00Z",
+						summary: "summary",
+						firstKeptEntryId: "kept",
+						tokensBefore: 123,
+					},
+				]),
+			},
+			renderSessionEntries: vi.fn(),
+			addMessageToChat: vi.fn(() => order.push("summary")),
+			addCompactionCostNotice: vi.fn(),
+			showError: vi.fn(),
+			showStatus: vi.fn((line: string) => order.push(line)),
+			clearStatusIndicator: vi.fn(),
+			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+			settingsManager: { getShowTerminalProgress: () => false },
+			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+		};
+		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+			this: typeof fakeThis,
+			event: {
+				type: "compaction_end";
+				reason: "manual";
+				result: { tokensBefore: number; summary: string } | undefined;
+				aborted: boolean;
+				willRetry: boolean;
+				errorMessage?: string;
+			},
+		) => Promise<void>;
+
+		editionToolHooks.addNotices(["Token saving: compaction saved 9 tokens (10 → 1); the estimate was 8."]);
+		await handleEvent.call(fakeThis, {
+			type: "compaction_end",
+			reason: "manual",
+			result: { tokensBefore: 123, summary: "summary" },
+			aborted: false,
+			willRetry: false,
+		});
+		expect(order).toEqual([
+			"clear",
+			"summary",
+			"Token saving: compaction saved 9 tokens (10 → 1); the estimate was 8.",
+		]);
+		expect(editionToolHooks.takeNotices()).toEqual([]);
+
+		editionToolHooks.addNotices(["a line for a compaction that failed"]);
+		await handleEvent.call(fakeThis, {
+			type: "compaction_end",
+			reason: "manual",
+			result: undefined,
+			aborted: false,
+			willRetry: false,
+			errorMessage: "Compaction failed: x",
+		});
+		expect(fakeThis.showStatus).toHaveBeenCalledTimes(1);
+		expect(editionToolHooks.takeNotices()).toEqual([]);
 	});
 
 	test("updates the working state when the same agent run resumes after compaction", async () => {

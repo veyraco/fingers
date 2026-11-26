@@ -15,8 +15,9 @@ import type { SavingsEntry } from "../savings-ledger.ts";
 /**
  * Bumped when this contract changes; an ee module built for another version is not loaded.
  * 2: tool hooks (`EeHost.registerToolHooks`) and the savings ledger (`EeHost.recordSaving`), for token saving (F14).
+ * 3: context hooks (`EeToolHooks.contextEdits`, `beforeCompact`, `afterCompact`), for saving context (F15).
  */
-export const EE_API_VERSION = 2;
+export const EE_API_VERSION = 3;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -113,6 +114,76 @@ export interface EeToolResultChange {
 	content: (TextContent | ImageContent)[];
 }
 
+/**
+ * One model-visible entry of the conversation since the latest compaction, as a context hook sees it (F15). Only
+ * tool results carry their content: the other entries are there for their position and size.
+ */
+export interface EeContextEntry {
+	/** The session entry id: the target of a context edit. */
+	id: string;
+	role: "user" | "assistant" | "toolResult" | "custom" | "summary" | "other";
+	/** Estimated tokens of what the model gets from this entry now (chars/4, like compaction). */
+	tokens: number;
+	/** An earlier context edit already replaced this entry's content. */
+	edited: boolean;
+	/** Tool results only. */
+	toolName?: string;
+	toolCallId?: string;
+	isError?: boolean;
+	/** Tool results only: the arguments of the tool call, from the assistant message that made it. */
+	input?: Record<string, unknown>;
+	/** Tool results of read, edit and write: the absolute path, resolved as the tool resolved it. */
+	path?: string;
+	/** Tool results only: the content the model gets now. */
+	content?: (TextContent | ImageContent)[];
+}
+
+/** The model's context at the end of a turn, for `EeToolHooks.contextEdits`. */
+export interface EeContextView {
+	/** In order, oldest first. */
+	entries: readonly EeContextEntry[];
+	/** Estimated tokens of the whole context now (the session's own estimate, as compaction uses it). */
+	tokens: number;
+	/** The model's context window, in tokens. */
+	contextWindow: number;
+	/** The session's compaction settings: core compaction starts above contextWindow - reserveTokens. */
+	compaction: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+	cwd: string;
+}
+
+/** A replacement for the content of one earlier tool result, saved in the session as a context edit. */
+export interface EeContextEdit {
+	targetId: string;
+	content: (TextContent | ImageContent)[];
+}
+
+/** What a compaction is about to summarise, for `EeToolHooks.beforeCompact`. All sizes are chars/4 estimates. */
+export interface EeCompactionPreview {
+	reason: "manual" | "threshold" | "overflow";
+	/** The context before compaction, measured the way `EeCompactionOutcome.tokensAfter` is. */
+	tokensBefore: number;
+	/** The messages the summary replaces (with a split turn, both parts). */
+	summarizedTokens: number;
+	/** The previous compaction's summary, which the new summary replaces; 0 for the first compaction. */
+	previousSummaryTokens: number;
+	/** The read and modified file lists the core appends to every summary. */
+	fileListTokens: number;
+	/** The cut falls inside a turn: two summaries are made. */
+	splitTurn: boolean;
+	/** The most the summary call may write (compaction asks for at most 80% of reserveTokens). */
+	summaryMaxTokens: number;
+}
+
+/** What a compaction measured, for `EeToolHooks.afterCompact`. */
+export interface EeCompactionOutcome {
+	reason: "manual" | "threshold" | "overflow";
+	tokensBefore: number;
+	/** The context after compaction, measured like `tokensBefore`. */
+	tokensAfter: number;
+	/** The new summary, including the file lists. */
+	summaryTokens: number;
+}
+
 /** What an ee feature adds to the session while it is on. */
 export interface EeToolHooks {
 	/** Change a tool result before the model sees it; undefined leaves it as it is. Hooks run in registration order. */
@@ -124,6 +195,17 @@ export interface EeToolHooks {
 	 * the session tree): forget anything that assumed an earlier tool result is still in it.
 	 */
 	contextReset?(): void;
+	/**
+	 * At the end of each turn (after the tool results were saved, before the next model call): replacements for the
+	 * content of earlier tool results, saved as context edits, so every later request and compaction gets the
+	 * replacement. Only entries of `view` that are tool results may be targets. Hooks run in registration order, each
+	 * on the view the one before left.
+	 */
+	contextEdits?(view: EeContextView): readonly EeContextEdit[] | undefined;
+	/** A compaction is about to run: a line to show while it runs (e.g. its saving estimate), or undefined. */
+	beforeCompact?(preview: EeCompactionPreview): string | undefined;
+	/** A compaction finished: a line to show under its summary, or undefined. */
+	afterCompact?(outcome: EeCompactionOutcome): string | undefined;
 }
 
 /** What the core hands the ee module when it activates it. */

@@ -3932,6 +3932,7 @@ export class InteractiveMode {
 					this.autoCompactionEscapeHandler = undefined;
 				}
 				this.clearStatusIndicator("compaction");
+				if (!event.result) editionToolHooks.takeNotices();
 				if (event.aborted) {
 					if (event.reason === "manual") {
 						this.showError("Compaction cancelled");
@@ -3960,6 +3961,8 @@ export class InteractiveMode {
 							usage: event.result.usage,
 						});
 					}
+					// ee token saving's lines about this compaction (its saving against the estimate), after the redraw.
+					for (const notice of editionToolHooks.takeNotices()) this.showStatus(notice);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {

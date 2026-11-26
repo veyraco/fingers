@@ -1,9 +1,20 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Token saving, part 1 (F14): no duplicate reads, trimmed tool outputs, diff edits. Each technique writes what it
- * saved to the core's savings ledger (EeHost.recordSaving), which the end-of-task report adds up.
+ * Token saving: no duplicate reads, trimmed tool outputs, diff edits (F14); old tool results pruned in stages before
+ * compaction, and a saving estimate for each compaction (F15). Each technique writes what it saved to the core's
+ * savings ledger (EeHost.recordSaving), which the end-of-task report adds up.
  */
-import type { EeHost, EeToolHooks, EeToolResult, EeToolResultChange } from "@veyraco/fingers";
+import type {
+	EeCompactionOutcome,
+	EeCompactionPreview,
+	EeContextEdit,
+	EeContextView,
+	EeHost,
+	EeToolHooks,
+	EeToolResult,
+	EeToolResultChange,
+} from "@veyraco/fingers";
+import { compactionEstimateLine, compactionOutcomeLine, estimateCompactionSaving, planPrune } from "./context.ts";
 import { DIFF_EDIT_GUIDELINES, diffEditSaving } from "./diff-edit.ts";
 import { ReadCache } from "./read-cache.ts";
 import { type TrimOptions, trimToolOutput } from "./trim.ts";
@@ -22,6 +33,8 @@ export class TokenSaving {
 	readonly readCache: ReadCache;
 	private host: EeHost | undefined;
 	private readonly trimOptions: TrimOptions;
+	/** The estimate shown when the running compaction started. */
+	private compactionEstimate: number | undefined;
 	readonly hooks: EeToolHooks;
 
 	constructor(options: TokenSavingOptions = {}) {
@@ -31,6 +44,9 @@ export class TokenSaving {
 			toolResult: (result) => this.onToolResult(result),
 			toolGuidelines: () => ({ ...READ_CACHE_GUIDELINES, ...DIFF_EDIT_GUIDELINES }),
 			contextReset: () => this.readCache.clear(),
+			contextEdits: (view) => this.onTurnEnd(view),
+			beforeCompact: (preview) => this.onBeforeCompact(preview),
+			afterCompact: (outcome) => this.onAfterCompact(outcome),
 		};
 	}
 
@@ -43,6 +59,33 @@ export class TokenSaving {
 	reset(): void {
 		this.host = undefined;
 		this.readCache.clear();
+		this.compactionEstimate = undefined;
+	}
+
+	/** Prune old tool results in stages; a pruned read is no longer in the context, so its file reads fresh again. */
+	private onTurnEnd(view: EeContextView): EeContextEdit[] {
+		const pruned = planPrune(view);
+		for (const { entry, savedTokens } of pruned) {
+			if (entry.toolName === "read" && entry.path) this.readCache.forgetFile(entry.path);
+			this.host?.recordSaving({
+				technique: "context_prune",
+				tokens: savedTokens,
+				toolCallId: entry.toolCallId,
+				toolName: entry.toolName,
+			});
+		}
+		return pruned.map(({ edit }) => edit);
+	}
+
+	private onBeforeCompact(preview: EeCompactionPreview): string {
+		this.compactionEstimate = estimateCompactionSaving(preview);
+		return compactionEstimateLine(preview);
+	}
+
+	private onAfterCompact(outcome: EeCompactionOutcome): string {
+		const estimate = this.compactionEstimate;
+		this.compactionEstimate = undefined;
+		return compactionOutcomeLine(outcome, estimate);
 	}
 
 	private async onToolResult(result: EeToolResult): Promise<EeToolResultChange | undefined> {
