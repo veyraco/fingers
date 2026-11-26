@@ -15,6 +15,7 @@ import type {
 	CompactionModelOverride,
 	DefaultProjectTrust,
 	FullscreenExitOutput,
+	HandsSettings,
 	MermaidRenderingMode,
 	PackageSource,
 	QuietStartup,
@@ -1452,6 +1453,12 @@ export class SettingsManager {
 		this.globalSettings.markdown.mermaid = mode;
 		this.markModified("markdown", "mermaid");
 		this.save();
+	}
+
+	/** The `hands` setting (F13b): whether sessions start in a Hands Sandbox, and its size. */
+	getHandsSettings(): HandsSettings {
+		const hands = this.settings.hands;
+		return typeof hands === "object" && hands !== null ? { ...hands } : {};
 	}
 
 	getWarnings(): WarningSettings {

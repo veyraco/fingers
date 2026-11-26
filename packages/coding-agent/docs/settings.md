@@ -135,6 +135,13 @@ See [Themes](themes.md) and [Terminal Setup](terminal-setup.md) for format and p
 
 Keep `retry.provider.maxRetries` at `0` unless provider-level retries are required. Provider retries can delay Fingers from handling quota and usage-limit errors itself.
 
+## Veyra Hands
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `hands.default` | boolean | `false` | Start sessions in a Hands Sandbox as with `--hands`, unless `--local` (or a flag of a local session, such as `--continue`) is given. Read from agent-directory settings only. See [Run a session in Hands](hands.md). |
+| `hands.size` | string | None | Sandbox size for Hands sessions, such as `standard-4`; the default is the organization's. |
+
 ## Shell
 
 | Setting | Type | Default | Description |

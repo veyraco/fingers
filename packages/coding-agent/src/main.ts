@@ -74,6 +74,7 @@ import { builtInExtensions } from "./extensions/index.ts";
 import { loadMcpCommand } from "./extensions/mcp/cli.lazy.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { writeDiagnosticsToStderr } from "./modes/diagnostics-stderr.ts";
+import { handsArgsProblem, handsByDefault, runHandsMode } from "./modes/hands/index.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, setThemeJsonValidator, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { validateThemeJson } from "./modes/interactive/theme/theme-schema.ts";
@@ -721,6 +722,31 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 		console.log(`Exported to: ${result}`);
 		process.exit(0);
+	}
+
+	// `fingers --hands` (or the hands.default setting): the session runs in a Hands Sandbox (F13b). Local sessions are
+	// untouched: nothing below runs for it, and nothing here runs for them.
+	const handsSettings = bootstrapSettingsManager.getHandsSettings();
+	if (parsed.hands || (!offlineMode && handsByDefault(parsed, handsSettings.default))) {
+		const problem = parsed.hands
+			? offlineMode
+				? "--hands needs the network, and offline mode is on"
+				: handsArgsProblem(parsed)
+			: undefined;
+		if (problem) {
+			console.error(chalk.red(`Error: ${problem}`));
+			process.exit(1);
+		}
+		process.exitCode = await runHandsMode({
+			parsed,
+			auth: createVeyraAuth({ agentDir }),
+			cwd,
+			defaultProvider: bootstrapSettingsManager.getDefaultProvider(),
+			defaultModel: bootstrapSettingsManager.getDefaultModel(),
+			sizeSetting: handsSettings.size,
+			stdinContent: process.stdin.isTTY ? undefined : await readPipedStdin(),
+		});
+		return;
 	}
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);

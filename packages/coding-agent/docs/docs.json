@@ -44,6 +44,10 @@
               "path": "containerization.md"
             },
             {
+              "title": "Run a Session in Hands",
+              "path": "hands.md"
+            },
+            {
               "title": "Trace Fingers with OpenTelemetry",
               "path": "telemetry.md"
             },
