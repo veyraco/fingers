@@ -40,7 +40,7 @@ const MATRIX: Record<EeFeatureId, VeyraTier> = {
 
 function eeModule(): EeModule {
 	return {
-		apiVersion: 7,
+		apiVersion: 8,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => MATRIX[feature],
 		activate: (host) => {

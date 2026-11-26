@@ -32,12 +32,14 @@ import {
 import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import { SubagentEngines } from "../src/core/subagents/registry.ts";
 import type {
+	SubagentCheckpoint,
 	SubagentEngine,
 	SubagentEvent,
 	SubagentInfo,
 	SubagentRunHost,
 	SubagentRunRequest,
 	SubagentRunResult,
+	SubagentTranscriptLine,
 } from "../src/core/subagents/types.ts";
 import { emptyUsage } from "../src/core/subagents/types.ts";
 import { combineUsage } from "../src/core/usage-totals.ts";
@@ -170,6 +172,17 @@ class FakeEngine implements SubagentEngine {
 	list(): readonly SubagentInfo[] {
 		return [];
 	}
+	pause(): boolean {
+		return false;
+	}
+	async resume(): Promise<void> {}
+	async checkpoint(): Promise<SubagentCheckpoint> {
+		throw new Error("no checkpoints");
+	}
+	transcript(): SubagentTranscriptLine[] | undefined {
+		return undefined;
+	}
+	async removeWorktree(): Promise<void> {}
 }
 
 async function setup(options: SubagentsExtensionOptions & { tui?: boolean } = {}) {
@@ -399,7 +412,8 @@ describe("the agents tool", () => {
 		expect(reasons[0]).toMatch(/^Sub-agent sub_1 \(one\): \S/);
 		expect(reasons[1]).toMatch(/^Sub-agent sub_2 \(two\): \S/);
 		expect(maxOpen).toBe(1);
-		expect(waiting).toEqual([true, false, true, false]);
+		// Each child waits for the person from the moment it asks (also while the other child's box is open).
+		expect([...waiting].sort()).toEqual([false, false, true, true]);
 		const details = toolResult(harness).details as unknown as { agents: SubagentInfo[] };
 		for (const agent of details.agents) {
 			expect(agent.summary).toContain("The user did not allow this command and said what to do instead: Not now.");

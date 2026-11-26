@@ -41,7 +41,7 @@ Commands tagged `ee` in the command menu are part of Fingers ee, under the Veyra
 
 | Command | Description |
 |---|---|
-| `/agents [steer <id> <message> \| stop <id>]` | Sub-agents: list them with their status, model and cost, send one a message, stop one (Medium tier or higher; see [Sub-agents](#sub-agents)) |
+| `/agents [steer <id> <message> \| pause <id> \| resume <id> [cp-N] \| checkpoint <id> \| stop <id> \| remove <id>]` | Sub-agents: the panel with their status, tokens and cost; open, approve, steer, pause, stop, checkpoint and resume one (Medium tier or higher; see [Sub-agents](#sub-agents)) |
 | `/memory [recall <query> \| remember <text> \| off \| on]` | Brain memory for this repository: status, search, save, off and on for the session (Medium tier or higher; see [Brain memory](#brain-memory)) |
 | `/eyes [open \| off \| on]` | Eyes telemetry: status, the link to the last run's trace, off and on for the session (Medium tier or higher; see [Eyes telemetry](#eyes-telemetry)) |
 
@@ -83,7 +83,28 @@ With sub-agents on (Medium tier or higher), the model in the terminal app gets t
 - **Isolated failures.** A sub-agent that fails never stops the others or your run; the tool result says, per sub-agent, whether it is done and merged, failed or stopped, with its last answer.
 - **Cost.** Each sub-agent's model calls are its own; together they are the tool result's usage, so the status line, `/budget` and `/savings` count them. With a budget set, all sub-agents stop once their spend reaches it, and none starts while it is reached (two `agents` calls of one answer run one after the other, so the second sees the first one's spend). Esc stops them too.
 
-`/agents` lists this session's sub-agents (status, model, cost, kept worktree), `/agents steer <id> <message>` sends a running one a message it reads before its next model call, and `/agents stop <id>` stops a running or queued one. Managed RPC, print and JSON modes have no sub-agents yet.
+#### Agents panel
+
+`/agents` opens the sub-agents panel in place of the editor, also while a run goes on: one row per sub-agent of the session with its task, status (and how long it has run), tokens and cost, the models the sub-agents run on next to yours, and for the selected one its last steps, the approval it waits for and its checkpoints. The keys act on the selected sub-agent:
+
+| Key | What it does |
+|---|---|
+| ↑ ↓ | Select a sub-agent |
+| enter | Open its transcript (↑ ↓ scroll, esc back) |
+| a | Approve: open the approval box of the question it waits on |
+| s | Steer: type a message it reads before its next model call |
+| p | Pause: it holds before its next model call (a step that runs finishes first) |
+| k | Stop it (running or queued) |
+| c | Keep a checkpoint at its next model call |
+| r | Resume a paused one: from where it paused, or from a checkpoint you pick |
+| x | Remove the worktree an ended one kept |
+| esc | Close the panel |
+
+While the panel is open, sub-agents' approval questions wait in it (the row says `waiting for approval`) until you press `a`; closing the panel shows the waiting questions one at a time, as without it.
+
+A checkpoint (checkpoints, Medium tier or higher) is a git commit of the sub-agent's worktree plus the point of its transcript where it waits before a model call, so every step it started has its result. Resuming from one puts its worktree back to that commit (files it added after are removed; files git ignores stay), takes its conversation back to that point and tells it it was rolled back; what it merges at the end is still everything it changed since it started. Checkpoints live in this Fingers process (at most 20 per sub-agent; no branch or ref points to them) and go away with the session. A sub-agent that ended cannot be resumed.
+
+The same works as text: `/agents steer <id> <message>`, `/agents pause <id>`, `/agents resume <id> [cp-N]`, `/agents checkpoint <id>`, `/agents stop <id>` and `/agents remove <id>`. Managed RPC, print and JSON modes have no sub-agents yet.
 
 ### Brain memory
 

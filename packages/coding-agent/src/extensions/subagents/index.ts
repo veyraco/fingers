@@ -186,6 +186,7 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 							ask: options.ask,
 							agentDir: options.agentDir,
 							approvalQueue,
+							approvalDesk: engines.approvals,
 						}),
 					report(event) {
 						live.set(event.agent.id, event.agent);

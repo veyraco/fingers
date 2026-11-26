@@ -27,8 +27,11 @@ import type { SpanExporter } from "../tracing/spans.ts";
  * 6: span exporters (`EeHost.registerTelemetryExporter`, `EeHost.createOtlpExporter`) and the organization's code
  *    (`EeVeyraApi.orgCode`), for the Eyes feed (F21).
  * 7: sub-agent engines (`EeHost.registerSubagentEngine`, core/subagents/types.ts), for sub-agents (F18).
+ * 8: sub-agent control (SubagentEngine pause/resume/checkpoint/transcript/removeWorktree, SubagentChild
+ *    pause/resume/atRest/rollBack/transcript/onActivity) and `EeCommandContext.openAgentsPanel`, for the `/agents`
+ *    panel and checkpoints (F19).
  */
-export const EE_API_VERSION = 7;
+export const EE_API_VERSION = 8;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -97,6 +100,8 @@ export interface EeCommandContext {
 	entitlement: EeEntitlement;
 	showStatus(message: string): void;
 	showWarning(message: string): void;
+	/** Opens the sub-agents panel in place of the editor; only the terminal app has it. */
+	openAgentsPanel?(): void;
 }
 
 export type EeCommandHandler = (context: EeCommandContext) => void | Promise<void>;

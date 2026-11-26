@@ -48,7 +48,7 @@ function fakeModule(overrides: Partial<EeModule> = {}): EeModule {
 		org_hooks: "high",
 	};
 	return {
-		apiVersion: 7,
+		apiVersion: 8,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => matrix[feature],
 		activate: (host) => {
@@ -440,7 +440,7 @@ describe("the ee module loader", () => {
 		writeFileSync(path, text);
 	}
 
-	const VALID = `export const apiVersion = 7; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
+	const VALID = `export const apiVersion = 8; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
 
 	it("looks next to a binary, in a source checkout's ee/src, then in dist/ee", () => {
 		const packageDir = join(dir, "packages", "coding-agent");
@@ -472,16 +472,16 @@ describe("the ee module loader", () => {
 		const other = join(dir, "pkg2");
 		writeModule(
 			join(other, "dist", "ee", "index.js"),
-			`export default { apiVersion: 7, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
+			`export default { apiVersion: 8, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
 		);
 		expect((await loadEeModule({ packageDir: other, isBunBinary: false, execPath: "" }))?.matrixVersion).toBe("d");
 	});
 
 	it("refuses a module built for another contract version, one without the exports, and one that throws", async () => {
 		for (const [name, text] of [
-			["v6", VALID.replace("apiVersion = 7", "apiVersion = 6")],
-			["v8", VALID.replace("apiVersion = 7", "apiVersion = 8")],
-			["partial", `export const apiVersion = 7; export const matrixVersion = "x";`],
+			["v7", VALID.replace("apiVersion = 8", "apiVersion = 7")],
+			["v9", VALID.replace("apiVersion = 8", "apiVersion = 9")],
+			["partial", `export const apiVersion = 8; export const matrixVersion = "x";`],
 			["throws", `throw new Error("broken ee");`],
 		]) {
 			const packageDir = join(dir, name);

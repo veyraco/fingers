@@ -60,6 +60,14 @@ parent's model runtime and settings, approvals asked in the parent's terminal) a
 the token-saving routing hooks. Lifecycle events follow Fingers RPC v1 (`subagent_started`, `subagent_updated`,
 `subagent_finished`); managed RPC does not offer sub-agents yet.
 
+The `/agents` panel (F19) is the core's (`packages/coding-agent/src/modes/interactive/components/agents-panel.ts`);
+`/agents` opens it through `openAgentsPanel` in the command context. The engine adds `pause`/`resume` (the child
+holds before its next model call), `checkpoint` (a commit of the child's worktree from `git.ts` `snapshot`, plus the
+point of its transcript where it waits before a model call; at most 20 per child, kept in this process, no ref points
+to them), `resume(id, checkpoint)` (the worktree reset to that commit with `git.ts` `restore`, the transcript taken
+back there, and the child goes on with a note), `transcript` and `removeWorktree` (a kept worktree). Checkpoints are
+their own feature: `index.ts` sets the engine's gate to `host.isOn("checkpoints")`.
+
 ## Brain memory
 
 `src/brain/` (F20, Medium tier or higher): `provider.ts` is the core's memory provider interface
@@ -90,7 +98,7 @@ and resume sending. Managed RPC never loads it: there the core relays spans to t
 
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion` 7, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 8, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`

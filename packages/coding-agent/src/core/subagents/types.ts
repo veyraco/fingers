@@ -7,6 +7,10 @@
  * (registry.ts). Without an engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON
  * modes) the tool is not offered.
  *
+ * The `/agents` panel (F19, modes/interactive/components/agents-panel.ts) lists them and can open, approve, steer,
+ * pause, stop, checkpoint and resume one; checkpoints (a commit of the child's worktree plus a point of its
+ * transcript) are kept in this process.
+ *
  * Statuses and the lifecycle follow the Fingers RPC v1 contract (veyraco/platform contracts/v1/fingers-rpc.md,
  * `subagent_started`, `subagent_updated`, `subagent_finished`): a host or a panel can map them one to one.
  */
@@ -54,6 +58,33 @@ export interface SubagentModelRef {
 	id: string;
 }
 
+/** A point a sub-agent can be rolled back to (its files and its transcript), kept in this process. */
+export interface SubagentCheckpoint {
+	/** `cp-<n>`, unique in the process. */
+	id: string;
+	/** When it was taken (ms since the epoch). */
+	at: number;
+	/** Files its worktree had changed since the sub-agent started, at that point. */
+	filesChanged?: number;
+}
+
+/** The question a sub-agent waits on (status `waiting_approval`). */
+export interface SubagentApprovalRequest {
+	/** The command line, or for a file write the tool and path. */
+	command: string;
+	/** Why it asks. */
+	reason: string;
+}
+
+/** One line of a sub-agent's transcript, for the panel's "open" view. */
+export interface SubagentTranscriptLine {
+	kind: "task" | "user" | "assistant" | "tool" | "tool_result" | "error";
+	text: string;
+}
+
+/** Most activity lines a sub-agent's info keeps (newest last). */
+export const MAX_SUBAGENT_ACTIVITY = 3;
+
 /** A sub-agent as the engine reports it. */
 export interface SubagentInfo {
 	/** `sub_<n>`, unique in the process. The main agent is `main`. */
@@ -81,6 +112,12 @@ export interface SubagentInfo {
 	keptWorktree?: string;
 	startedAt?: number;
 	endedAt?: number;
+	/** Its checkpoints, oldest first (F19). */
+	checkpoints?: SubagentCheckpoint[];
+	/** For `waiting_approval`: what it asks. */
+	pendingApproval?: SubagentApprovalRequest;
+	/** Its latest steps ("edit src/a.ts", "bash pnpm test"), newest last, at most MAX_SUBAGENT_ACTIVITY. */
+	activity?: string[];
 }
 
 /** A lifecycle change, in the order of the contract's events. */
@@ -109,8 +146,34 @@ export interface SubagentChild {
 	usage(): Usage;
 	/** Called after each of its model calls with its usage so far. Returns the unsubscribe function. */
 	onUsage(listener: (usage: Usage) => void): () => void;
-	/** Called when it starts and stops waiting for the person's approval. Returns the unsubscribe function. */
-	onApproval(listener: (waiting: boolean) => void): () => void;
+	/**
+	 * Called when it starts and stops waiting for the person's approval (with the question when it starts).
+	 * Returns the unsubscribe function.
+	 */
+	onApproval(listener: (waiting: boolean, request?: SubagentApprovalRequest) => void): () => void;
+	/** Called when it starts a step (a tool call), with a one-line description. Returns the unsubscribe function. */
+	onActivity(listener: (line: string) => void): () => void;
+	/**
+	 * Holds it before its next model call (a step that is running finishes first). False when it is not running.
+	 * Its transcript and files stay as they are.
+	 */
+	pause(): boolean;
+	/** Lets a paused child go on. False when it is not paused. */
+	resume(): boolean;
+	/**
+	 * Runs `task` while the child waits before a model call, where its transcript is whole (every step it started has
+	 * its result): at once when it is held there, else at its next model call. `position` names that point of the
+	 * transcript for rollBack(). Rejects when the child ends first.
+	 */
+	atRest<T>(task: (position: string | null) => Promise<T>): Promise<T>;
+	/**
+	 * Only while it is paused: drops what it is doing (the model call it waits for, or a step that still runs), takes
+	 * its transcript back to `position` (from atRest), runs `prepare` (the engine puts its files back) and goes on with
+	 * `note` as the next message. Resolves once it runs again; rejects when it is not paused.
+	 */
+	rollBack(position: string | null, note: string, prepare: () => Promise<void>): Promise<void>;
+	/** Its transcript so far, oldest first. */
+	transcript(): SubagentTranscriptLine[];
 	/** Frees the session. */
 	dispose(): void;
 }
@@ -166,6 +229,22 @@ export interface SubagentEngine {
 	stop(id: string): boolean;
 	/** The sub-agents of this process, oldest first. */
 	list(): readonly SubagentInfo[];
+	/** Holds a running child before its next model call (F19). False when there is no running child with that id. */
+	pause(id: string): boolean;
+	/**
+	 * Lets a paused child go on; with `checkpoint`, first rolls its files and transcript back to that checkpoint.
+	 * Rejects with a message for the person when it cannot (not paused, unknown checkpoint, checkpoints off).
+	 */
+	resume(id: string, checkpoint?: string): Promise<void>;
+	/**
+	 * Takes a checkpoint of a running or paused child at its next model call (at once when it is paused there).
+	 * Rejects with a message for the person when it cannot (ended, checkpoints off).
+	 */
+	checkpoint(id: string): Promise<SubagentCheckpoint>;
+	/** Its transcript (also after it ended); undefined for an unknown id. */
+	transcript(id: string): SubagentTranscriptLine[] | undefined;
+	/** Removes the worktree an ended child kept. Rejects with a message for the person when there is none. */
+	removeWorktree(id: string): Promise<void>;
 }
 
 export function emptyUsage(): Usage {
