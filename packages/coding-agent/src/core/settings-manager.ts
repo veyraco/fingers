@@ -972,6 +972,11 @@ export class SettingsManager {
 		return this.settings.hideThinkingBlock ?? SETTINGS_DEFAULTS.hideThinkingBlock;
 	}
 
+	/** ee token saving may run sub-tasks (compaction summaries) on a cheaper model of the same provider. */
+	getModelRoutingEnabled(): boolean {
+		return this.settings.modelRouting !== false;
+	}
+
 	getShowCacheMissNotices(): boolean {
 		return this.settings.showCacheMissNotices ?? SETTINGS_DEFAULTS.showCacheMissNotices;
 	}

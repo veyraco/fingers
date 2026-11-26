@@ -241,6 +241,13 @@ export const SettingsSchema = Type.Object(
 		branchSummary: Type.Optional(BranchSummarySettingsSchema),
 		retry: Type.Optional(RetrySettingsSchema),
 		hideThinkingBlock: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.hideThinkingBlock })),
+		modelRouting: Type.Optional(
+			Type.Boolean({
+				description:
+					"While ee token saving is on, run sub-tasks such as compaction summaries on a cheaper model of the same provider.",
+				default: SETTINGS_DEFAULTS.modelRouting,
+			}),
+		),
 		showCacheMissNotices: Type.Optional(
 			Type.Boolean({
 				description: "Show cache cost and provider recovery notices.",

@@ -9,12 +9,12 @@
  * `credentials`), `seq` and `traceparent` correlation, structured stderr logs, the managed path policy,
  * approvals, `usage`, `file_changed`, limits, checkpoints and a `result` after every `agent_settled`.
  */
-import type { AgentTurnDecision } from "@veyraco/fingers-agent";
 import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
 import { findBrowserExecutable } from "../../../core/browser/browser-session.ts";
 import { HostPolicy, type NetworkConfig } from "../../../core/browser/host-policy.ts";
+import { costCapReached, endRunAfterTurnWhen, isListPriced } from "../../../core/budget.ts";
 import type { ExtensionAPI, InlineExtension } from "../../../core/extensions/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../../core/trace-context.ts";
@@ -569,14 +569,8 @@ export class ManagedRpcServer {
 		for (const message of this.credentialMessages.values()) await this.applyCredentialsTo(session, message);
 		this.unsubscribe?.();
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
-		const agent = session.agent;
-		const previousFinishTurn = agent.finishTurn;
-		agent.finishTurn = async (turn, signal): Promise<AgentTurnDecision | undefined> => {
-			const decision = (await previousFinishTurn?.(turn, signal)) ?? undefined;
-			// A limit reached during this turn ends the run after the turn's tool calls.
-			if (this.limitStop) return { action: "end" };
-			return decision;
-		};
+		// A limit reached during a turn ends the run after the turn's tool calls (the same stop as /budget).
+		endRunAfterTurnWhen(session.agent, () => this.limitStop !== undefined);
 		await session.bindExtensions({
 			mode: "rpc",
 			commandContextActions: {
@@ -704,7 +698,7 @@ export class ManagedRpcServer {
 			return;
 		}
 		const model = this.session?.modelRuntime.getModel(message.provider, message.model);
-		const priced = Boolean(model && (model.cost.input > 0 || model.cost.output > 0));
+		const priced = isListPriced(model);
 		addTotals(this.cumulative, turn);
 		this.emit({
 			type: "usage",
@@ -732,7 +726,11 @@ export class ManagedRpcServer {
 		if (this.limitStop) return;
 		const limits = this.configure?.limits;
 		if (!limits) return;
-		if (priced && limits.max_cost_usd !== undefined && this.cumulative.cost_usd.total >= limits.max_cost_usd) {
+		if (
+			priced &&
+			limits.max_cost_usd !== undefined &&
+			costCapReached(this.cumulative.cost_usd.total, limits.max_cost_usd)
+		) {
 			this.tripLimit({
 				reason: "max_cost_reached",
 				notice: `Stopped: max cost reached (${formatUsd(this.cumulative.cost_usd.total)} of ${formatUsd(limits.max_cost_usd)}).`,

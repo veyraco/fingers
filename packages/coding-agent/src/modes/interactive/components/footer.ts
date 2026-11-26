@@ -1,10 +1,11 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@veyraco/fingers-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
+import { sessionUsageTotals } from "../../../core/budget.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { addUsageToTotals, createUsageTotals, formatCacheHit, type UsageTotals } from "../../../core/usage-totals.ts";
+import { formatCacheHit, type UsageTotals } from "../../../core/usage-totals.ts";
 import { theme } from "../theme/theme.ts";
 import { editorHintLine } from "./keybinding-hints.ts";
 
@@ -163,19 +164,7 @@ export class FooterComponent implements Component {
 		}
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
-		const usageTotals = createUsageTotals();
-
-		for (const entry of sessionManager.getEntries()) {
-			if (entry.type === "usage") {
-				addUsageToTotals(usageTotals, entry.usage);
-			} else if (entry.type === "message" && entry.message.role === "assistant") {
-				addUsageToTotals(usageTotals, entry.message.usage);
-			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
-				addUsageToTotals(usageTotals, entry.message.usage);
-			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-				addUsageToTotals(usageTotals, entry.usage);
-			}
-		}
+		const usageTotals = sessionUsageTotals(sessionManager.getEntries());
 
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.

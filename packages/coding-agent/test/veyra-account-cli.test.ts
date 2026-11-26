@@ -106,7 +106,7 @@ const MATRIX: Record<EeFeatureId, VeyraTier> = {
 	org_hooks: "high",
 };
 const EE_MODULE: EeModule = {
-	apiVersion: 3,
+	apiVersion: 4,
 	matrixVersion: "test.1",
 	minimumTier: (feature) => MATRIX[feature],
 	activate: () => {},

@@ -45,7 +45,7 @@ function signedIn(tier: string): EeEntitlement {
 /** A stand-in ee module that registers `hooks` for token saving, and one for org hooks (High). */
 function moduleWith(hooks: EeToolHooks, orgHooks: EeToolHooks = {}): EeModule {
 	return {
-		apiVersion: 3,
+		apiVersion: 4,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => MATRIX[feature],
 		activate: (host) => {
@@ -94,7 +94,7 @@ describe("EditionGate tool hooks", () => {
 		await gate.setEntitlement(signedIn("low"));
 		expect(hooks.active).toBe(true);
 		expect(await hooks.toolResult(toolResult())).toEqual({ content: [{ type: "text", text: "trimmed by ee" }] });
-		expect(savings.totals().byTechnique.read_cache).toEqual({ tokens: 10, count: 1 });
+		expect(savings.totals().byTechnique.read_cache).toEqual({ tokens: 10, costUsd: 0, count: 1 });
 		// Low includes token saving only: the org hooks were never registered, so not even a context reset reaches them.
 		hooks.contextReset();
 		expect(resets).toEqual(["token_saving"]);
@@ -319,15 +319,23 @@ describe("SavingsLedger", () => {
 		ledger.record({ technique: "diff_edit", tokens: Number.NaN });
 		ledger.record({ technique: "nonsense" as never, tokens: 50 });
 		ledger.record({ technique: "context_prune", tokens: 40, toolCallId: "c9", toolName: "bash" });
+		// Model routing saves dollars, not tokens: an entry with only a positive cost counts.
+		ledger.record({ technique: "model_routing", tokens: 0, costUsd: 0.25 });
+		ledger.record({ technique: "model_routing", tokens: 0, costUsd: 0.5 });
+		ledger.record({ technique: "model_routing", tokens: 0, costUsd: -1 });
+		ledger.record({ technique: "model_routing", tokens: 0, costUsd: Number.POSITIVE_INFINITY });
 		expect(ledger.totals()).toEqual({
 			byTechnique: {
-				read_cache: { tokens: 125, count: 2 },
-				output_trim: { tokens: 30, count: 1 },
-				diff_edit: { tokens: 0, count: 0 },
-				context_prune: { tokens: 40, count: 1 },
+				read_cache: { tokens: 125, costUsd: 0, count: 2 },
+				output_trim: { tokens: 30, costUsd: 0, count: 1 },
+				diff_edit: { tokens: 0, costUsd: 0, count: 0 },
+				context_prune: { tokens: 40, costUsd: 0, count: 1 },
+				model_routing: { tokens: 0, costUsd: 0.75, count: 2 },
 			},
 			tokens: 195,
+			costUsd: 0.75,
 		});
+		expect(ledger.entries().at(-1)).toEqual({ technique: "model_routing", tokens: 0, costUsd: 0.5, at: 5 });
 		expect(ledger.entries()[0]).toEqual({
 			technique: "read_cache",
 			tokens: 120,

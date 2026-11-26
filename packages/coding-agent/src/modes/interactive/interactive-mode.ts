@@ -70,6 +70,14 @@ import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../
 import type { AgentSessionRuntimeDiagnostic } from "../../core/agent-session-services.ts";
 import { formatNoModelsAvailableMessage } from "../../core/auth-guidance.ts";
 import {
+	BUDGET_USAGE,
+	budgetReachedText,
+	formatBudgetUsd,
+	parseBudgetCommand,
+	SessionBudgetGuard,
+	TaskBudget,
+} from "../../core/budget.ts";
+import {
 	CACHE_TTL_MS,
 	type CacheMiss,
 	collectCacheMisses,
@@ -559,6 +567,11 @@ export class InteractiveMode {
 	private veyraAuthError: string | undefined;
 	/** Who is signed in to Veyra, for the status line; read from the keychain at startup. */
 	private veyraAccount: VeyraAccount | undefined;
+	/** The task budget (/budget): a hard stop at the cap for the current session's model calls (F16). */
+	private readonly budgetGuard = new SessionBudgetGuard(new TaskBudget(), {
+		onReached: (text) => this.showWarning(text),
+		onUnpriced: (text) => this.showWarning(text),
+	});
 	private veyraSignInRunning = false;
 	/** The ee gate (open core): which ee features are on for the signed-in organization. Created on first use. */
 	private editionGate: EditionGate | undefined;
@@ -760,6 +773,7 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider, {
 			getAccount: () => this.getVeyraAccountStatus(),
+			getBudget: () => this.budgetGuard.state(),
 		});
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
@@ -2274,6 +2288,8 @@ export class InteractiveMode {
 			this.renderer.setWheelScrollLines(this.settingsManager.getFullscreenWheelScrollLines());
 		}
 		this.footer.setSession(this.session);
+		// A replaced session has a new agent: the budget's stop has to sit on that one.
+		this.budgetGuard.attach(this.session);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -3542,6 +3558,11 @@ export class InteractiveMode {
 				await this.handleOrgCommand(argument);
 				return;
 			}
+			if (text === "/budget" || text.startsWith("/budget ")) {
+				this.editor.setText("");
+				this.handleBudgetCommand(text.slice("/budget".length));
+				return;
+			}
 			if (text === "/new") {
 				this.editor.setText("");
 				await this.handleClearCommand();
@@ -3591,6 +3612,9 @@ export class InteractiveMode {
 					return;
 				}
 			}
+
+			// The task budget is used up: no model call until it is raised (extension commands still run).
+			if (this.refuseAtBudget(text)) return;
 
 			// Queue input during compaction (extension commands execute immediately)
 			if (this.session.isCompacting) {
@@ -4757,6 +4781,7 @@ export class InteractiveMode {
 	private async handleFollowUp(): Promise<void> {
 		const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
 		if (!text) return;
+		if (this.refuseAtBudget(text)) return;
 
 		// Queue input during compaction (extension commands execute immediately)
 		if (this.session.isCompacting) {
@@ -6612,6 +6637,64 @@ export class InteractiveMode {
 		} else {
 			this.showStatus("Signed out of Veyra. Provider keys stay; /logout <provider> removes one.");
 		}
+	}
+
+	/**
+	 * Refuse a prompt while the task budget is used up. The text stays in the editor; extension commands still run
+	 * (they decide themselves whether to call a model). True when refused.
+	 */
+	private refuseAtBudget(text: string): boolean {
+		if (this.isExtensionCommand(text)) return false;
+		const refusal = this.budgetGuard.refusal();
+		if (!refusal) return false;
+		this.showWarning(refusal);
+		return true;
+	}
+
+	/** `/budget`: show, set (`/budget 5`, `/budget $2.50`) or remove (`/budget off`) the task budget. */
+	private handleBudgetCommand(argument: string): void {
+		const command = parseBudgetCommand(argument);
+		const budget = this.budgetGuard.budget;
+		const spent = this.budgetGuard.spentUsd();
+		switch (command.kind) {
+			case "invalid":
+				this.showWarning(command.message);
+				return;
+			case "off":
+				if (budget.capUsd === undefined) {
+					this.showStatus("No budget is set.");
+					return;
+				}
+				budget.clear();
+				this.showStatus(`Budget removed. This task has spent ${formatBudgetUsd(spent)}.`);
+				break;
+			case "set": {
+				budget.set(command.capUsd);
+				const cap = formatBudgetUsd(command.capUsd);
+				if (budget.reached(spent)) {
+					this.showWarning(`Budget set to ${cap}. ${budgetReachedText(spent, command.capUsd)}`);
+				} else {
+					const left = formatBudgetUsd(command.capUsd - spent);
+					this.showStatus(
+						`Budget set: ${cap} for this task (${formatBudgetUsd(spent)} spent, ${left} left). Fingers stops after the model call that reaches it.`,
+					);
+				}
+				break;
+			}
+			case "show": {
+				const cap = budget.capUsd;
+				if (cap === undefined) {
+					this.showStatus(`No budget is set. This task has spent ${formatBudgetUsd(spent)}. ${BUDGET_USAGE}`);
+					return;
+				}
+				const left = formatBudgetUsd(Math.max(0, cap - spent));
+				this.showStatus(
+					`Budget: ${formatBudgetUsd(spent)} of ${formatBudgetUsd(cap)} spent on this task, ${left} left.`,
+				);
+				return;
+			}
+		}
+		this.ui.requestRender();
 	}
 
 	/** `/org`: the organization, tier and group; `/org switch` signs in again to pick another one on Connect's page. */

@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
  * Token saving: no duplicate reads, trimmed tool outputs, diff edits (F14); old tool results pruned in stages before
- * compaction, and a saving estimate for each compaction (F15). Each technique writes what it saved to the core's
- * savings ledger (EeHost.recordSaving), which the end-of-task report adds up.
+ * compaction, and a saving estimate for each compaction (F15); sub-tasks such as compaction summaries on a cheaper
+ * model of the same provider (F16). Each technique writes what it saved to the core's savings ledger
+ * (EeHost.recordSaving), which the end-of-task report adds up.
  */
 import type {
 	EeCompactionOutcome,
@@ -10,6 +11,7 @@ import type {
 	EeContextEdit,
 	EeContextView,
 	EeHost,
+	EeRouteOutcome,
 	EeToolHooks,
 	EeToolResult,
 	EeToolResultChange,
@@ -17,6 +19,7 @@ import type {
 import { compactionEstimateLine, compactionOutcomeLine, estimateCompactionSaving, planPrune } from "./context.ts";
 import { DIFF_EDIT_GUIDELINES, diffEditSaving } from "./diff-edit.ts";
 import { ReadCache } from "./read-cache.ts";
+import { routeModel, routingLine, routingSaving } from "./routing.ts";
 import { type TrimOptions, trimToolOutput } from "./trim.ts";
 
 export const READ_CACHE_GUIDELINES: Readonly<Record<string, readonly string[]>> = {
@@ -47,6 +50,8 @@ export class TokenSaving {
 			contextEdits: (view) => this.onTurnEnd(view),
 			beforeCompact: (preview) => this.onBeforeCompact(preview),
 			afterCompact: (outcome) => this.onAfterCompact(outcome),
+			routeModel: (request) => routeModel(request),
+			afterRoute: (outcome) => this.onAfterRoute(outcome),
 		};
 	}
 
@@ -75,6 +80,13 @@ export class TokenSaving {
 			});
 		}
 		return pruned.map(({ edit }) => edit);
+	}
+
+	/** A routed sub-task finished: what it saved goes to the ledger (in dollars), and a line says where it ran. */
+	private onAfterRoute(outcome: EeRouteOutcome): string {
+		const saved = routingSaving(outcome);
+		if (saved > 0) this.host?.recordSaving({ technique: "model_routing", tokens: 0, costUsd: saved });
+		return routingLine(outcome);
 	}
 
 	private onBeforeCompact(preview: EeCompactionPreview): string {

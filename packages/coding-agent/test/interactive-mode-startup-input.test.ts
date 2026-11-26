@@ -14,6 +14,7 @@ type SubmitContext = {
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
 	flushPendingBashComponents: () => void;
+	refuseAtBudget: (text: string) => boolean;
 	onInputCallback?: (text: string) => void;
 	pendingUserInputs: string[];
 };
@@ -50,6 +51,7 @@ function createSubmitContext(): SubmitContext {
 			prompt: vi.fn(async () => {}),
 		},
 		flushPendingBashComponents: vi.fn(),
+		refuseAtBudget: vi.fn(() => false),
 		pendingUserInputs: [],
 	};
 }
@@ -76,6 +78,20 @@ describe("InteractiveMode startup input", () => {
 		expect(context.pendingUserInputs).toEqual(["early prompt"]);
 		expect(context.flushPendingBashComponents).toHaveBeenCalledTimes(1);
 		expect(context.editor.addToHistory).toHaveBeenCalledWith("early prompt");
+	});
+
+	it("does not queue a prompt the task budget refuses", async () => {
+		const context = createSubmitContext();
+		context.refuseAtBudget = vi.fn(() => true);
+		interactiveModePrototype.setupEditorSubmitHandler.call(context);
+
+		await context.defaultEditor.onSubmit?.(" early prompt ");
+
+		expect(context.refuseAtBudget).toHaveBeenCalledWith("early prompt");
+		expect(context.pendingUserInputs).toEqual([]);
+		expect(context.flushPendingBashComponents).not.toHaveBeenCalled();
+		expect(context.editor.addToHistory).not.toHaveBeenCalled();
+		expect(context.session.prompt).not.toHaveBeenCalled();
 	});
 
 	it("returns queued startup input before installing a new input callback", async () => {

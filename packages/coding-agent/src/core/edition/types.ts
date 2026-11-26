@@ -16,8 +16,10 @@ import type { SavingsEntry } from "../savings-ledger.ts";
  * Bumped when this contract changes; an ee module built for another version is not loaded.
  * 2: tool hooks (`EeHost.registerToolHooks`) and the savings ledger (`EeHost.recordSaving`), for token saving (F14).
  * 3: context hooks (`EeToolHooks.contextEdits`, `beforeCompact`, `afterCompact`), for saving context (F15).
+ * 4: model routing (`EeToolHooks.routeModel`, `afterRoute`) and a cost in savings entries, for cheaper-model routing
+ *    of sub-tasks (F16).
  */
-export const EE_API_VERSION = 3;
+export const EE_API_VERSION = 4;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -184,6 +186,61 @@ export interface EeCompactionOutcome {
 	summaryTokens: number;
 }
 
+/**
+ * The kinds of sub-task the core may hand to a cheaper model (F16). `summarise`: compaction summaries (the core routes
+ * these today); `search` and `review`: sub-agents that look things up or check work (F18 routes those).
+ */
+export const EE_SUBTASK_CLASSES = ["search", "summarise", "review"] as const;
+export type EeSubTaskClass = (typeof EE_SUBTASK_CLASSES)[number];
+
+/** A model as a routing hook sees it: no credentials, no URLs, only what a routing rule needs. */
+export interface EeModelFacts {
+	provider: string;
+	id: string;
+	name: string;
+	contextWindow: number;
+	maxTokens: number;
+	reasoning: boolean;
+	input: readonly ("text" | "image")[];
+	/** List prices in dollars per million tokens. */
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+}
+
+/** A sub-task about to run on `current`, for `EeToolHooks.routeModel`. */
+export interface EeRouteRequest {
+	taskClass: EeSubTaskClass;
+	/** The model the sub-task runs on unless a hook picks another. */
+	current: EeModelFacts;
+	/**
+	 * The models the hook may pick: the current provider's other chat models with a list price (the same credentials,
+	 * so routing never needs another key), each with room for `minContextTokens` and `minOutputTokens`.
+	 */
+	candidates: readonly EeModelFacts[];
+	/** Estimated tokens the sub-task's request needs in the context window (input plus output). */
+	minContextTokens: number;
+	/** Tokens the sub-task may write. */
+	minOutputTokens: number;
+}
+
+/** A hook's pick: one of the request's candidates. */
+export interface EeRouteChoice {
+	provider: string;
+	id: string;
+}
+
+/** A routed sub-task finished, for `EeToolHooks.afterRoute`. Costs are at list price, in dollars. */
+export interface EeRouteOutcome {
+	taskClass: EeSubTaskClass;
+	from: { provider: string; id: string };
+	to: { provider: string; id: string };
+	/** What the sub-task cost on the model it ran on. */
+	costUsd: number;
+	/** What the same tokens would have cost on `from`. */
+	wouldHaveCostUsd: number;
+	/** Tokens the sub-task's call read and wrote (input, cache reads and writes, output). */
+	tokens: number;
+}
+
 /** What an ee feature adds to the session while it is on. */
 export interface EeToolHooks {
 	/** Change a tool result before the model sees it; undefined leaves it as it is. Hooks run in registration order. */
@@ -206,6 +263,13 @@ export interface EeToolHooks {
 	beforeCompact?(preview: EeCompactionPreview): string | undefined;
 	/** A compaction finished: a line to show under its summary, or undefined. */
 	afterCompact?(outcome: EeCompactionOutcome): string | undefined;
+	/**
+	 * A sub-task is about to run: a cheaper candidate to run it on, or undefined to keep the current model. The first
+	 * hook that names a candidate decides.
+	 */
+	routeModel?(request: EeRouteRequest): EeRouteChoice | undefined;
+	/** A routed sub-task finished: a line to show (e.g. what routing saved), or undefined. */
+	afterRoute?(outcome: EeRouteOutcome): string | undefined;
 }
 
 /** What the core hands the ee module when it activates it. */

@@ -24,6 +24,7 @@ export const SETTINGS_DEFAULTS = {
 		},
 	},
 	hideThinkingBlock: false,
+	modelRouting: true,
 	showCacheMissNotices: false,
 	quietStartup: false,
 	approvals: {
