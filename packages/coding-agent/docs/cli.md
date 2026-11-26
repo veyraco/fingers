@@ -245,6 +245,8 @@ See [Configuration](configuration.md) for saved configuration, [Security](securi
   Ignores trust-gated project-local configuration and resources for this process.
 - `--offline`<br>
   Disables automatic network activity, including model catalog refreshes. Equivalent to `FINGERS_OFFLINE=1`.
+- `--hands`, `--hands-size <size>`, `--local`<br>
+  Runs the session in a Veyra Hands Sandbox (with that size), or here despite the `hands.default` setting. See [Run a session in Hands](hands.md).
 - `-h`, `--help`<br>
   Shows help, including flags registered by loaded extensions, then exits.
 - `-v`, `--version`<br>

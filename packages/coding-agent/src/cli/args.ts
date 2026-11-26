@@ -24,6 +24,12 @@ export interface Args {
 	mode?: Mode;
 	/** `--managed`: Hands mode for `--mode rpc` (Fingers RPC v1 managed policy). */
 	managed?: boolean;
+	/** `--hands`: run the session in a Hands Sandbox (F13b). */
+	hands?: boolean;
+	/** `--local`: run here even when the `hands.default` setting says Hands. */
+	local?: boolean;
+	/** `--hands-size <size>`: the sandbox size (a size from Hands' settings). */
+	handsSize?: string;
 	name?: string;
 	noSession?: boolean;
 	session?: string;
@@ -192,6 +198,18 @@ export function parseArgs(args: string[]): Args {
 			result.noExtensions = true;
 		} else if (arg === "--managed") {
 			result.managed = true;
+		} else if (arg === "--hands") {
+			result.hands = true;
+		} else if (arg === "--local") {
+			result.local = true;
+		} else if (arg === "--hands-size") {
+			const size = args[i + 1];
+			if (size === undefined || size.startsWith("-")) {
+				result.diagnostics.push({ type: "error", message: "--hands-size requires a size such as standard-4" });
+			} else {
+				result.handsSize = size;
+				i++;
+			}
 		} else if (arg === "--no-mcp") {
 			result.noMcp = true;
 		} else if (arg === "--skill" && i + 1 < args.length) {
@@ -312,6 +330,9 @@ ${chalk.bold("Options:")}
   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
   --mode <mode>                  Output mode: text (default), json, or rpc
   --managed                      With --mode rpc: managed mode for hosts such as Veyra Hands (Fingers RPC v1)
+  --hands                        Run in a Hands Sandbox: files go up, changes come back (needs fingers login)
+  --hands-size <size>            Sandbox size for --hands, such as standard-4 (default: the organization's)
+  --local                        Run here even when the hands.default setting is on
   --print, -p                    Non-interactive mode: process prompt and exit
   --continue, -c                 Continue the most recent session for the current directory
   --resume, -r                   Pick a session to resume
