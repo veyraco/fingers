@@ -86,17 +86,30 @@ export class EyesTelemetry {
 		this.exporters.clear();
 	}
 
+	/**
+	 * The current sign-in's API while it is still the one an exporter was made for (same API base, same
+	 * organization). Compared by value: every activation hands over a new API object for the same sign-in.
+	 */
+	private currentApiFor(baseUrl: string, org: string): EeVeyraApi | undefined {
+		const api = this.api;
+		return api && api.baseUrl === baseUrl && api.org === org ? api : undefined;
+	}
+
 	private exporterFor(api: EeVeyraApi, org: string): QueueingExporter | undefined {
 		let exporter = this.exporters.get(org);
 		if (exporter || !this.createExporter) return exporter;
+		const baseUrl = api.baseUrl;
 		exporter = this.createExporter({
-			url: eyesTracesUrl(api.baseUrl),
+			url: eyesTracesUrl(baseUrl),
 			headers: async () => {
-				const token = await api.accessToken({ signal: AbortSignal.timeout(10_000) });
+				// The token comes from the current sign-in, and only while it is still this organization's.
+				const current = this.currentApiFor(baseUrl, org);
+				if (!current) throw new Error(`Eyes: the sign-in moved away from ${org}; its spans are not sent`);
+				const token = await current.accessToken({ signal: AbortSignal.timeout(10_000) });
 				return { authorization: `Bearer ${token}` };
 			},
 			// The sign-in moved to another organization: this organization's spans are not sent with its token.
-			allowSend: () => this.api === api && api.org === org,
+			allowSend: () => this.currentApiFor(baseUrl, org) !== undefined,
 			onError: (error) => {
 				this.lastError = oneLine(error instanceof Error ? error.message : String(error));
 			},

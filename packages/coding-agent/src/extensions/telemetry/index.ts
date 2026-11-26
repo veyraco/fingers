@@ -23,6 +23,20 @@ export function createBuiltinTelemetryExtension(
 	let configured = false;
 	let configError: string | undefined;
 	let headerSecrets: string[] = [];
+	const redactSecrets = (text: string) =>
+		headerSecrets.reduce((result, secret) => result.split(secret).join("[redacted]"), text);
+	/** The first failed or refused send is told once per process (a wrong path, a 401 from wrong headers). */
+	let sendFailureTold = false;
+	let pendingSendFailure: string | undefined;
+	let notify: ((message: string) => void) | undefined;
+	const tellSendFailure = () => {
+		if (sendFailureTold || !pendingSendFailure || !notify) return;
+		sendFailureTold = true;
+		notify(
+			`OTLP telemetry could not be sent: ${pendingSendFailure}. Check FINGERS_OTLP_ENDPOINT and FINGERS_OTLP_HEADERS.`,
+		);
+		pendingSendFailure = undefined;
+	};
 	/** The OTLP destination from the environment, set up once per process on first use. */
 	const configure = () => {
 		if (configured) return;
@@ -38,6 +52,12 @@ export function createBuiltinTelemetryExtension(
 					headers: () => config.headers,
 					content: config.content,
 					version: VERSION,
+					onError: (error) => {
+						if (sendFailureTold || pendingSendFailure) return;
+						const message = error instanceof Error ? error.message : String(error);
+						pendingSendFailure = redactSecrets(message.replace(/\s+/g, " ").trim()).slice(0, 200);
+						tellSendFailure();
+					},
 				}),
 			);
 		} catch (error) {
@@ -47,15 +67,16 @@ export function createBuiltinTelemetryExtension(
 	const telemetry = createTelemetryExtension({
 		exporters: () => exporters.active(),
 		flush: () => exporters.flush(),
-		mask: {
-			redactSecrets: (text) =>
-				headerSecrets.reduce((result, secret) => result.split(secret).join("[redacted]"), text),
-		},
+		mask: { redactSecrets },
 	});
 	return (fingers: ExtensionAPI) => {
 		configure();
 		fingers.on("session_start", (_event, ctx) => {
 			if (configError && ctx.hasUI) ctx.ui.notify(`OTLP telemetry is off: ${configError}`, "warning");
+			if (ctx.hasUI) {
+				notify = (message) => ctx.ui.notify(message, "warning");
+				tellSendFailure();
+			}
 		});
 		return telemetry(fingers);
 	};

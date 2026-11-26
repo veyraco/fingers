@@ -79,24 +79,31 @@ export function messagesPayload(messages: readonly AgentMessage[], max = MAX_PAY
 	return undefined;
 }
 
-/** Text cut to `max` characters, with a marker saying so. */
-export function boundedText(text: string, max = MAX_PAYLOAD_CHARS): string {
-	return text.length <= max ? text : `${text.slice(0, max - 20)}… [truncated]`;
+/** Masks a payload's whole text (the tracer's credential and secret masking). */
+export type PayloadMask = (text: string) => string;
+
+/**
+ * Text cut to `max` characters, with a marker saying so. `mask` runs on the whole text before the cut: a credential
+ * that straddles the cut would otherwise lose the tail its pattern needs and leave as a partial key.
+ */
+export function boundedText(text: string, max = MAX_PAYLOAD_CHARS, mask?: PayloadMask): string {
+	const masked = mask ? mask(text) : text;
+	return masked.length <= max ? masked : `${masked.slice(0, max - 20)}… [truncated]`;
 }
 
-/** A tool result's text (images left out), bounded. */
-export function toolResultText(result: unknown): string {
+/** A tool result's text (images left out), masked, then bounded. */
+export function toolResultText(result: unknown, mask?: PayloadMask): string {
 	const content = (result as { content?: unknown } | undefined)?.content;
-	return boundedText(textOf(content));
+	return boundedText(textOf(content), MAX_PAYLOAD_CHARS, mask);
 }
 
-/** A value as bounded JSON (tool arguments). */
-export function boundedJson(value: unknown): string {
+/** A value as JSON (tool arguments), masked, then bounded. */
+export function boundedJson(value: unknown, mask?: PayloadMask): string {
 	let json: string;
 	try {
 		json = JSON.stringify(value ?? {});
 	} catch {
 		json = "{}";
 	}
-	return boundedText(json);
+	return boundedText(json, MAX_PAYLOAD_CHARS, mask);
 }

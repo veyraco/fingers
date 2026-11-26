@@ -8,6 +8,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fauxAssistantMessage, fauxToolCall } from "@veyraco/fingers-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MAX_PAYLOAD_CHARS } from "../src/core/tracing/content.ts";
 import { createTelemetryExtension } from "../src/core/tracing/extension.ts";
 import { OtlpHttpExporter, otlpConfigFromEnv, otlpTraceRequest } from "../src/core/tracing/otlp.ts";
 import { TelemetryExporters } from "../src/core/tracing/registry.ts";
@@ -24,7 +25,7 @@ import {
 import { SessionTracer } from "../src/core/tracing/tracer.ts";
 import { builtInExtensions } from "../src/extensions/index.ts";
 import { createBuiltinTelemetryExtension } from "../src/extensions/telemetry/index.ts";
-import { createHarness, type Harness } from "./suite/harness.ts";
+import { createHarness, createTestUiContext, type Harness } from "./suite/harness.ts";
 
 const harnesses: Harness[] = [];
 const servers: Server[] = [];
@@ -255,6 +256,57 @@ describe("session tracer", () => {
 			},
 			status: { code: "ok" },
 		});
+	});
+
+	it("masks a payload before cutting it to size: no credential survives the cut half-redacted", () => {
+		const out = collector(true);
+		const tracer = new SessionTracer({ exporters: () => [out], now: () => 5, systemPrompt: () => system });
+		// Each payload is cut to MAX_PAYLOAD_CHARS - 20 characters; the cut falls inside the credential.
+		const keep = MAX_PAYLOAD_CHARS - 20;
+		// Filler ending in a space (the patterns start at a word boundary).
+		const keyStart = (prefix: number, kept: number) => `${"a".repeat(keep - prefix - kept - 1)} `;
+		const system = `${keyStart(0, 16)}${API_KEY} and more`;
+		const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA7bq3secretkeybody\n-----END RSA PRIVATE KEY-----";
+		tracer.runStarted();
+		tracer.modelRequest();
+		tracer.assistantEnded({
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "m",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: 5,
+		});
+		// Tool arguments are JSON (`{"note":"` comes first); the private key's END line falls past the cut.
+		tracer.toolStarted("call_1", "bash", { note: `${keyStart('{"note":"'.length, 16)}${API_KEY}` });
+		tracer.toolEnded("call_1", "bash", { content: [{ type: "text", text: `${keyStart(0, 50)}${pem}` }] }, false);
+		tracer.runSettled(false);
+
+		const chat = out.spans.find((span) => span.name === "chat m")!;
+		const tool = out.spans.find((span) => span.name === "execute_tool bash")!;
+		expect(chat.attributes["gen_ai.system_instructions"]).toContain("[redacted]");
+		expect(tool.attributes["gen_ai.tool.call.arguments"]).toContain("[redacted]");
+		expect(tool.attributes["gen_ai.tool.call.result"]).toContain("[redacted]");
+		const everything = JSON.stringify(out.spans);
+		expect(everything).not.toContain(API_KEY.slice(0, 16));
+		expect(everything).not.toContain("BEGIN RSA PRIVATE KEY");
+		expect(everything).not.toContain("MIIEowIBAAKCAQEA");
+		for (const value of [
+			chat.attributes["gen_ai.system_instructions"],
+			tool.attributes["gen_ai.tool.call.arguments"],
+			tool.attributes["gen_ai.tool.call.result"],
+		]) {
+			expect((value as string).length).toBeLessThanOrEqual(MAX_PAYLOAD_CHARS);
+		}
 	});
 
 	it("records a compaction with the context size before and after", () => {
@@ -493,5 +545,39 @@ describe("OTLP exporter", () => {
 		expect(names).toEqual(["chat faux-1", "invoke_agent fingers"]);
 		expect(JSON.stringify(sent.body)).not.toContain("Answer that quotes");
 		expect(fetched.every((url) => url.startsWith(server.url))).toBe(true);
+	});
+
+	it("the built-in extension tells the person once when their OTLP destination refuses the spans", async () => {
+		const server = await listen(() => 401);
+		const exporters = new TelemetryExporters();
+		const harness = await createHarness({
+			extensionFactories: [
+				{
+					name: "telemetry",
+					factory: createBuiltinTelemetryExtension(exporters, {
+						FINGERS_OTLP_ENDPOINT: server.url,
+						FINGERS_OTLP_HEADERS: "authorization=Bearer otlp_wrong_header_456",
+					}),
+				},
+			],
+		});
+		harnesses.push(harness);
+		const notices: Array<{ message: string; type: string | undefined }> = [];
+		await harness.session.bindExtensions({
+			uiContext: createTestUiContext({ notify: (message, type) => notices.push({ message, type }) }),
+		});
+		for (const prompt of ["one", "two"]) {
+			harness.setResponses([fauxAssistantMessage("ok")]);
+			await harness.session.prompt(prompt);
+			await exporters.flush();
+		}
+		expect(server.received).toHaveLength(2);
+		expect(notices).toEqual([
+			{
+				message:
+					"OTLP telemetry could not be sent: OTLP export refused: HTTP 401. Check FINGERS_OTLP_ENDPOINT and FINGERS_OTLP_HEADERS.",
+				type: "warning",
+			},
+		]);
 	});
 });

@@ -19,13 +19,21 @@
 import type { AgentMessage } from "@veyraco/fingers-agent";
 import type { AssistantMessage } from "@veyraco/fingers-ai";
 import { childSpan, newSpanId, type TraceContext } from "../trace-context.ts";
-import { boundedJson, boundedText, messagesPayload, toGenAiMessage, toolResultText } from "./content.ts";
+import {
+	boundedJson,
+	boundedText,
+	MAX_PAYLOAD_CHARS,
+	messagesPayload,
+	toGenAiMessage,
+	toolResultText,
+} from "./content.ts";
 import {
 	type FingersSpan,
 	finishReason,
 	genAiProviderName,
 	type MaskOptions,
 	maskSpan,
+	maskText,
 	modelErrorType,
 	type SpanAttributes,
 	type SpanExporter,
@@ -84,6 +92,9 @@ export class SessionTracer {
 	constructor(options: SessionTracerOptions) {
 		this.options = options;
 	}
+
+	/** Payloads are masked whole before they are cut to size (maskSpan then masks the span as a whole). */
+	private readonly mask = (text: string): string => maskText(text, this.options.mask);
 
 	private now(): number {
 		return this.options.now?.() ?? Date.now();
@@ -191,14 +202,15 @@ export class SessionTracer {
 		const capture = this.capture();
 		if (capture) {
 			const system = this.options.systemPrompt?.();
-			if (system) attributes["gen_ai.system_instructions"] = boundedText(system);
+			if (system) attributes["gen_ai.system_instructions"] = boundedText(system, MAX_PAYLOAD_CHARS, this.mask);
 			const transcript = this.options.messages?.() ?? [];
 			// The call's input: the transcript before this answer.
 			const end = transcript.lastIndexOf(message as unknown as AgentMessage);
 			const input = messagesPayload(end >= 0 ? transcript.slice(0, end) : transcript);
 			if (input) attributes["gen_ai.input.messages"] = input;
 			const output = toGenAiMessage(message as unknown as AgentMessage);
-			if (output) attributes["gen_ai.output.messages"] = boundedText(JSON.stringify([output]));
+			if (output)
+				attributes["gen_ai.output.messages"] = boundedText(JSON.stringify([output]), MAX_PAYLOAD_CHARS, this.mask);
 		}
 		this.finish({
 			context,
@@ -209,7 +221,7 @@ export class SessionTracer {
 			// The provider's error text may quote the request: only with content capture; otherwise `error.type` says why.
 			status: failed
 				? capture && message.errorMessage
-					? { code: "error", message: boundedText(message.errorMessage, 500) }
+					? { code: "error", message: boundedText(message.errorMessage, 500, this.mask) }
 					: { code: "error" }
 				: { code: message.stopReason === "aborted" ? "unset" : "ok" },
 		});
@@ -234,8 +246,8 @@ export class SessionTracer {
 		if (conversation) attributes["gen_ai.conversation.id"] = conversation;
 		if (isError) attributes["error.type"] = "tool_error";
 		if (this.capture()) {
-			attributes["gen_ai.tool.call.arguments"] = boundedJson(open.args);
-			attributes["gen_ai.tool.call.result"] = toolResultText(result);
+			attributes["gen_ai.tool.call.arguments"] = boundedJson(open.args, this.mask);
+			attributes["gen_ai.tool.call.result"] = toolResultText(result, this.mask);
 		}
 		this.finish({
 			context: open.context,
@@ -310,7 +322,8 @@ export class SessionTracer {
 			trace_id: span.context.traceId,
 			span_id: span.context.spanId,
 			...(span.context.parentSpanId ? { parent_span_id: span.context.parentSpanId } : {}),
-			name: span.name.slice(0, 200),
+			// Masked before the cut, like payloads (maskSpan masks it again, which changes nothing).
+			name: this.mask(span.name).slice(0, 200),
 			kind: span.kind,
 			start_time_unix_nano: unixNano(span.startedAt),
 			end_time_unix_nano: unixNano(endedAt),

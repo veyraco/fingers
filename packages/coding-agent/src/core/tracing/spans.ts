@@ -161,7 +161,8 @@ export interface MaskOptions {
 	redactSecrets?: (text: string) => string;
 }
 
-function maskText(text: string, options: MaskOptions): string {
+/** `text` without the caller's known secrets and credential-shaped substrings. */
+export function maskText(text: string, options: MaskOptions = {}): string {
 	const known = options.redactSecrets ? options.redactSecrets(text) : text;
 	return redactCredentials(known);
 }

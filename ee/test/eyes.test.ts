@@ -125,9 +125,11 @@ function signedInApi(url: string, signedIn: { org: string | undefined; code?: st
 	};
 }
 
-async function setup(entitlement: EeEntitlement, api: EeVeyraApi | undefined) {
+/** `api` is one shared object, or a factory that, like interactive mode's `veyraApi`, builds a new one per call. */
+async function setup(entitlement: EeEntitlement, api: EeVeyraApi | undefined | (() => EeVeyraApi | undefined)) {
 	const exporters = new TelemetryExporters();
-	const gate = new EditionGate({ loadModule: async () => ee, telemetry: exporters, veyraApi: () => api });
+	const veyraApi = typeof api === "function" ? api : () => api;
+	const gate = new EditionGate({ loadModule: async () => ee, telemetry: exporters, veyraApi });
 	await gate.setEntitlement(entitlement);
 	const harness = await createHarness({
 		extensionFactories: [
@@ -279,6 +281,69 @@ describe("Eyes telemetry through the gate", () => {
 		await exporters.flush();
 		expect(mock.received.map((request) => request.authorization)).toEqual(["Bearer token-for-org_beta"]);
 		expect(spansOf(mock.received).map((sent) => sent.name)).toEqual(["chat faux-1", "invoke_agent fingers"]);
+	});
+
+	it("keeps sending after a re-activation that hands it a new API object (hourly re-check)", async () => {
+		const mock = await eyes();
+		const signedIn = { org: "org_acme" as string | undefined, code: "acme" };
+		// Interactive mode builds a new EeVeyraApi on every call, and every activation calls it.
+		const { gate, exporters, harness } = await setup(MEDIUM, () => signedInApi(mock.url, signedIn));
+		harness.setResponses([fauxAssistantMessage("first")]);
+		await harness.session.prompt("one");
+		await exporters.flush();
+		// The hourly entitlement re-check activates the ee module again.
+		await gate.setEntitlement(MEDIUM);
+		harness.setResponses([fauxAssistantMessage("second")]);
+		await harness.session.prompt("two");
+		await exporters.flush();
+		expect(mock.received).toHaveLength(2);
+		expect(mock.received.map((request) => request.authorization)).toEqual([
+			"Bearer token-for-org_acme",
+			"Bearer token-for-org_acme",
+		]);
+		expect(spansOf(mock.received).filter((span) => span.name === "invoke_agent fingers")).toHaveLength(2);
+	});
+
+	it("sends each organization's runs with its own token across A, B and back to A", async () => {
+		const mock = await eyes();
+		const signedIn = { org: "org_acme" as string | undefined };
+		const { gate, exporters, harness } = await setup(MEDIUM, () => signedInApi(mock.url, signedIn));
+		const switchTo = async (org: string) => {
+			signedIn.org = org;
+			// `/org switch` signs in again: the gate activates the ee module with the new organization.
+			await gate.setEntitlement({ ...MEDIUM, org });
+		};
+		harness.setResponses([fauxAssistantMessage("acme 1")]);
+		await harness.session.prompt("acme 1");
+		await exporters.flush();
+
+		// An org_acme span still queued when the sign-in moves to org_beta is dropped, never sent with beta's token.
+		ee.eyesTelemetry.exporter.export({
+			trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+			span_id: "a1b2c3d4e5f60718",
+			name: "chat queued",
+			kind: "client",
+			start_time_unix_nano: "1",
+			end_time_unix_nano: "2",
+			attributes: {},
+			status: { code: "ok" },
+		});
+		await switchTo("org_beta");
+		harness.setResponses([fauxAssistantMessage("beta")]);
+		await harness.session.prompt("beta");
+		await exporters.flush();
+
+		await switchTo("org_acme");
+		harness.setResponses([fauxAssistantMessage("acme 2")]);
+		await harness.session.prompt("acme 2");
+		await exporters.flush();
+
+		expect(mock.received.map((request) => request.authorization)).toEqual([
+			"Bearer token-for-org_acme",
+			"Bearer token-for-org_beta",
+			"Bearer token-for-org_acme",
+		]);
+		expect(spansOf(mock.received).map((span) => span.name)).not.toContain("chat queued");
 	});
 
 	it("stops and resumes with /eyes off and /eyes on", async () => {

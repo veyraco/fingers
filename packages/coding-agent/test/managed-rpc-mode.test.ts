@@ -775,7 +775,9 @@ describe("managed RPC telemetry relay (F21)", () => {
 			fetched.push(String(input instanceof Request ? input.url : input));
 			return realFetch(input, init);
 		});
-		cleanups.push(() => vi.unstubAllGlobals());
+		cleanups.push(() => {
+			vi.unstubAllGlobals();
+		});
 		const m = await startManaged([
 			{
 				content: [{ type: "toolCall", id: "toolu_ls", name: "ls", arguments: {} }],
