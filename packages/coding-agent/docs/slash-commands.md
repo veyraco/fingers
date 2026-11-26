@@ -32,6 +32,7 @@ Commands tagged `ee` in the command menu are part of Fingers ee, under the Veyra
 |---|---|
 | `/agents` | Sub-agents: start, watch, steer and stop them (Medium tier or higher) |
 | `/memory [recall <query> \| remember <text> \| off \| on]` | Brain memory for this repository: status, search, save, off and on for the session (Medium tier or higher; see [Brain memory](#brain-memory)) |
+| `/eyes [open \| off \| on]` | Eyes telemetry: status, the link to the last run's trace, off and on for the session (Medium tier or higher; see [Eyes telemetry](#eyes-telemetry)) |
 
 ### Open core
 
@@ -69,6 +70,12 @@ With Brain on (Medium tier or higher), Fingers keeps one memory per repository i
 - **One organization's memory stays in it.** The memory is the signed-in organization's (`<org_id>:<repository>`). After `/org switch`, or when you resume a session made while signed in to another organization, the kept `<memory>` section is not used: Fingers asks the new organization's Brain for the next prompt, and the earlier organization's memory section and recall results are taken out of every request to the model. The conversation itself (your prompts and the model's answers) stays as it is, so start a new session (`/new`) when you change organizations. A run belongs to the organization it started in: `/login`, `/logout` (Veyra) and `/org switch` wait until the run is over (the command stays in the editor), and if the sign-in still changes during a run, memory is off for the rest of that run (no recall, no save, no learning event to either organization).
 
 Memory is best effort: when Brain does not answer in time (3 seconds at task start) or refuses, the session goes on without it and says so once. The status line shows `memory: Brain “web”` while it is on. `/memory off` turns it off for the repository until `/memory on` or a restart. Managed RPC mode never calls Brain itself: with `memory.mode: relay` it asks the host (see [Managed RPC](rpc-managed.md)); print and JSON modes have no memory.
+
+### Eyes telemetry
+
+With Eyes on (Medium tier or higher), each run in the terminal app is a trace in Veyra Eyes: an `invoke_agent` span for the run, a `chat` span per model call (provider, model, tokens with cache reads and writes, finish reason, retries with their reason, errors by type) and an `execute_tool` span per tool call, in the OpenTelemetry GenAI conventions. They go to Eyes' OTLP door (`api.veyra.so/eyes/otlp/v1/traces`) with your token for Eyes, as an ordinary source named `fingers` of the signed-in organization. Only metadata: no prompts, answers, code, tool arguments or results, and credentials never. Spans belong to the organization they were made in; spans still queued when you `/org switch` are dropped, not sent to the new organization.
+
+`/eyes` shows the status and the link to the last run's trace (`eyes.veyra.so/<org>/traces/<trace id>`), `/eyes open` prints that link, and `/eyes off` stops sending until `/eyes on` or a restart. Managed RPC mode never sends to Eyes itself: with `telemetry.mode: relay` the host gets the spans (see [Managed RPC](rpc-managed.md)). To send traces to your own collector instead, or as well, see [Telemetry](telemetry.md).
 
 ## Sessions and context
 

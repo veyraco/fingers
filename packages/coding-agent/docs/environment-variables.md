@@ -88,6 +88,10 @@ These variables are read by Fingers itself:
 | `FINGERS_SKIP_VERSION_CHECK` | Disable the latest-version request to the npm registry |
 | `FINGERS_SELF_UPDATE_COMMAND` | Command `fingers update` runs to update Fingers itself, split on whitespace, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. Takes precedence over the `selfUpdateCommand` setting. See [Custom update command](cli.md#custom-update-command) |
 | `FINGERS_TELEMETRY` | Override provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
+| `FINGERS_OTLP_ENDPOINT` | Send each run's trace (OpenTelemetry GenAI spans: model calls, tool calls, compactions) to your own OTLP/HTTP collector at `<endpoint>/v1/traces`, as JSON. Off when unset; Fingers sends no telemetry on its own. Not used in managed RPC mode. See [Telemetry](telemetry.md) |
+| `FINGERS_OTLP_TRACES_ENDPOINT` | The full traces URL instead of `FINGERS_OTLP_ENDPOINT` |
+| `FINGERS_OTLP_HEADERS` | Headers for the OTLP requests, `name=value,name=value` with URL-encoded values (like `OTEL_EXPORTER_OTLP_HEADERS`) |
+| `FINGERS_OTLP_CAPTURE_CONTENT` | `1` adds prompts, answers, system instructions and tool arguments and results to the spans sent to your collector (credentials are still masked); default metadata only |
 | `FINGERS_CODEMODE_MAX_WORKERS` | Maximum codemode workers alive at once across all sessions in the process; default `2`. Each worker's script may use up to 256 MB. Raise it when one process runs several sessions, such as in-process subagents. Further scripts wait for a free worker. See [Codemode](codemode.md) |
 | `FINGERS_CACHE_RETENTION` | Set to `long` for extended provider prompt caching where supported (Anthropic and Bedrock 1 h TTL, OpenAI 24 h retention, an explicit Gemini context cache for the system prompt and tools). The status line shows the session's share of prompt tokens read from the cache as `cache NN%` |
 | `FINGERS_SHARE_VIEWER_URL` | Base URL of a viewer that `/share` links a gist to; without it `/share` prints only the gist URL |

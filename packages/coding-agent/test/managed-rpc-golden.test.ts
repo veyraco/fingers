@@ -409,8 +409,7 @@ describe("managed RPC golden transcripts", () => {
 			vi.unstubAllGlobals();
 		});
 		const { golden, run } = await replay("memory-telemetry-relay", () => {});
-		// telemetry_span comes with the telemetry relay (Fingers F21).
-		checkCommon(golden, run, ["telemetry_span"]);
+		checkCommon(golden, run);
 		const requests = run.outs.filter((record) => record.type === "memory_request");
 		const goldenRequests = golden
 			.filter((line) => line.dir === "out" && line.record.type === "memory_request")
@@ -441,8 +440,27 @@ describe("managed RPC golden transcripts", () => {
 		const anthropicUrl = `http://127.0.0.1:${(run.anthropic.server.address() as AddressInfo).port}`;
 		expect(fetched.length).toBeGreaterThan(0);
 		for (const url of fetched) expect(url.startsWith(anthropicUrl)).toBe(true);
+		// Telemetry relay: the model call's span on the run's trace, child of the host's span named by the prompt's
+		// traceparent, with the run's ids and no payload (capture_content false); its id is the model request's.
+		const spans = run.outs.filter((record) => record.type === "telemetry_span").map((record) => record.span);
+		const goldenSpan = golden.find((line) => line.dir === "out" && line.record.type === "telemetry_span")!.record
+			.span;
+		expect(spans).toHaveLength(1);
+		expect(spans[0]).toMatchObject({
+			trace_id: goldenSpan.trace_id,
+			parent_span_id: "00f067aa0ba90213",
+			name: goldenSpan.name,
+			kind: goldenSpan.kind,
+			status: goldenSpan.status,
+			attributes: { ...goldenSpan.attributes, "veyra.correlation_id": "req_01JDK2M8Q" },
+		});
+		expect(spans[0].attributes).not.toHaveProperty("gen_ai.input.messages");
+		expect(run.anthropic.requests[0]!.headers.traceparent).toBe(`00-${goldenSpan.trace_id}-${spans[0].span_id}-01`);
 		const logs = run.stderr.map((line) => JSON.parse(line) as Rec);
-		expect(logs.find((log) => log.msg === "configured")).toMatchObject({ memory_mode: "relay" });
+		expect(logs.find((log) => log.msg === "configured")).toMatchObject({
+			memory_mode: "relay",
+			telemetry_mode: "relay",
+		});
 		expect(logs.filter((log) => log.msg === "memory request").map((log) => log.op)).toEqual(["context", "events"]);
 	});
 

@@ -9,6 +9,9 @@
  */
 import type { MemoryProviders } from "../memory/registry.ts";
 import type { SavingsLedger } from "../savings-ledger.ts";
+import { OtlpHttpExporter } from "../tracing/otlp.ts";
+import type { TelemetryExporters } from "../tracing/registry.ts";
+import type { SpanExporter } from "../tracing/spans.ts";
 import { type EntitlementSource, resolveEntitlement } from "./entitlement.ts";
 import { EE_COMMANDS } from "./features.ts";
 import type { EditionToolHooks } from "./tool-hooks.ts";
@@ -29,6 +32,9 @@ import {
 	SIGNED_OUT,
 	tierIncludes,
 } from "./types.ts";
+
+/** The slot of the process' span exporters that ee's exporter (Eyes) goes into. */
+export const EE_TELEMETRY_SLOT = "ee";
 
 /** Whether `feature` is on for `entitlement`, and if not, why. */
 export function eeFeatureState(
@@ -71,6 +77,11 @@ export interface EditionGateOptions {
 	 * the built-in `memory` extension uses). Without it ee registers no memory.
 	 */
 	memory?: MemoryProviders;
+	/**
+	 * Where the span exporter of a feature that is on goes (slot `ee` of the process' exporters, which the built-in
+	 * `telemetry` extension sends to). Without it ee registers no telemetry.
+	 */
+	telemetry?: TelemetryExporters;
 	/** The signed-in person's access to a Veyra app's API (the terminal app's Veyra sign-in). */
 	veyraApi?: (app: EeVeyraApp) => EeVeyraApi | undefined;
 }
@@ -161,9 +172,12 @@ export class EditionGate {
 		toolHooks?.clear();
 		const memory = this.options.memory;
 		memory?.clear();
+		const telemetry = this.options.telemetry;
+		telemetry?.clear(EE_TELEMETRY_SLOT);
 		const module = this.module;
 		if (!module) return;
 		let memoryProvider: { feature: EeFeatureId; factory: EeMemoryProviderFactory } | undefined;
+		let telemetryExporter: { feature: EeFeatureId; exporter: SpanExporter } | undefined;
 		const commands = new Map<string, EeCommandHandler>();
 		const hooks: { feature: EeFeatureId; hooks: EeToolHooks }[] = [];
 		const savings = this.options.savings;
@@ -190,6 +204,12 @@ export class EditionGate {
 				if (typeof factory !== "function") return;
 				memoryProvider = { feature, factory };
 			},
+			registerTelemetryExporter: (feature, exporter) => {
+				if (!(EE_FEATURE_IDS as readonly string[]).includes(feature) || !this.state(feature).on) return;
+				if (!exporter || typeof exporter.export !== "function") return;
+				telemetryExporter = { feature, exporter };
+			},
+			createOtlpExporter: (options) => new OtlpHttpExporter(options),
 			veyraApi: (app) => {
 				if (app !== "brain" && app !== "eyes") return undefined;
 				if (!this.current.signedIn) return undefined;
@@ -203,6 +223,10 @@ export class EditionGate {
 			if (memoryProvider) {
 				const { feature, factory } = memoryProvider;
 				memory?.set(factory, () => this.state(feature).on);
+			}
+			if (telemetryExporter) {
+				const { feature, exporter } = telemetryExporter;
+				telemetry?.set(EE_TELEMETRY_SLOT, exporter, () => this.state(feature).on);
 			}
 		} catch (error) {
 			this.options.onActivateError?.(error);

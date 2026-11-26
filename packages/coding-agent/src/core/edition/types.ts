@@ -12,6 +12,8 @@
 import type { ImageContent, TextContent } from "@veyraco/fingers-ai";
 import type { MemoryProvider, MemoryProviderContext } from "../memory/types.ts";
 import type { SavingsEntry } from "../savings-ledger.ts";
+import type { OtlpExporterOptions } from "../tracing/otlp.ts";
+import type { SpanExporter } from "../tracing/spans.ts";
 
 /**
  * Bumped when this contract changes; an ee module built for another version is not loaded.
@@ -21,8 +23,10 @@ import type { SavingsEntry } from "../savings-ledger.ts";
  *    of sub-tasks (F16).
  * 5: memory providers (`EeHost.registerMemoryProvider`), the signed-in person's access to a Veyra app's API
  *    (`EeHost.veyraApi`) and the session's directory in `EeCommandContext.cwd`, for Brain memory (F20).
+ * 6: span exporters (`EeHost.registerTelemetryExporter`, `EeHost.createOtlpExporter`) and the organization's code
+ *    (`EeVeyraApi.orgCode`), for the Eyes feed (F21).
  */
-export const EE_API_VERSION = 5;
+export const EE_API_VERSION = 6;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -297,6 +301,8 @@ export interface EeVeyraApi {
 	 * `/org switch`. Memory and telemetry are kept per organization by it; undefined: no organization, no org data.
 	 */
 	readonly org: string | undefined;
+	/** The organization's lowercase code from Connect (console links: `eyes.veyra.so/<code>/…`), read live. */
+	readonly orgCode?: string;
 	/** A current access token; rejects when signed out or when Connect gives Fingers no token for the app. */
 	accessToken(options?: { signal?: AbortSignal }): Promise<string>;
 }
@@ -324,6 +330,14 @@ export interface EeHost {
 	 * again before every use, so memory stops the moment the feature goes off. The last registration wins.
 	 */
 	registerMemoryProvider(feature: EeFeatureId, factory: EeMemoryProviderFactory): void;
+	/**
+	 * Register the span exporter of a feature (Eyes): the terminal app's sessions send their spans to it (metadata only
+	 * unless the exporter takes content). Only a feature that is on may register, and the core asks again before every
+	 * span, so telemetry stops the moment the feature goes off. The last registration wins.
+	 */
+	registerTelemetryExporter(feature: EeFeatureId, exporter: SpanExporter): void;
+	/** The core's OTLP/HTTP JSON exporter (batching, never blocking), for an exporter ee registers. */
+	createOtlpExporter(options: OtlpExporterOptions): SpanExporter & { flush(): Promise<void> };
 	/** A Veyra app's API as the signed-in person; undefined when this Fingers has no sign-in to offer. */
 	veyraApi(app: EeVeyraApp): EeVeyraApi | undefined;
 }

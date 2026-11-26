@@ -149,6 +149,7 @@ import { BUILTIN_SLASH_COMMANDS, SLASH_MENU } from "../../core/slash-commands.ts
 import { getSourcePackageKey, type SourceInfo } from "../../core/source-info.ts";
 import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
+import { telemetryExporters } from "../../core/tracing/registry.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
 import {
@@ -6437,6 +6438,7 @@ export class InteractiveMode {
 				toolHooks: editionToolHooks,
 				savings: savingsLedger,
 				memory: memoryProviders,
+				telemetry: telemetryExporters,
 				veyraApi: (app) => {
 					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
 					if (!auth) return undefined;
@@ -6447,6 +6449,9 @@ export class InteractiveMode {
 						// Live: `/org switch` signs in again and replaces the account (and the tokens) in place.
 						get org() {
 							return account()?.org || undefined;
+						},
+						get orgCode() {
+							return account()?.orgCode || undefined;
 						},
 						accessToken: (options) => auth.getAccessToken(app, options),
 					};

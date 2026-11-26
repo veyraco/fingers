@@ -61,9 +61,22 @@ A provider belongs to the organization signed in when it was made (`host.veyraAp
 `<org_id>:<repository>`, the core reuses kept memory only for the same key and keeps other keys' memory out of model
 requests, and the provider refuses every call (`org_changed`) once the sign-in moved to another organization.
 
+## Eyes telemetry
+
+`src/eyes/` (F21, Medium tier or higher): registers a span exporter with `host.registerTelemetryExporter("eyes", …)`;
+the core's built-in `telemetry` extension sends it the spans of the terminal app's runs (GenAI `chat`,
+`execute_tool` and `invoke_agent` spans, metadata only). It sends them with the core's OTLP exporter
+(`host.createOtlpExporter`) to `<api>/eyes/otlp/v1/traces` with the person's token for Eyes
+(`host.veyraApi("eyes")`), as an ordinary OTLP source (`service.name = fingers`, no `veyra.app`: a person's token is
+not a feed, platform `contracts/v1/eyes-feed.md`). One exporter per organization; a batch is dropped instead of sent
+once the sign-in moved to another organization, also when the switch lands while the token is fetched. `/eyes`
+shows the status and the console link of the last run's trace (`eyes.<domain>/<org code>/traces/<trace id>`,
+from `api.<domain>` and `host.veyraApi("eyes").orgCode`), `/eyes open` prints it, `/eyes off` and `/eyes on` stop
+and resume sending. Managed RPC never loads it: there the core relays spans to the host (`telemetry_span`).
+
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion` 5, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 6, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`

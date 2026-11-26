@@ -39,6 +39,13 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		argumentHint: "[recall <query> | remember <text> | off | on]",
 		edition: "ee",
 	},
+	// Canvas FingersTuiSavings "trace sent to Eyes": an ee feature (Eyes). Locked until signed in with a tier with it.
+	{
+		name: "eyes",
+		description: "Eyes telemetry: status, open the last trace, off/on",
+		argumentHint: "[open | off | on]",
+		edition: "ee",
+	},
 	{ name: "budget", description: "set or view the task budget", argumentHint: "<dollars> | off" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },
