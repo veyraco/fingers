@@ -405,7 +405,9 @@ describe("managed RPC golden transcripts", () => {
 			fetched.push(String(input instanceof Request ? input.url : input));
 			return realFetch(input, init);
 		});
-		cleanups.push(() => vi.unstubAllGlobals());
+		cleanups.push(() => {
+			vi.unstubAllGlobals();
+		});
 		const { golden, run } = await replay("memory-telemetry-relay", () => {});
 		// telemetry_span comes with the telemetry relay (Fingers F21).
 		checkCommon(golden, run, ["telemetry_span"]);
