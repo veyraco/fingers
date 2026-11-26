@@ -148,6 +148,7 @@ import {
 import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.ts";
 import { BUILTIN_SLASH_COMMANDS, SLASH_MENU } from "../../core/slash-commands.ts";
 import { getSourcePackageKey, type SourceInfo } from "../../core/source-info.ts";
+import { subagentEngines } from "../../core/subagents/registry.ts";
 import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { telemetryExporters } from "../../core/tracing/registry.ts";
@@ -2297,6 +2298,8 @@ export class InteractiveMode {
 		this.footer.setSession(this.session);
 		// A replaced session has a new agent: the budget's stop has to sit on that one.
 		this.budgetGuard.attach(this.session);
+		// Sub-agents' spend counts toward the same budget while they run.
+		subagentEngines.setBudget(() => this.budgetGuard.state());
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -6446,6 +6449,8 @@ export class InteractiveMode {
 				savings: savingsLedger,
 				memory: memoryProviders,
 				telemetry: telemetryExporters,
+				// Sub-agents get their `agents` tool and child sessions through the built-in `subagents` extension.
+				subagents: subagentEngines,
 				veyraApi: (app) => {
 					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
 					if (!auth) return undefined;

@@ -88,7 +88,7 @@ describe("the ee module", () => {
 		expect(loaded?.matrixVersion).toBe(TIER_MATRIX_VERSION);
 	});
 
-	it("registers /agents only while sub-agents are on, and says so when run", async () => {
+	it("registers /agents only while sub-agents are on, and lists them when run", async () => {
 		const gate = new EditionGate({ loadModule: async () => asEeModule(ee) });
 		await gate.setEntitlement(entitlement("low"));
 		expect(gate.commandHandler("agents")).toBeUndefined();
@@ -103,6 +103,7 @@ describe("the ee module", () => {
 			showStatus,
 			showWarning: vi.fn(),
 		});
-		expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("Sub-agents are on for Acme (tier medium)"));
+		// F18: /agents lists this process' sub-agents (none yet) instead of the placeholder line.
+		expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("No sub-agents yet in this session."));
 	});
 });

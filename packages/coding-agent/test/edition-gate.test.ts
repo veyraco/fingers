@@ -25,6 +25,8 @@ import {
 } from "../src/core/edition/index.ts";
 import { MemoryProviders } from "../src/core/memory/registry.ts";
 import { InMemorySecretStore } from "../src/core/os-keychain.ts";
+import { SubagentEngines } from "../src/core/subagents/registry.ts";
+import type { SubagentEngine } from "../src/core/subagents/types.ts";
 import { OtlpHttpExporter } from "../src/core/tracing/otlp.ts";
 import { TelemetryExporters } from "../src/core/tracing/registry.ts";
 import { ConnectUnavailableError, VeyraApiError } from "../src/core/veyra/oidc-client.ts";
@@ -46,7 +48,7 @@ function fakeModule(overrides: Partial<EeModule> = {}): EeModule {
 		org_hooks: "high",
 	};
 	return {
-		apiVersion: 6,
+		apiVersion: 7,
 		matrixVersion: "test.1",
 		minimumTier: (feature) => matrix[feature],
 		activate: (host) => {
@@ -349,6 +351,40 @@ describe("EditionGate", () => {
 		expect(exporters.has("otlp")).toBe(true);
 	});
 
+	it("lets the ee module register a sub-agent engine only for a feature that is on, asked before every use (F18)", async () => {
+		const engines = new SubagentEngines();
+		const engine: SubagentEngine = {
+			run: async () => {
+				throw new Error("not used");
+			},
+			steer: () => false,
+			stop: () => false,
+			list: () => [],
+		};
+		const module = fakeModule({
+			activate: (host) => {
+				host.registerSubagentEngine("subagents", { run: "nope" } as never);
+				host.registerSubagentEngine("subagents", engine);
+				// Refused: a feature that does not exist never replaces the real registration.
+				host.registerSubagentEngine("not_a_feature" as never, { ...engine });
+			},
+		});
+		const changes: number[] = [];
+		engines.onChange(() => changes.push(changes.length));
+		const gate = new EditionGate({ loadModule: async () => module, subagents: engines });
+		await gate.setEntitlement({ ...SIGNED_IN, tier: "low" });
+		expect(engines.engine()).toBeUndefined();
+		await gate.setEntitlement(SIGNED_IN);
+		expect(engines.engine()).toBe(engine);
+		await gate.setEntitlement({ ...SIGNED_IN, fingersEnabled: false });
+		expect(engines.engine()).toBeUndefined();
+		await gate.setEntitlement(SIGNED_IN);
+		expect(engines.engine()).toBe(engine);
+		await gate.setEntitlement(SIGNED_OUT);
+		expect(engines.engine()).toBeUndefined();
+		expect(changes.length).toBeGreaterThan(0);
+	});
+
 	it("is core only without an ee module, whatever the tier", async () => {
 		const gate = new EditionGate({ loadModule: async () => undefined });
 		await gate.setEntitlement({ ...SIGNED_IN, tier: "high" });
@@ -404,7 +440,7 @@ describe("the ee module loader", () => {
 		writeFileSync(path, text);
 	}
 
-	const VALID = `export const apiVersion = 6; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
+	const VALID = `export const apiVersion = 7; export const matrixVersion = "x"; export function minimumTier() { return "low"; } export function activate() {}`;
 
 	it("looks next to a binary, in a source checkout's ee/src, then in dist/ee", () => {
 		const packageDir = join(dir, "packages", "coding-agent");
@@ -436,16 +472,16 @@ describe("the ee module loader", () => {
 		const other = join(dir, "pkg2");
 		writeModule(
 			join(other, "dist", "ee", "index.js"),
-			`export default { apiVersion: 6, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
+			`export default { apiVersion: 7, matrixVersion: "d", minimumTier: () => "low", activate() {} };`,
 		);
 		expect((await loadEeModule({ packageDir: other, isBunBinary: false, execPath: "" }))?.matrixVersion).toBe("d");
 	});
 
 	it("refuses a module built for another contract version, one without the exports, and one that throws", async () => {
 		for (const [name, text] of [
-			["v5", VALID.replace("apiVersion = 6", "apiVersion = 5")],
-			["v7", VALID.replace("apiVersion = 6", "apiVersion = 7")],
-			["partial", `export const apiVersion = 6; export const matrixVersion = "x";`],
+			["v6", VALID.replace("apiVersion = 7", "apiVersion = 6")],
+			["v8", VALID.replace("apiVersion = 7", "apiVersion = 8")],
+			["partial", `export const apiVersion = 7; export const matrixVersion = "x";`],
 			["throws", `throw new Error("broken ee");`],
 		]) {
 			const packageDir = join(dir, name);

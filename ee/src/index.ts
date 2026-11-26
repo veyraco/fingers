@@ -7,11 +7,12 @@
 import type { EeHost, EeModule } from "@veyraco/fingers";
 import { BrainMemory } from "./brain/index.ts";
 import { EyesTelemetry } from "./eyes/index.ts";
+import { Subagents } from "./subagents/index.ts";
 import { minimumTier, TIER_MATRIX_VERSION } from "./tier-matrix.ts";
 import { TokenSaving } from "./token-saving/index.ts";
 
 /** The core contract this module was built for (the core's EE_API_VERSION). */
-export const apiVersion = 6;
+export const apiVersion = 7;
 
 export const matrixVersion = TIER_MATRIX_VERSION;
 
@@ -25,6 +26,9 @@ export const brainMemory = new BrainMemory();
 
 /** One per process: its per-organization exporters and /eyes off live across entitlement checks. */
 export const eyesTelemetry = new EyesTelemetry();
+
+/** One per process: sub-agent ids and the list /agents shows live across entitlement checks. */
+export const subagents = new Subagents();
 
 export function activate(host: EeHost): void {
 	if (host.isOn("token_saving")) {
@@ -44,14 +48,8 @@ export function activate(host: EeHost): void {
 		eyesTelemetry.reset();
 	}
 	if (host.isOn("subagents")) {
-		// The sub-agents panel (start, watch, steer, stop) is Fingers item F19; until then /agents says it is on.
-		host.registerCommand("agents", (context) => {
-			const org = context.entitlement.orgName ?? context.entitlement.org ?? "your organization";
-			const tier = context.entitlement.tier ? ` (tier ${context.entitlement.tier})` : "";
-			context.showStatus(
-				`Sub-agents are on for ${org}${tier}. Starting and steering them from /agents comes in the next Fingers release.`,
-			);
-		});
+		// The `agents` tool and /agents (list, steer, stop); the full panel is F19.
+		subagents.attach(host);
 	}
 }
 

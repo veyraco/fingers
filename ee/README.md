@@ -46,6 +46,19 @@ each tool result, at the end of each turn (`contextEdits`, saved as context edit
 savings ledger through `host.recordSaving`. See `packages/coding-agent/docs/slash-commands.md`
 ("Token saving") for what the model gets.
 
+## Sub-agents
+
+`src/subagents/` (F18, Medium tier or higher): `engine.ts` runs the children of one `agents` call (ids `sub_<n>`,
+dependency queue, at most 4 at once, the budget and the parent's abort stop them, `steer`/`stop`/`list`), `git.ts`
+gives each child a detached worktree under `.fingers/worktrees/<id>` at a snapshot of the parent's working tree (a
+temporary index; never the parent's index, branch or stash; no hooks, no signing) and applies a finished child's
+binary patch to the working tree. `index.ts` registers the engine with `host.registerSubagentEngine("subagents", …)`
+and handles `/agents` (list, `steer <id> <message>`, `stop <id>`). The core's built-in `subagents` extension offers
+the `agents` tool, makes the child sessions (`packages/coding-agent/src/extensions/subagents/child-session.ts`: the
+parent's model runtime and settings, approvals asked in the parent's terminal) and picks each child's model through
+the token-saving routing hooks. Lifecycle events follow Fingers RPC v1 (`subagent_started`, `subagent_updated`,
+`subagent_finished`); managed RPC does not offer sub-agents yet.
+
 ## Brain memory
 
 `src/brain/` (F20, Medium tier or higher): `provider.ts` is the core's memory provider interface
@@ -76,7 +89,7 @@ and resume sending. Managed RPC never loads it: there the core relays spans to t
 
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion` 6, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 7, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`

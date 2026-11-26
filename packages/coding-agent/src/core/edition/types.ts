@@ -12,6 +12,7 @@
 import type { ImageContent, TextContent } from "@veyraco/fingers-ai";
 import type { MemoryProvider, MemoryProviderContext } from "../memory/types.ts";
 import type { SavingsEntry } from "../savings-ledger.ts";
+import type { SubagentEngine } from "../subagents/types.ts";
 import type { OtlpExporterOptions } from "../tracing/otlp.ts";
 import type { SpanExporter } from "../tracing/spans.ts";
 
@@ -25,8 +26,9 @@ import type { SpanExporter } from "../tracing/spans.ts";
  *    (`EeHost.veyraApi`) and the session's directory in `EeCommandContext.cwd`, for Brain memory (F20).
  * 6: span exporters (`EeHost.registerTelemetryExporter`, `EeHost.createOtlpExporter`) and the organization's code
  *    (`EeVeyraApi.orgCode`), for the Eyes feed (F21).
+ * 7: sub-agent engines (`EeHost.registerSubagentEngine`, core/subagents/types.ts), for sub-agents (F18).
  */
-export const EE_API_VERSION = 6;
+export const EE_API_VERSION = 7;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -336,6 +338,12 @@ export interface EeHost {
 	 * span, so telemetry stops the moment the feature goes off. The last registration wins.
 	 */
 	registerTelemetryExporter(feature: EeFeatureId, exporter: SpanExporter): void;
+	/**
+	 * Register the sub-agent engine of a feature: the terminal app's sessions get the `agents` tool, whose calls the
+	 * engine runs on child sessions the core makes. Only a feature that is on may register, and the core asks again
+	 * before every use, so the tool stops being offered the moment the feature goes off. The last registration wins.
+	 */
+	registerSubagentEngine(feature: EeFeatureId, engine: SubagentEngine): void;
 	/** The core's OTLP/HTTP JSON exporter (batching, never blocking), for an exporter ee registers. */
 	createOtlpExporter(options: OtlpExporterOptions): SpanExporter & { flush(): Promise<void> };
 	/** A Veyra app's API as the signed-in person; undefined when this Fingers has no sign-in to offer. */

@@ -48,7 +48,7 @@ export interface SavingsReport {
 	cacheHitPercent?: number;
 	/** saved / (spent + saved), whole percent; undefined until something is saved in dollars. */
 	lessPercent?: number;
-	/** What each provider was paid for, most first; summaries and tools without a model are "other". */
+	/** What each provider was paid for, most first; sub-agents are "<provider> (sub-tasks)", summaries and other tools "other". */
 	byProvider: { provider: string; costUsd: number }[];
 	budget?: { spentUsd: number; capUsd: number };
 	state: TokenSavingState;
@@ -129,6 +129,22 @@ function entryTime(entry: SessionEntry): number | undefined {
 	return Number.isFinite(time) ? time : undefined;
 }
 
+/** The cost of each child of an `agents` tool result (its details), by provider. */
+function subagentCosts(toolName: string, details: unknown): { provider: string; costUsd: number }[] {
+	if (toolName !== "agents" || !details || typeof details !== "object") return [];
+	const agents = (details as { agents?: unknown }).agents;
+	if (!Array.isArray(agents)) return [];
+	const costs: { provider: string; costUsd: number }[] = [];
+	for (const agent of agents) {
+		const provider = (agent as { model?: { provider?: unknown } })?.model?.provider;
+		const cost = (agent as { usage?: { cost?: { total?: unknown } } })?.usage?.cost?.total;
+		if (typeof provider !== "string" || provider.length === 0 || typeof cost !== "number") continue;
+		const costUsd = finite(cost);
+		if (costUsd > 0) costs.push({ provider, costUsd });
+	}
+	return costs;
+}
+
 export function computeSavingsReport(input: SavingsReportInput): SavingsReport {
 	const caching = { tokens: 0, costUsd: 0, count: 0 };
 	const byProvider = new Map<string, number>();
@@ -161,7 +177,13 @@ export function computeSavingsReport(input: SavingsReportInput): SavingsReport {
 					if (typeof path === "string" && path.length > 0) files.add(path);
 				}
 			} else if (message.role === "toolResult" && message.usage) {
-				addProvider("other", finite(message.usage.cost.total));
+				// Sub-agents (F18): each child's calls under its provider, marked as sub-tasks; anything else is "other".
+				let rest = finite(message.usage.cost.total);
+				for (const child of subagentCosts(message.toolName, message.details)) {
+					addProvider(`${child.provider} (sub-tasks)`, child.costUsd);
+					rest -= child.costUsd;
+				}
+				if (rest > 1e-12) addProvider("other", rest);
 			}
 		} else if (entry.type === "usage") {
 			addProvider(entry.provider, finite(entry.usage.cost.total));
