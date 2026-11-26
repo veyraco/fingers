@@ -80,6 +80,7 @@ import {
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
+import { editionToolHooks } from "./edition/tool-hooks.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
@@ -118,6 +119,7 @@ import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extens
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
+import { routeOutcome, routeSubTask } from "./model-routing.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { NestedToolCallRunner } from "./nested-tool-calls.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -262,6 +264,9 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
 		? Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => entry[1] !== null))
 		: undefined;
 }
+
+/** Tokens of the summary prompt itself (instructions and tags), on top of the messages it summarises. */
+const SUMMARY_PROMPT_TOKENS = 2_000;
 
 export interface AgentSessionConfig {
 	agent: Agent;
@@ -609,43 +614,74 @@ export class AgentSession {
 	private async _getSummarizationRequestAuth(
 		selectedModel: Model<any>,
 		signal?: AbortSignal,
+		route?: (model: Model<any>) => Model<any> | undefined,
 	): Promise<{
 		model: Model<any>;
 		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 		thinkingLevel: ThinkingLevel;
+		/** Set when `route` moved the summary to a cheaper model: the physical model it would have run on. */
+		routedFrom?: Model<any>;
 	}> {
 		// Route a virtual model first: summaries size their input and output from the model they get.
-		const { model, thinkingLevel } = isVirtualModel(selectedModel)
+		const resolved = isVirtualModel(selectedModel)
 			? await this._modelRuntime.resolveModel(selectedModel, convertToLlm(this.messages), {
 					reason: "direct",
 					thinkingLevel: this.thinkingLevel,
 					signal,
 				})
 			: { model: selectedModel, thinkingLevel: this.thinkingLevel };
+		const routed = isVirtualModel(selectedModel) ? undefined : route?.(resolved.model);
+		const model: Model<any> = routed ?? resolved.model;
+		const thinkingLevel = routed
+			? (clampThinkingLevel(routed, resolved.thinkingLevel) as ThinkingLevel)
+			: resolved.thinkingLevel;
+		const routedFrom = routed ? resolved.model : undefined;
+		const withRoute = <T extends object>(request: T) => (routedFrom ? { ...request, routedFrom } : request);
 		if (this.agent.streamFunction === streamSimple) {
-			return { ...(await this._getRequiredRequestAuth(model, signal)), thinkingLevel };
+			return withRoute({ ...(await this._getRequiredRequestAuth(model, signal)), thinkingLevel });
 		}
 		if (runtimeStreamFunctions.get(this.agent.streamFunction) === this._modelRuntime) {
-			return { model, thinkingLevel };
+			return withRoute({ model, thinkingLevel });
 		}
 
 		try {
 			const result = await this._modelRuntime.getAuth(model, { signal });
-			if (!result) return { model, thinkingLevel };
+			if (!result) return withRoute({ model, thinkingLevel });
 			const requestModel = result.auth.baseUrl ? { ...model, baseUrl: result.auth.baseUrl } : model;
-			return {
+			return withRoute({
 				model: requestModel,
 				apiKey: result.auth.apiKey,
 				headers: withoutDeletedHeaders(result.auth.headers),
 				env: result.env,
 				thinkingLevel,
-			};
+			});
 		} catch (error) {
 			if (signal?.aborted) throw error;
-			return { model, thinkingLevel };
+			return withRoute({ model, thinkingLevel });
 		}
+	}
+
+	/**
+	 * The cheaper model for a compaction summary (F16), when ee routing is on and picks one: a model of the same
+	 * provider with room for the messages being summarised, the previous summary and the summary itself.
+	 */
+	private _routeCompactionSummary(model: Model<any>, preparation: CompactionPreparation): Model<any> | undefined {
+		if (!this.settingsManager.getModelRoutingEnabled()) return undefined;
+		let inputTokens = SUMMARY_PROMPT_TOKENS;
+		for (const message of [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages]) {
+			inputTokens += estimateTokens(message);
+		}
+		if (preparation.previousSummary) inputTokens += Math.ceil(preparation.previousSummary.length / 4);
+		const minOutputTokens = Math.floor(0.8 * preparation.settings.reserveTokens);
+		return routeSubTask({
+			taskClass: "summarise",
+			model,
+			models: this._modelRuntime,
+			minContextTokens: inputTokens + minOutputTokens,
+			minOutputTokens,
+		});
 	}
 
 	/**
@@ -2898,21 +2934,39 @@ export class AgentSession {
 		reason: "manual" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
 		// Resolve the request only when Fingers summarizes itself: routing may call models or fail.
-		const request = await this._getSummarizationRequestAuth(model, signal);
-		return compact(
-			preparation,
-			request.model,
-			request.apiKey,
-			request.headers,
-			customInstructions,
-			signal,
-			request.thinkingLevel,
-			this.agent.streamFunction,
-			request.env,
-			this.settingsManager.getRetrySettings(),
-			this._summarizationRetryCallbacks({ source: "compaction", reason }),
-			undefined, // sessionId
+		const run = async (request: Awaited<ReturnType<AgentSession["_getSummarizationRequestAuth"]>>) =>
+			compact(
+				preparation,
+				request.model,
+				request.apiKey,
+				request.headers,
+				customInstructions,
+				signal,
+				request.thinkingLevel,
+				this.agent.streamFunction,
+				request.env,
+				this.settingsManager.getRetrySettings(),
+				this._summarizationRetryCallbacks({ source: "compaction", reason }),
+				undefined, // sessionId
+			);
+		const request = await this._getSummarizationRequestAuth(model, signal, (physical) =>
+			this._routeCompactionSummary(physical, preparation),
 		);
+		const routedFrom = request.routedFrom;
+		if (!routedFrom) return run(request);
+		let result: CompactionResult;
+		try {
+			result = await run(request);
+		} catch (error) {
+			// The cheaper model failed: summarise on the model the summary would have used without routing.
+			if (signal.aborted) throw error;
+			return run(await this._getSummarizationRequestAuth(model, signal));
+		}
+		if (result.usage) {
+			const lines = editionToolHooks.afterRoute(routeOutcome("summarise", routedFrom, request.model, result.usage));
+			editionToolHooks.addNotices(lines);
+		}
+		return result;
 	}
 
 	private _clearManualCompactionState(): void {

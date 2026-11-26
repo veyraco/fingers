@@ -194,6 +194,11 @@
       "type": "boolean",
       "default": false
     },
+    "modelRouting": {
+      "type": "boolean",
+      "description": "While ee token saving is on, run sub-tasks such as compaction summaries on a cheaper model of the same provider.",
+      "default": true
+    },
     "showCacheMissNotices": {
       "type": "boolean",
       "description": "Show cache cost and provider recovery notices.",

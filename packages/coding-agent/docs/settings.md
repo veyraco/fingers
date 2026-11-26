@@ -17,6 +17,7 @@ Add `"$schema": "https://raw.githubusercontent.com/veyraco/fingers/main/packages
 | `thinkingBudgets` | object | Built-in budgets | Token budgets for `minimal`, `low`, `medium`, and `high` thinking levels. |
 | `enabledModels` | `string[]` | All available models | Model patterns used for startup selection and model cycling. Uses the same format as `--models`. |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in the transcript. |
+| `modelRouting` | boolean | `true` | While ee token saving is on, run sub-tasks such as compaction summaries on a cheaper model of the same provider. See [Token saving](slash-commands.md#token-saving). |
 | `showCacheMissNotices` | boolean | `false` | Show notices for significant cache misses, successful cache warming, compaction usage, and provider recovery. |
 | `cacheWarming` | `"off" \| "streaming" \| "idle"` | `"idle"` | Keep eligible provider prompt caches warm during active runs and, with `"idle"`, for up to 30 minutes between runs. `"streaming"` warms only during active runs. Global setting only. |
 

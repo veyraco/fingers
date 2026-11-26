@@ -16,6 +16,13 @@ Extensions, prompt templates, and skills can add commands. The command menu in F
 | `/org [switch]` | Show the Veyra organization, tier and group; `switch` signs in again to pick another organization |
 | `/logout [provider]` | Without a provider, sign out of Veyra (revokes the device at Connect, clears the keychain); with one, remove that provider's stored credentials |
 | `/llama` | Manage models on the configured llama.cpp router |
+| `/budget [dollars \| off]` | Set, show or remove the task budget (see [Budget](#budget)) |
+
+### Budget
+
+`/budget 5` (or `/budget $2.50`) sets a cost cap for the task in this session; `/budget` shows what was spent and what is left, `/budget off` removes the cap. The spend is what the session's model calls cost at the models' list prices, the same number as the cost on the status line, so summaries count too. The status line shows `budget $4.94 left of $5.00`.
+
+The cap is a hard stop: the model call that reaches it finishes, its tool calls finish, and Fingers makes no further model call. A new prompt is refused with `Budget reached: …` until you raise or remove the cap (extension commands still run). A new, resumed or forked session is a new task: its spend starts from what that session recorded, under the same cap. A model without a list price costs nothing as far as the budget can tell; Fingers says once that the budget cannot stop that task. Budgets are part of the MIT core and need no sign-in. In managed RPC mode, `limits.max_cost_usd` uses the same stop.
 
 ## ee features
 
@@ -47,8 +54,9 @@ With token saving on (Low tier or higher), Fingers changes what the model is sen
 - **Diff edits.** The system prompt asks the model to change existing files with `edit` instead of rewriting them with `write`.
 - **Staged pruning before compaction.** Compaction starts when the context passes the window minus `compaction.reserveTokens`. Before that, at the end of a turn, old tool results are replaced by a one-line `[pruned by token saving]` note (which tool, which file or command, how big it was; run the tool again to get it back): from half of that limit the results older than the most recent `compaction.keepRecentTokens` (at most 40% of the limit) tokens, from three quarters the results older than half of that. Results under 200 tokens and the last two tool results stay. A batch is pruned only when it frees at least 1,000 tokens (5% of the limit for large windows) and, below three quarters, at least twice what the provider has to cache again after it, so the prompt cache breaks rarely. Each pruned result is saved in the session as a context edit (the session file keeps the original), so later requests and compaction get the note, even after you sign out. A pruned file is read fresh, not from the read cache. Compaction then runs less often and summarises the smaller context.
 - **Compaction estimate.** When a compaction starts (`/compact` or automatic), the terminal shows what it should save (`Token saving: this compaction should save about N tokens (before → about after).`), and under the new summary what it saved and the estimate.
+- **Cheaper-model routing.** A compaction summary runs on a cheaper model of the same provider (the same key) when one has room for it: the cheapest model whose blended price (three parts input, one part output) is at most 80% of the selected model's, on providers that serve several vendors (such as OpenRouter) only the selected model's vendor. The conversation stays on the model you selected. The terminal shows `Token saving: the compaction summary ran on <model> instead of <model> ($a instead of $b).`; when the cheaper model fails, the summary runs on the selected model. Sub-agents use the same rule for search tasks (cheapest) and review tasks (the strongest model between a quarter and 80% of the price). A virtual model's own router is never overridden. `"modelRouting": false` in [settings](settings.md) turns routing off.
 
-Each saving goes to the session's savings ledger (estimated tokens per technique: `read_cache`, `output_trim`, `diff_edit`, `context_prune`), which the end-of-task report adds up. Managed RPC, print and JSON modes keep token saving off.
+Each saving goes to the session's savings ledger (estimated tokens per technique: `read_cache`, `output_trim`, `diff_edit`, `context_prune`; dollars at list price for `model_routing`), which the end-of-task report adds up. Managed RPC, print and JSON modes keep token saving off.
 
 ## Sessions and context
 

@@ -15,6 +15,9 @@ import type {
 	EeContextEntry,
 	EeContextView,
 	EeFeatureId,
+	EeRouteChoice,
+	EeRouteOutcome,
+	EeRouteRequest,
 	EeToolHooks,
 	EeToolResult,
 	EeToolResultChange,
@@ -159,6 +162,35 @@ export class EditionToolHooks {
 			}
 		}
 		return edits;
+	}
+
+	/**
+	 * Ask the routing hooks for a cheaper model for a sub-task. The first hook whose answer names one of the request's
+	 * candidates decides; an answer that names anything else is ignored, so a hook can never route to a model the core
+	 * did not offer. A hook that throws is skipped. Undefined: keep the current model.
+	 */
+	routeModel(request: EeRouteRequest): EeRouteChoice | undefined {
+		for (const { hooks } of this.live()) {
+			if (!hooks.routeModel) continue;
+			let choice: EeRouteChoice | undefined;
+			try {
+				choice = hooks.routeModel(request);
+			} catch (error) {
+				this.onError(error);
+				continue;
+			}
+			if (!choice || typeof choice.provider !== "string" || typeof choice.id !== "string") continue;
+			const candidate = request.candidates.find(
+				(model) => model.provider === choice.provider && model.id === choice.id,
+			);
+			if (candidate) return { provider: candidate.provider, id: candidate.id };
+		}
+		return undefined;
+	}
+
+	/** The lines the hooks want shown after a routed sub-task. */
+	afterRoute(outcome: EeRouteOutcome): string[] {
+		return this.lines((hooks) => hooks.afterRoute?.(outcome));
 	}
 
 	/** The lines the hooks want shown while a compaction runs. */
