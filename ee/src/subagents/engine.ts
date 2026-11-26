@@ -13,7 +13,8 @@
  * - Isolation: a failing child never fails the call or the other children; the call rejects only for a bad request
  *   or outside a git repository.
  * - Cost: each child's usage is its own session's model calls; the call's usage is their sum. While children run,
- *   their spend counts toward the session's budget: once it is reached, every child is stopped.
+ *   their spend counts toward the session's budget: once it is reached, every child is stopped. The budget is asked
+ *   before each child starts too, so a call made when the budget is already reached starts no child.
  *
  * Lifecycle events follow Fingers RPC v1 (`subagent_started` with `running` or `queued`, `subagent_updated` on each
  * status change, `subagent_finished` once).
@@ -44,6 +45,7 @@ const MAX_SUMMARY_CHARS = 4_000;
 /** Of each child's summary, what the parent model gets back in the tool result. */
 const RESULT_SUMMARY_CHARS = 1_500;
 const KINDS: readonly SubagentKind[] = ["code", "search", "review"];
+const BUDGET_REACHED = "Stopped: the session's budget is reached.";
 
 export function emptyUsage(): Usage {
 	return {
@@ -270,6 +272,15 @@ export class SubagentEngineImpl implements SubagentEngine {
 			report("subagent_finished", entry);
 		};
 
+		// Spend of this call's children, for the session's budget.
+		const childrenCost = () => entries.reduce((sum, entry) => sum + entry.info.usage.cost.total, 0);
+		let stopAllReason: string | undefined;
+		// A budget that is already reached starts no child: each one ends "stopped" after its start event.
+		if (host.budgetReached(0)) {
+			stopAllReason = BUDGET_REACHED;
+			for (const entry of entries) entry.stopReason = BUDGET_REACHED;
+		}
+
 		for (const entry of entries) {
 			entry.stopNow = () => {
 				if (entry.info.startedAt === undefined)
@@ -277,9 +288,6 @@ export class SubagentEngineImpl implements SubagentEngine {
 			};
 		}
 
-		// Spend of this call's children, for the session's budget.
-		const childrenCost = () => entries.reduce((sum, entry) => sum + entry.info.usage.cost.total, 0);
-		let stopAllReason: string | undefined;
 		const stopAll = (reason: string) => {
 			stopAllReason ??= reason;
 			for (const entry of entries) {
@@ -335,7 +343,7 @@ export class SubagentEngineImpl implements SubagentEngine {
 					child.onUsage((usage) => {
 						entry.info.usage = usage;
 						if (!stopAllReason && host.budgetReached(childrenCost())) {
-							stopAll("Stopped: the session's budget is reached.");
+							stopAll(BUDGET_REACHED);
 						}
 					}),
 					child.onApproval((waiting) => {
@@ -439,6 +447,11 @@ export class SubagentEngineImpl implements SubagentEngine {
 					}
 					if (dependencies.some((dependency) => !dependency.ended)) continue;
 					if (running.size >= this.maxParallel) continue;
+					// The budget is asked again before every start: what the children spent so far counts.
+					if (host.budgetReached(childrenCost())) {
+						stopAll(BUDGET_REACHED);
+						continue;
+					}
 					start(entry);
 				}
 				if (running.size === 0) break;

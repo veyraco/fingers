@@ -20,8 +20,15 @@ import {
 } from "@veyraco/fingers-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { sessionUsageTotals } from "../src/core/budget.ts";
+import { EditionGate } from "../src/core/edition/gate.ts";
 import { EditionToolHooks } from "../src/core/edition/tool-hooks.ts";
-import type { EeRouteOutcome, EeRouteRequest } from "../src/core/edition/types.ts";
+import {
+	EE_API_VERSION,
+	type EeFeatureId,
+	type EeRouteOutcome,
+	type EeRouteRequest,
+	type VeyraTier,
+} from "../src/core/edition/types.ts";
 import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import { SubagentEngines } from "../src/core/subagents/registry.ts";
 import type {
@@ -421,6 +428,125 @@ describe("the agents tool", () => {
 		expect(host.budgetReached(1.49)).toBe(false);
 		engines.setBudget(() => undefined);
 		expect(host.budgetReached(1_000)).toBe(false);
+	});
+
+	it("starts no sub-agent when the session's budget is already reached", async () => {
+		const { harness, engines } = await setup();
+		const engine = new FakeEngine();
+		engines.set(engine, () => true);
+		// The answer that asks for sub-agents reached the budget itself.
+		engines.setBudget(() => ({ spentUsd: 2, capUsd: 1.5 }));
+		const calls: Call[] = [];
+		const step = scripted(calls, (task, turn) =>
+			task === "go" && turn === 0
+				? fauxAssistantMessage([fauxToolCall(AGENTS_TOOL, { start: [{ label: "a", task: "noop" }] })], {
+						stopReason: "toolUse",
+					})
+				: fauxAssistantMessage("ok"),
+		);
+		harness.setResponses(Array.from({ length: 3 }, () => step));
+		await harness.session.prompt("go");
+		expect(engine.runs).toHaveLength(0);
+		expect(calls.filter((call) => call.child)).toHaveLength(0);
+		const result = toolResult(harness);
+		expect(result.isError).toBe(true);
+		expect(text(result as Message)).toContain("The session's budget is reached, so no sub-agents were started.");
+		expect(result.usage).toBeUndefined();
+	});
+
+	it("runs two agents calls of one answer one after the other, so the second sees the first's spend", async () => {
+		const { harness, engines } = await setup();
+		const engine = new FakeEngine();
+		let inRun = 0;
+		let overlapped = false;
+		const run = engine.run.bind(engine);
+		engine.run = async (request, host) => {
+			inRun++;
+			if (inRun > 1) overlapped = true;
+			try {
+				return await run(request, host);
+			} finally {
+				inRun--;
+			}
+		};
+		engines.set(engine, () => true);
+		// What the children spent, recorded in the session by each agents call's result; any spend reaches the cap.
+		const childSpend = () =>
+			harness.sessionManager
+				.getEntries()
+				.reduce(
+					(sum, entry) =>
+						entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage
+							? sum + entry.message.usage.cost.total
+							: sum,
+					0,
+				);
+		engines.setBudget(() => ({ spentUsd: childSpend(), capUsd: 1e-9 }));
+		const calls: Call[] = [];
+		const step = scripted(calls, (task, turn) => {
+			if (task === "go") {
+				return turn === 0
+					? fauxAssistantMessage(
+							[
+								fauxToolCall(AGENTS_TOOL, { start: [{ label: "one", task: "Task one" }] }, { id: "call_1" }),
+								fauxToolCall(AGENTS_TOOL, { start: [{ label: "two", task: "Task two" }] }, { id: "call_2" }),
+							],
+							{ stopReason: "toolUse" },
+						)
+					: fauxAssistantMessage("ok");
+			}
+			return fauxAssistantMessage(`${task}: done`);
+		});
+		harness.setResponses(Array.from({ length: 4 }, () => step));
+		await harness.session.prompt("go");
+
+		expect(overlapped).toBe(false);
+		expect(engine.runs.map((entry) => entry.request.agents.map((agent) => agent.label))).toEqual([["one"]]);
+		expect(calls.filter((call) => call.child).map((call) => call.task)).toEqual(["Task one"]);
+		const results = harness.session.messages.filter(
+			(message) => message.role === "toolResult" && message.toolName === AGENTS_TOOL,
+		);
+		expect(results.map((message) => message.role === "toolResult" && message.isError)).toEqual([false, true]);
+		expect(text(results[1] as Message)).toContain("The session's budget is reached, so no sub-agents were started.");
+		expect(childSpend()).toBeGreaterThan(0);
+	});
+
+	it("goes away when the gate's feature goes off, without the gate activating again", async () => {
+		const { harness, engines } = await setup();
+		const engine = new FakeEngine();
+		let needs: VeyraTier = "medium";
+		const gate = new EditionGate({
+			loadModule: async () => ({
+				apiVersion: EE_API_VERSION,
+				matrixVersion: "test.1",
+				minimumTier: (feature: EeFeatureId) => (feature === "subagents" ? needs : "high"),
+				activate: (host) => host.registerSubagentEngine("subagents", engine),
+			}),
+			subagents: engines,
+		});
+		await gate.setEntitlement({
+			signedIn: true,
+			source: "connect",
+			org: "org_1",
+			orgName: "Acme",
+			tier: "medium",
+			fingersEnabled: true,
+			checkedAt: Date.now(),
+		});
+		const calls: Call[] = [];
+		const answer = scripted(calls, () => fauxAssistantMessage("ok"));
+		harness.setResponses([answer, answer]);
+
+		expect(engines.engine()).toBe(engine);
+		await harness.session.prompt("first");
+		expect(calls[0]!.tools).toContain(AGENTS_TOOL);
+
+		// The feature is off now (the gate asks the module's matrix live); nothing activates the gate again.
+		needs = "high";
+		expect(gate.state("subagents").on).toBe(false);
+		expect(engines.engine()).toBeUndefined();
+		await harness.session.prompt("second");
+		expect(calls[1]!.tools).not.toContain(AGENTS_TOOL);
 	});
 
 	it("runs a child on the model routing picks and reports what that saved", async () => {

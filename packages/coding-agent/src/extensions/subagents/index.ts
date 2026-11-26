@@ -5,7 +5,7 @@
  * picks each child's model (a cheaper one when the ee routing rule finds one, F16), and turns the children's usage
  * into the tool result's usage, so the session's cost, the status line, `/budget` and `/savings` count every child.
  * A child's spend counts toward the session's budget while it runs: the engine stops the children once the budget
- * is reached. With no engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON modes)
+ * is reached, and a call made when it is already reached starts none. Calls of one answer run one after the other. With no engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON modes)
  * the tool is not offered and nothing changes.
  */
 import type { Api, Model } from "@veyraco/fingers-ai";
@@ -112,11 +112,29 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 			],
 			parameters: agentsSchema,
 			defaultActive: false,
+			// Two `agents` calls of one answer run one after the other, so the second sees what the first one's
+			// children spent (each call counts only its own children toward the budget) and no more than one call's
+			// children run at once.
+			executionMode: "sequential",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const engine = engines.engine();
 				if (!engine) {
 					return {
 						content: [{ type: "text", text: "Sub-agents are off for this sign-in; do the work yourself." }],
+						details: { agents: [] },
+						isError: true,
+					};
+				}
+				// The answer that asked for sub-agents may itself have reached the budget: start none.
+				const budget = engines.budget();
+				if (budget && costCapReached(budget.spentUsd, budget.capUsd)) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "The session's budget is reached, so no sub-agents were started. Stop here and tell the person.",
+							},
+						],
 						details: { agents: [] },
 						isError: true,
 					};

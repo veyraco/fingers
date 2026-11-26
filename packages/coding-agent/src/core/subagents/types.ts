@@ -2,7 +2,7 @@
  * Sub-agents (open core, MIT): the shapes the core and a sub-agent engine share. The engine is an ee feature
  * (`ee/src/subagents`, tier Medium): it plans the children of one `agents` tool call, gives each its own git worktree,
  * runs them in parallel (a child with dependencies waits for them), and merges what a finished child changed into the
- * parent's working tree. The core offers the `agents` tool (core/subagents/extension.ts), makes the child sessions
+ * parent's working tree. The core offers the `agents` tool (extensions/subagents/index.ts), makes the child sessions
  * (child-session.ts: same credentials, the parent's settings and approvals) and keeps the engine that is live
  * (registry.ts). Without an engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON
  * modes) the tool is not offered.

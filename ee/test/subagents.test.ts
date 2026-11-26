@@ -495,6 +495,78 @@ describe("sub-agent engine", () => {
 		expect(result.usage.cost.total).toBeCloseTo(1.2, 12);
 	});
 
+	it("starts no child when the session's budget is already reached", async () => {
+		const root = repo();
+		const host = fakeHost(root, { a: writes({ "a.txt": "x\n" }), b: writes({}) }, () => true);
+		const result = await new SubagentEngineImpl().run(
+			{ toolCallId: "c", agents: specs({ label: "a", task: "a" }, { label: "b", task: "b", depends_on: ["a"] }) },
+			host,
+		);
+		expect(result.agents.map((agent) => [agent.label, agent.status, agent.summary])).toEqual([
+			["a", "stopped", "Stopped: the session's budget is reached."],
+			["b", "stopped", "Stopped: the session's budget is reached."],
+		]);
+		expect(host.children.size).toBe(0);
+		expect(statusLog(host)).toEqual([
+			"started:a:queued",
+			"started:b:queued",
+			"finished:a:stopped",
+			"finished:b:stopped",
+		]);
+		expect(result.usage).toEqual(emptyUsage());
+		expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a1\na2\na3\n");
+		expect(git(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
+	});
+
+	it("asks the budget again before each child starts", async () => {
+		const root = repo();
+		let reached = false;
+		const host = fakeHost(
+			root,
+			{
+				a: async (child) => {
+					child.setUsage(usageOf(0.01));
+					// Reached after this child's last usage report, as when other spend crosses the cap meanwhile.
+					reached = true;
+					return { status: "done", summary: "a done" };
+				},
+				b: writes({ "b.txt": "x\n" }),
+			},
+			() => reached,
+		);
+		const result = await new SubagentEngineImpl({ maxParallel: 1 }).run(
+			{ toolCallId: "c", agents: specs({ label: "a", task: "a" }, { label: "b", task: "b" }) },
+			host,
+		);
+		expect(result.agents.map((agent) => [agent.label, agent.status, agent.summary])).toEqual([
+			["a", "done", "a done"],
+			["b", "stopped", "Stopped: the session's budget is reached."],
+		]);
+		expect([...host.children.values()].map((child) => child.options.label)).toEqual(["a"]);
+		expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b1\n");
+	});
+
+	it("ends a child whose session could not be made as failed and runs the others", async () => {
+		const root = repo();
+		// No script for "broken": the host's startChild rejects, as for an unknown model.
+		const host = fakeHost(root, { a: writes({ "a-new.txt": "a\n" }), c: writes({ "c-new.txt": "c\n" }) });
+		const result = await new SubagentEngineImpl().run(
+			{
+				toolCallId: "c",
+				agents: specs({ label: "a", task: "a" }, { label: "broken", task: "b" }, { label: "c", task: "c" }),
+			},
+			host,
+		);
+		const byLabel = Object.fromEntries(result.agents.map((agent) => [agent.label, agent]));
+		expect(byLabel.broken).toMatchObject({ status: "failed", summary: "Could not run: no script for broken" });
+		expect(byLabel.broken!.keptWorktree).toBeUndefined();
+		expect(byLabel.a).toMatchObject({ status: "done", merged: true });
+		expect(byLabel.c).toMatchObject({ status: "done", merged: true });
+		expect(existsSync(join(root, "a-new.txt"))).toBe(true);
+		expect(existsSync(join(root, "c-new.txt"))).toBe(true);
+		expect(git(root, "worktree", "list").trim().split("\n")).toHaveLength(1);
+	});
+
 	it("stops the children when the parent's run is stopped", async () => {
 		const root = repo();
 		const host = fakeHost(root, {
