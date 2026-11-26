@@ -893,7 +893,7 @@ describe("sub-agents through the gate, the ee module and real child sessions", (
 			(message) => message.role === "toolResult" && message.toolName === AGENTS_TOOL,
 		);
 		if (result?.role !== "toolResult") throw new Error("no agents result");
-		const agents = (result.details as { agents: SubagentInfo[] }).agents;
+		const agents = (result.details as unknown as { agents: SubagentInfo[] }).agents;
 		expect(agents.map((agent) => [agent.label, agent.status, agent.merged, agent.model?.id])).toEqual([
 			["docs", "done", true, "small"],
 			["tests", "done", true, "small"],
