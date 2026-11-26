@@ -105,10 +105,12 @@ export class FakeConnect {
 	/**
 	 * Hands' model proxy door for the Fingers CLI (hands.yaml "Model calls from the Fingers CLI") on the same API
 	 * origin: a person's token for `hands` is required; the call then goes to `handsUpstream` (a fake provider) with
-	 * the provider key added here, as Hands adds the leased key. `handsRefusal` answers instead, as Hands refuses.
+	 * the provider key added here, as Hands adds the leased key, and only the request headers Hands passes
+	 * (hands providers.ts PASSED_REQUEST_HEADERS). `handsRefusal` answers instead, as Hands refuses; Hands' own 401s
+	 * carry `WWW-Authenticate: Bearer realm="hands"`.
 	 */
 	handsUpstream: string | undefined;
-	handsRefusal: { status: number; body: Record<string, unknown> } | undefined;
+	handsRefusal: { status: number; body: Record<string, unknown>; headers?: Record<string, string> } | undefined;
 	/** The provider key the fake Hands adds upstream: it must never reach Fingers, a file or a log. */
 	readonly handsProviderKey = `sk-ant-api03-${randomBytes(16).toString("hex")}`;
 
@@ -379,6 +381,7 @@ export class FakeConnect {
 
 	private async handsDoor(req: IncomingMessage, res: ServerResponse, body: string, rest: string): Promise<void> {
 		if (!this.bearerFor(req, "hands")) {
+			res.setHeader("www-authenticate", 'Bearer realm="hands"');
 			json(res, 401, {
 				type: "error",
 				error: { type: "authentication_error", message: "A Connect access token for Hands is required." },
@@ -386,6 +389,7 @@ export class FakeConnect {
 			return;
 		}
 		if (this.handsRefusal) {
+			for (const [name, value] of Object.entries(this.handsRefusal.headers ?? {})) res.setHeader(name, value);
 			json(res, this.handsRefusal.status, this.handsRefusal.body);
 			return;
 		}
@@ -393,9 +397,15 @@ export class FakeConnect {
 			json(res, 503, { type: "error", error: { type: "overloaded_error", message: "no upstream" } });
 			return;
 		}
+		const passed: Record<string, string> = {};
+		for (const name of ["accept", "anthropic-version", "anthropic-beta", "openai-beta", "user-agent"]) {
+			const value = req.headers[name];
+			if (typeof value === "string") passed[name] = value;
+		}
 		const upstream = await fetch(`${this.handsUpstream}${rest}`, {
 			method: req.method,
 			headers: {
+				...passed,
 				"content-type": "application/json",
 				"x-api-key": this.handsProviderKey,
 				authorization: `Bearer ${this.handsProviderKey}`,

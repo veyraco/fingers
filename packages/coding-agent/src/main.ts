@@ -928,7 +928,7 @@ export async function main(args: string[], options?: MainOptions) {
 					sessionManager
 						.buildSessionContext()
 						.messages.some((message) => message.role === "assistant" && isConnectionProviderId(message.provider)),
-				offline: process.env.FINGERS_OFFLINE !== undefined,
+				offline: isTruthyEnvFlag(process.env.FINGERS_OFFLINE),
 			});
 			if (warning) diagnostics.push({ type: "warning", message: warning });
 		}

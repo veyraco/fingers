@@ -30,6 +30,7 @@ import { InMemorySecretStore } from "../src/core/os-keychain.ts";
 import {
 	connectionErrorText,
 	createConnectionProvider,
+	fingersOffline,
 	namesModelConnection,
 	prepareModelConnections,
 	VeyraModelConnections,
@@ -42,6 +43,7 @@ import {
 	PROXY_ROUTES,
 	parseModelConnections,
 } from "../src/core/veyra/model-connections.ts";
+import { VeyraApiError } from "../src/core/veyra/oidc-client.ts";
 import { openVeyraSessionVault } from "../src/core/veyra/session-vault.ts";
 import { VeyraAuth } from "../src/core/veyra/veyra-auth.ts";
 import { createVeyraLog } from "../src/core/veyra/veyra-log.ts";
@@ -140,6 +142,23 @@ const NOT_FOR_HANDS = { ...CLAUDE, id: "mc_nohands", name: "No Hands", apps: ["f
 const BEDROCK = { ...CLAUDE, id: "mc_bedrock", provider: "anthropic_bedrock", name: "Anthropic on Bedrock" };
 const ADMINS_ONLY = { ...CLAUDE, id: "mc_admins", name: "Admins", groups: ["grp_admin"] };
 const REJECTED = { ...CLAUDE, id: "mc_rejected", name: "Old key", status: "key_rejected" };
+/** Connect's answer for a subscription sign-in (connect src/models/views.ts connectionBody): no key hint. */
+const CLAUDE_MAX = {
+	id: "mc_claude_max",
+	provider: "anthropic",
+	auth: "subscription",
+	account: "ada@acme.example",
+	name: "Claude Max",
+	apps: ["hands", "fingers"],
+	groups: [],
+	capabilities: ["chat"],
+	models: ["claude-sonnet-4-5", "claude-opus-4-1"],
+	status: "ok",
+	created_at: "2026-11-26T10:00:00Z",
+};
+const CHATGPT = { ...CLAUDE_MAX, id: "mc_chatgpt", provider: "openai", name: "ChatGPT Pro" };
+const SUPERGROK = { ...CLAUDE_MAX, id: "mc_grok", provider: "xai", name: "SuperGrok" };
+const KIMI_CODE = { ...CLAUDE_MAX, id: "mc_kimi", provider: "kimi", name: "Kimi Code" };
 
 async function startFake(): Promise<FakeConnect> {
 	fake = await new FakeConnect({ resources: ["connect", "hands"] }).start();
@@ -271,6 +290,28 @@ describe("which connections Fingers offers", () => {
 		);
 	});
 
+	it("offers a Claude subscription, but not subscriptions Hands relays to API-key endpoints", () => {
+		const parsed = parseModelConnections({
+			data: [CLAUDE_MAX, CHATGPT, SUPERGROK, KIMI_CODE, { ...CLAUDE, id: "mc_future", auth: "workload_identity" }],
+		});
+		expect(parsed[0]).toMatchObject({ auth: "subscription", models: ["claude-sonnet-4-5", "claude-opus-4-1"] });
+		// A list without `auth` (an older Connect) means API keys.
+		expect(parseModelConnections({ data: [CLAUDE] })[0]).toMatchObject({ auth: "api_key", models: [] });
+
+		const classified = classifyModelConnections(parsed, { group: "grp_editor" });
+
+		expect(classified.offered.map((entry) => entry.providerId)).toEqual(["veyra-mc_claude_max"]);
+		expect(classified.notOffered.map((entry) => [entry.connection.id, entry.reason])).toEqual([
+			["mc_chatgpt", "subscription"],
+			["mc_grok", "subscription"],
+			["mc_kimi", "subscription"],
+			["mc_future", "subscription"],
+		]);
+		expect(modelConnectionsSummary({ offered: [], notOffered: classified.notOffered.slice(0, 1) }).text).toBe(
+			"No model connection from Connect is usable here: ChatGPT Pro (its subscription sign-in is not relayed yet).",
+		);
+	});
+
 	it("names from Connect can't reach the terminal with escapes", () => {
 		const classified = classifyModelConnections(
 			parseModelConnections({ data: [{ ...CLAUDE, name: "Evil\u001b]52;c;eA==\u0007" }] }),
@@ -309,6 +350,9 @@ describe("model calls through Hands' proxy", () => {
 		const token = String(door?.headers.authorization).replace(/^Bearer /, "");
 		expect(connect.issuedSecrets).toContain(token);
 		expect(door?.headers["x-api-key"]).toBeUndefined();
+		// An API-key connection is called the API-key way: no subscription betas, no Claude Code identity.
+		expect(String(door?.headers["anthropic-beta"] ?? "")).not.toContain("oauth-2025-04-20");
+		expect(JSON.stringify(upstream.requests[0]?.body.system ?? "")).not.toContain("You are Claude Code");
 		expect(connect.refreshesByAudience.get("hands")).toBe(1);
 		// Only Hands adds the key.
 		expect(upstream.requests[0]?.headers["x-api-key"]).toBe(connect.handsProviderKey);
@@ -342,6 +386,91 @@ describe("model calls through Hands' proxy", () => {
 		const [door] = doorRequests(connect);
 		expect(door?.path).toBe("/hands/v1/model-proxy/mc_router/openai/chat/completions");
 		expect(connect.issuedSecrets).toContain(String(door?.headers.authorization).replace(/^Bearer /, ""));
+	});
+
+	it("calls a Claude subscription connection as a Claude subscription, with the person's Hands token", async () => {
+		const connect = await startFake();
+		connect.modelConnections = [CLAUDE_MAX];
+		const upstream = fakeAnthropic("hello from the subscription");
+		connect.handsUpstream = await listen(upstream.server);
+		const auth = await signedIn(connect);
+		const models = await runtime();
+		const connections = new VeyraModelConnections();
+		await connections.load(auth);
+		expect(await connections.applyNow(models)).toEqual(["veyra-mc_claude_max"]);
+		const model = models.getModels("veyra-mc_claude_max").find((entry) => entry.id === "claude-sonnet-4-5")!;
+		const tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: {} } };
+
+		const result = await models.complete(model, {
+			systemPrompt: "Be brief.",
+			...userContext("hi"),
+			tools: [tool],
+		} as never);
+
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.content).toEqual([{ type: "text", text: "hello from the subscription" }]);
+		const [door] = doorRequests(connect);
+		expect(door?.path).toBe("/hands/v1/model-proxy/mc_claude_max/anthropic/v1/messages");
+		// The subscription betas reach the door (and Hands passes them on); the marker key does not.
+		const betas = String(door?.headers["anthropic-beta"]).split(",");
+		expect(betas).toEqual(expect.arrayContaining(["oauth-2025-04-20", "claude-code-20250219"]));
+		expect(upstream.requests[0]?.headers["anthropic-beta"]).toBe(door?.headers["anthropic-beta"]);
+		const token = String(door?.headers.authorization).replace(/^Bearer /, "");
+		expect(connect.issuedSecrets).toContain(token);
+		expect(door?.headers["x-api-key"]).toBeUndefined();
+		expect(JSON.stringify(door?.headers)).not.toContain("sk-ant-oat");
+		// Anthropic requires the Claude Code identity first and Claude Code's tool names of a subscription token.
+		const body = upstream.requests[0]!.body as { system: Array<{ text: string }>; tools: Array<{ name: string }> };
+		expect(body.system[0]?.text).toBe("You are Claude Code, Anthropic's official CLI for Claude.");
+		expect(body.system.map((block) => block.text)).toContain("Be brief.");
+		expect(body.tools.map((entry) => entry.name)).toEqual(["Read"]);
+		expect((await models.listCredentials()).map((entry) => entry.providerId)).toEqual([]);
+	});
+
+	it("tells a provider's refusal of the connection's credential from Hands refusing the sign-in", async () => {
+		const connect = await startFake();
+		connect.modelConnections = [CLAUDE];
+		const upstream = startFakeAnthropic([
+			{
+				content: [],
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "error",
+				error: {
+					status: 401,
+					body: JSON.stringify({
+						type: "error",
+						error: { type: "authentication_error", message: "invalid x-api-key" },
+					}),
+				},
+			},
+		]);
+		servers.push(upstream.server);
+		connect.handsUpstream = await listen(upstream.server);
+		const auth = await signedIn(connect);
+		const models = await runtime();
+		const connections = new VeyraModelConnections();
+		await connections.load(auth);
+		await connections.applyNow(models);
+		const model = models.getModels("veyra-mc_claude")[0]!;
+
+		const byProvider = await models.complete(model, userContext("hi"));
+		expect(byProvider.errorMessage).toBe(
+			"Veyra model connection “Claude”: the provider refused the connection's key or sign-in (invalid x-api-key). Ask an admin of your organization to test the connection in Connect.",
+		);
+
+		// Hands' own 401 (hands proxy.ts: the token was rejected), with its realm.
+		connect.handsRefusal = {
+			status: 401,
+			headers: { "www-authenticate": 'Bearer realm="hands", error="invalid_token"' },
+			body: {
+				type: "error",
+				error: { type: "authentication_error", message: "The access token was rejected (member_suspended)." },
+			},
+		};
+		const byHands = await models.complete(model, userContext("hi"));
+		expect(byHands.errorMessage).toBe(
+			"Veyra model connection “Claude”: Hands did not take your Veyra sign-in (The access token was rejected (member_suspended).). Run fingers login again.",
+		);
 	});
 
 	it("a group without models:use gets a clear error, which is not retried", async () => {
@@ -536,6 +665,26 @@ describe("the connection provider", () => {
 			),
 		).toBeUndefined();
 		expect(connectionErrorText("Claude", "503 Hands can't reach Connect")).toBeUndefined();
+		// A 401 whose answer the call did not see: Hands' own texts are Hands', anything else is the provider's.
+		expect(
+			connectionErrorText(
+				"Claude",
+				'401 {"type":"error","error":{"type":"authentication_error","message":"The access token is not valid."}}',
+			),
+		).toContain("Hands did not take your Veyra sign-in");
+		expect(
+			connectionErrorText(
+				"Claude",
+				'401 {"type":"error","error":{"type":"authentication_error","message":"The access token is not valid."}}',
+				"provider",
+			),
+		).toContain("the provider refused the connection's key or sign-in");
+		expect(
+			connectionErrorText(
+				"Claude",
+				'401 {"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}',
+			),
+		).toContain("the provider refused the connection's key or sign-in");
 		// A status inside the body is not the answer's.
 		expect(connectionErrorText("Claude", '400 {"error":{"message":"request 403 too long"}}')).toBeUndefined();
 		expect(
@@ -592,6 +741,31 @@ describe("start and sign-out", () => {
 		expect(later.getModels("veyra-mc_claude")).toEqual([]);
 	});
 
+	it("a sign-in to another organization drops the previous organization's connections, also when its list fails", async () => {
+		let org = "org_7aR2cT";
+		let answer: () => Promise<unknown> = async () => ({ data: [CLAUDE] });
+		const auth = {
+			account: () => ({ org, group: "grp_editor" }) as never,
+			listModelConnections: () => answer(),
+			apiBaseUrl: () => "https://api.veyra.localhost/hands/v1",
+			getAccessToken: async () => "hands-token",
+		};
+		const models = await runtime();
+		const connections = new VeyraModelConnections();
+		await connections.load(auth);
+		connections.apply(models);
+		expect(models.getModels("veyra-mc_claude").length).toBeGreaterThan(0);
+
+		org = "org_9Zb4Qe";
+		answer = async () => {
+			throw new VeyraApiError(503, "unavailable", "Down");
+		};
+		await expect(connections.load(auth)).rejects.toBeInstanceOf(ModelConnectionsError);
+
+		expect(connections.list).toBeUndefined();
+		expect(models.getModels("veyra-mc_claude")).toEqual([]);
+	});
+
 	it("a start whose Connect can't answer says so and goes on", async () => {
 		const connect = await startFake();
 		connect.modelConnectionsAnswer = { status: 503, body: { status: 503, code: "unavailable", title: "Down" } };
@@ -604,6 +778,15 @@ describe("start and sign-out", () => {
 		expect(warning).toBe(
 			"Veyra model connections not loaded: Connect could not list model connections (503 unavailable: Down).",
 		);
+	});
+
+	it("reads FINGERS_OFFLINE as main.ts does: 0 or empty is not offline", () => {
+		expect(fingersOffline({ FINGERS_OFFLINE: "1" })).toBe(true);
+		expect(fingersOffline({ FINGERS_OFFLINE: "TRUE" })).toBe(true);
+		expect(fingersOffline({ FINGERS_OFFLINE: "yes" })).toBe(true);
+		expect(fingersOffline({ FINGERS_OFFLINE: "0" })).toBe(false);
+		expect(fingersOffline({ FINGERS_OFFLINE: "" })).toBe(false);
+		expect(fingersOffline({})).toBe(false);
 	});
 
 	it("recognises Veyra connection references", () => {

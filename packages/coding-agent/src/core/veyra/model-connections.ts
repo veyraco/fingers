@@ -13,6 +13,10 @@
  *
  * A connection is offered only when Hands can relay it for Fingers: `apps` lists both `fingers` and `hands`, its
  * provider is one Hands' proxy speaks, its key was not rejected, and its `groups` (when set) name the person's group.
+ * A subscription connection (`auth: subscription`, a sign-in instead of an API key) is offered only for Anthropic
+ * (Claude Pro/Max), which Fingers then calls as a Claude subscription (connection-provider.ts). Hands relays every
+ * other provider to its API-key endpoint, where a ChatGPT, SuperGrok or Kimi Code sign-in does not work, so those
+ * subscriptions are listed as not offered until Hands relays them to their subscription backends.
  * Connect's `models:use` and Fingers' `cli:use` are decided by Hands on every call; a refusal comes back as a clear
  * error on that call (connection-provider.ts).
  */
@@ -29,6 +33,11 @@ export interface ProxyRoute {
 	fingersProvider: string;
 	/** Shown when the connection's own name does not say it. */
 	label: string;
+	/**
+	 * Whether a subscription sign-in of this provider works through Hands: Hands sends a Claude subscription's token
+	 * to Anthropic's API (hands providers.ts upstreamAuthHeaders), but relays the others to API-key endpoints.
+	 */
+	subscription: boolean;
 }
 
 /**
@@ -37,27 +46,41 @@ export interface ProxyRoute {
  * lists no models for an OpenAI-compatible endpoint.
  */
 export const PROXY_ROUTES: Readonly<Record<string, ProxyRoute>> = {
-	anthropic: { wire: "anthropic", fingersProvider: "anthropic", label: "Anthropic" },
-	openai: { wire: "openai", fingersProvider: "openai", label: "OpenAI" },
-	google: { wire: "google", fingersProvider: "google", label: "Google Gemini" },
-	openrouter: { wire: "openai", fingersProvider: "openrouter", label: "OpenRouter" },
-	xai: { wire: "openai", fingersProvider: "xai", label: "xAI" },
-	kimi: { wire: "openai", fingersProvider: "moonshotai", label: "Moonshot Kimi" },
+	anthropic: { wire: "anthropic", fingersProvider: "anthropic", label: "Anthropic", subscription: true },
+	openai: { wire: "openai", fingersProvider: "openai", label: "OpenAI", subscription: false },
+	google: { wire: "google", fingersProvider: "google", label: "Google Gemini", subscription: false },
+	openrouter: { wire: "openai", fingersProvider: "openrouter", label: "OpenRouter", subscription: false },
+	xai: { wire: "openai", fingersProvider: "xai", label: "xAI", subscription: false },
+	kimi: { wire: "openai", fingersProvider: "moonshotai", label: "Moonshot Kimi", subscription: false },
 };
 
 /** A connection as Connect lists it (connect.yaml `ModelConnection`); key values are never returned. */
 export interface ModelConnection {
 	id: string;
 	provider: string;
+	/**
+	 * How the connection holds the provider's credentials (Connect `auth`): `api_key`, or `subscription` for a
+	 * subscription sign-in (Claude Pro/Max, ChatGPT, …). A list without it is read as `api_key`.
+	 */
+	auth: string;
 	name: string;
 	apps: string[];
 	groups: string[];
 	capabilities: string[];
+	/** The model ids Connect's last test of the connection found (Connect `models`), empty when not tested. */
+	models: string[];
 	status?: string;
 	keyHint?: string;
 }
 
-export type NotOfferedReason = "not_for_fingers" | "not_for_hands" | "provider" | "key_rejected" | "group" | "chat";
+export type NotOfferedReason =
+	| "not_for_fingers"
+	| "not_for_hands"
+	| "provider"
+	| "subscription"
+	| "key_rejected"
+	| "group"
+	| "chat";
 
 export interface OfferedConnection {
 	connection: ModelConnection;
@@ -131,10 +154,12 @@ export function parseModelConnections(body: unknown): ModelConnection[] {
 		connections.push({
 			id,
 			provider,
+			auth: text(value.auth) ?? "api_key",
 			name: text(value.name) ?? id,
 			apps: strings(value.apps),
 			groups: strings(value.groups),
 			capabilities: strings(value.capabilities),
+			models: strings(value.models),
 			status: text(value.status),
 			keyHint: text(value.key_hint),
 		});
@@ -156,7 +181,9 @@ export function classifyModelConnections(
 		if (!connection.apps.includes("fingers")) reason = "not_for_fingers";
 		else if (!connection.apps.includes("hands")) reason = "not_for_hands";
 		else if (!route) reason = "provider";
-		else if (connection.capabilities.length > 0 && !connection.capabilities.includes("chat")) reason = "chat";
+		else if (connection.auth !== "api_key" && !(connection.auth === "subscription" && route.subscription)) {
+			reason = "subscription";
+		} else if (connection.capabilities.length > 0 && !connection.capabilities.includes("chat")) reason = "chat";
 		else if (connection.status === "key_rejected") reason = "key_rejected";
 		else if (connection.groups.length > 0 && (!account.group || !connection.groups.includes(account.group))) {
 			reason = "group";
@@ -218,6 +245,7 @@ const REASON_TEXT: Readonly<Record<NotOfferedReason, string>> = {
 	not_for_fingers: "not open to Fingers",
 	not_for_hands: "not open to Hands, which relays the calls",
 	provider: "provider not relayed yet",
+	subscription: "its subscription sign-in is not relayed yet",
 	chat: "no chat models",
 	key_rejected: "its key was rejected",
 	group: "not for your group",

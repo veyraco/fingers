@@ -8,11 +8,17 @@
  * - Requests: the built-in provider's request code, with `Authorization: Bearer <the person's Hands token>` from
  *   VeyraAuth on every call (refreshed by VeyraAuth when it nears its end). No key is ever held: the provider has no
  *   stored or runtime credential, nothing goes to auth.json or models.json.
+ * - Subscriptions: an Anthropic subscription connection (Claude Pro/Max) runs the anthropic client in its
+ *   subscription mode (the OAuth betas, the Claude Code system identity and tool names), which Anthropic requires of
+ *   a subscription token; Hands adds that token upstream. The client takes the mode from a marker key, never sent:
+ *   the Hands token in Authorization replaces the client's own auth header.
  * - The provider id: requests run under the built-in provider's id, so its provider-specific request shapes (OpenRouter
  *   routing, xAI and Moonshot compat, thinking signatures) apply; answers carry the connection's provider id, so the
  *   session, `/model` and cost records name the Veyra connection.
  * - Errors: a refusal by Hands or Connect (401, 403, 404) says which connection and what to do; other errors pass
- *   unchanged so retry and context-overflow handling still read them.
+ *   unchanged so retry and context-overflow handling still read them. A 401 is Hands' own only when it carries
+ *   Hands' `WWW-Authenticate: Bearer realm="hands"` (Hands passes no provider WWW-Authenticate back); any other 401
+ *   is the provider refusing the connection's key or sign-in.
  */
 import {
 	type Api,
@@ -49,6 +55,22 @@ export type HandsTokenSource = (signal?: AbortSignal) => Promise<string>;
 /** Sent where a provider client insists on an API key but Hands takes the person's token from Authorization. */
 const NO_KEY = "veyra-hands";
 
+/**
+ * The key the anthropic client gets for a subscription connection: it holds `sk-ant-oat`, so the client takes its
+ * subscription mode (anthropic-messages.ts isOAuthToken). It is not a credential and never leaves Fingers: the
+ * Authorization header of the request options replaces the client's own.
+ */
+const SUBSCRIPTION_MODE_KEY = "sk-ant-oat-veyra-hands-subscription";
+
+/** Hands' own 401s carry this challenge (hands proxy.ts PERSON_REALM); a provider's 401 relayed by Hands does not. */
+const HANDS_REALM = /realm="hands"/i;
+
+/** True when FINGERS_OFFLINE asks for offline mode ("1", "true", "yes"), as main.ts reads it. */
+export function fingersOffline(env: NodeJS.ProcessEnv = process.env): boolean {
+	const value = env.FINGERS_OFFLINE?.toLowerCase();
+	return value === "1" || value === "true" || value === "yes";
+}
+
 let rawBuiltins: Map<string, Provider> | undefined;
 
 /** The built-in provider `id` as Fingers ships it, without models.json or extension overlays. */
@@ -62,20 +84,51 @@ function withoutHeader(headers: ProviderHeaders | undefined, name: string): Prov
 	return Object.fromEntries(Object.entries(headers ?? {}).filter(([key]) => key.toLowerCase() !== lower));
 }
 
-/** The request options for `wire` with the person's token: Hands reads only `Authorization: Bearer`. */
-function authorized<T extends StreamOptions>(options: T | undefined, wire: ProxyWire, token: string): T {
+/**
+ * The request options for `wire` with the person's token: Hands reads only `Authorization: Bearer`. `subscription`
+ * (Anthropic only) puts the anthropic client in its subscription mode.
+ */
+function authorized<T extends StreamOptions>(
+	options: T | undefined,
+	wire: ProxyWire,
+	token: string,
+	subscription: boolean,
+): T {
 	const headers = withoutHeader(withoutHeader(options?.headers, "authorization"), "x-api-key");
 	const bearer = `Bearer ${token}`;
 	switch (wire) {
 		// The OpenAI clients send their key as `Authorization: Bearer`.
 		case "openai":
 			return { ...(options ?? ({} as T)), apiKey: token, headers };
-		// Anthropic: header-owned auth (no x-api-key). Gemini's client needs a key; Hands drops x-goog-api-key.
+		// Anthropic: header-owned auth (no x-api-key); a subscription runs the client's subscription mode, whose
+		// own Authorization the header here replaces (request option headers merge last). Gemini's client needs a
+		// key; Hands drops x-goog-api-key.
 		case "anthropic":
-			return { ...(options ?? ({} as T)), apiKey: undefined, headers: { ...headers, Authorization: bearer } };
+			return {
+				...(options ?? ({} as T)),
+				apiKey: subscription ? SUBSCRIPTION_MODE_KEY : undefined,
+				headers: { ...headers, Authorization: bearer },
+			};
 		case "google":
 			return { ...(options ?? ({} as T)), apiKey: NO_KEY, headers: { ...headers, Authorization: bearer } };
 	}
+}
+
+/** Who answered a 401: Hands itself (the sign-in), or the provider through Hands (the connection's credential). */
+export type RefusedBy = "hands" | "provider";
+
+/** Hands' own 401 texts (hands proxy.ts), for an error whose response the call could not see. */
+const HANDS_401_TEXT = /Connect access token for Hands|The access token (is not valid|was rejected)/;
+
+/** `options.fetch` (or the global one), noting who answered a 401: Hands itself or the provider through it. */
+function watchingFetch(options: StreamOptions | undefined, seen: { refusedBy?: RefusedBy }): typeof fetch {
+	return async (input, init) => {
+		const response = await (options?.fetch ?? globalThis.fetch)(input, init);
+		if (response.status === 401) {
+			seen.refusedBy = HANDS_REALM.test(response.headers.get("www-authenticate") ?? "") ? "hands" : "provider";
+		}
+		return response;
+	};
 }
 
 /** The context with this connection's earlier answers under the built-in provider's id (see the header). */
@@ -119,13 +172,15 @@ function parseProviderError(text: string): { status?: number; message?: string; 
  * The message the person sees for a failed call through this connection: refusals (401, 403, 404) say which
  * connection and what to do; anything else is returned unchanged (undefined).
  */
-export function connectionErrorText(name: string, errorMessage: string): string | undefined {
+export function connectionErrorText(name: string, errorMessage: string, refusedBy?: RefusedBy): string | undefined {
 	const { status, message, code } = parseProviderError(errorMessage);
 	if (!status) return undefined;
 	const label = `Veyra model connection “${connectText(name)}”`;
 	const detail = connectText(message ?? errorMessage).trim();
 	if (status === 401) {
-		return `${label}: Hands did not take your Veyra sign-in (${detail}). Run fingers login again.`;
+		const byHands = refusedBy === "hands" || (refusedBy === undefined && HANDS_401_TEXT.test(detail));
+		if (byHands) return `${label}: Hands did not take your Veyra sign-in (${detail}). Run fingers login again.`;
+		return `${label}: the provider refused the connection's key or sign-in (${detail}). Ask an admin of your organization to test the connection in Connect.`;
 	}
 	if (status === 403 && (code === "max_cost_reached" || /cost cap/i.test(detail))) return `${label}: ${detail}`;
 	if (status === 403) {
@@ -182,6 +237,7 @@ export function createConnectionProvider(options: ConnectionProviderOptions): Pr
 	const builtin = options.builtin ?? builtinProvider(builtinId);
 	if (!builtin) return undefined;
 	const wire = offered.route.wire;
+	const subscription = offered.connection.auth === "subscription";
 	const providerId = offered.providerId;
 	const baseUrl = proxyBaseUrl(options.handsApiBaseUrl, offered.connection.id, wire);
 	const name = offered.connection.name;
@@ -208,19 +264,20 @@ export function createConnectionProvider(options: ConnectionProviderOptions): Pr
 				out.end();
 				return;
 			}
+			const seen: { refusedBy?: RefusedBy } = {};
+			const refusedBy = (): RefusedBy | undefined => seen.refusedBy;
 			try {
-				const inner = start(
-					{ ...model, provider: builtinId, baseUrl },
-					asBuiltin(context, providerId, builtinId),
-					authorized(options, wire, bearer),
-				);
+				const inner = start({ ...model, provider: builtinId, baseUrl }, asBuiltin(context, providerId, builtinId), {
+					...authorized(options, wire, bearer, subscription),
+					fetch: watchingFetch(options, seen),
+				});
 				for await (const event of inner as AsyncIterable<AssistantMessageEvent>) {
 					if ("partial" in event) relabel(event.partial, builtinId, providerId);
 					if (event.type === "done") relabel(event.message, builtinId, providerId);
 					if (event.type === "error") {
 						relabel(event.error, builtinId, providerId);
 						const clear = event.error.errorMessage
-							? connectionErrorText(name, event.error.errorMessage)
+							? connectionErrorText(name, event.error.errorMessage, refusedBy())
 							: undefined;
 						if (clear) event.error.errorMessage = clear;
 					}
@@ -230,7 +287,7 @@ export function createConnectionProvider(options: ConnectionProviderOptions): Pr
 			} catch (error) {
 				const aborted = signal?.aborted === true;
 				const text = error instanceof Error ? error.message : String(error);
-				const failed = failedMessage(model, connectionErrorText(name, text) ?? text, aborted);
+				const failed = failedMessage(model, connectionErrorText(name, text, refusedBy()) ?? text, aborted);
 				out.push({ type: "error", reason: aborted ? "aborted" : "error", error: failed });
 				out.end();
 			}
@@ -283,6 +340,8 @@ export class VeyraModelConnections {
 
 	/** Ask Connect for the list (throws ModelConnectionsError, VeyraSignedOutError), then apply it everywhere. */
 	async load(auth: ConnectionsAuth, options: { signal?: AbortSignal } = {}): Promise<ModelConnectionsList> {
+		// Another organization's list goes first, so a failed load never leaves it in /model under this sign-in.
+		if (this.current && this.current.list.org !== (auth.account()?.org ?? "")) this.clear();
 		const list = await fetchModelConnections(auth, options);
 		this.current = { list, auth };
 		for (const ref of this.runtimes) {

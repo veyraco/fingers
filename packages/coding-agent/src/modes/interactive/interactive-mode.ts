@@ -154,7 +154,7 @@ import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { telemetryExporters } from "../../core/tracing/registry.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
-import { veyraModelConnections } from "../../core/veyra/connection-provider.ts";
+import { fingersOffline, veyraModelConnections } from "../../core/veyra/connection-provider.ts";
 import {
 	connectedAppsUrl,
 	createVeyraAuth,
@@ -6450,7 +6450,7 @@ export class InteractiveMode {
 	 */
 	private async loadModelConnections(): Promise<ModelConnectionsList | undefined> {
 		const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
-		if (!auth || process.env.FINGERS_OFFLINE) return undefined;
+		if (!auth || fingersOffline()) return undefined;
 		try {
 			const signal = AbortSignal.timeout(MODEL_CONNECTIONS_TIMEOUT_MS);
 			const list = await veyraModelConnections.load(auth, { signal });
@@ -6462,6 +6462,8 @@ export class InteractiveMode {
 			return list;
 		} catch (error) {
 			this.modelConnectionsProblem = connectErrorText(error);
+			// A load for another organization dropped the previous one's connections first: /model shows that.
+			void this.updateAvailableProviderCount();
 			return undefined;
 		}
 	}

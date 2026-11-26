@@ -163,12 +163,10 @@ function accountContext(auth: FakeAuth | undefined, options: { signedIn?: boolea
 
 /** The text of every line the context added to the chat, without styling. */
 function chatLines(context: AccountContext): string[] {
-	return (
-		context.chatContainer.addChild.mock.calls
-			.map(([component]) => (component as { text?: string }).text)
-			.filter((text): text is string => typeof text === "string")
-			.map((text) => text.replace(/\u001b\[[0-9;]*m/g, ""))
-	);
+	return context.chatContainer.addChild.mock.calls
+		.map(([component]) => (component as { text?: string }).text)
+		.filter((text): text is string => typeof text === "string")
+		.map((text) => text.replace(/\u001b\[[0-9;]*m/g, ""));
 }
 
 /** Every message the context showed, of any kind. */
@@ -435,8 +433,17 @@ describe("/login and the organization's model connections (F13, canvas FingersTu
 	const LIST: ModelConnectionsList = {
 		org: "org_7aR2cT",
 		offered: ["Claude", "OpenAI", "OpenRouter"].map((name, index) => ({
-			connection: { id: `mc_${index}`, provider: "anthropic", name, apps: [], groups: [], capabilities: [] },
-			route: { wire: "anthropic", fingersProvider: "anthropic", label: "Anthropic" },
+			connection: {
+				id: `mc_${index}`,
+				provider: "anthropic",
+				auth: "api_key",
+				name,
+				apps: [],
+				groups: [],
+				capabilities: [],
+				models: [],
+			},
+			route: { wire: "anthropic", fingersProvider: "anthropic", label: "Anthropic", subscription: true },
 			providerId: `veyra-mc_${index}`,
 			displayName: `${name} (Veyra)`,
 		})),
