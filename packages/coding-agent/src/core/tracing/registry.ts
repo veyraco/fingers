@@ -41,6 +41,19 @@ export class TelemetryExporters {
 		return live;
 	}
 
+	/** The console link of the last run's trace from the first live exporter that has one (Eyes). */
+	lastTraceLink(): string | undefined {
+		for (const exporter of this.active()) {
+			try {
+				const link = exporter.lastTraceLink?.();
+				if (link) return link;
+			} catch {
+				// An exporter's link is a nicety: a throwing one is skipped.
+			}
+		}
+		return undefined;
+	}
+
 	/** Send what every exporter has queued (a run ended, the session shuts down). Never rejects. */
 	async flush(): Promise<void> {
 		await Promise.all([...this.slots.values()].map((slot) => slot.exporter.flush?.().catch(() => {})));

@@ -47,6 +47,8 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		edition: "ee",
 	},
 	{ name: "budget", description: "set or view the task budget", argumentHint: "<dollars> | off" },
+	// Canvas FingersTuiSavings: the token-saving report. Core: prompt caching always, ee token saving when it is on.
+	{ name: "savings", description: "token-saving report: what each technique saved in this conversation" },
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },
 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },

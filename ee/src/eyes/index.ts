@@ -63,6 +63,7 @@ export class EyesTelemetry {
 		content: false,
 		export: (span) => this.export(span),
 		flush: () => this.flush(),
+		lastTraceLink: () => this.lastTraceLink(),
 	};
 
 	/** Called on every activation while `eyes` is on. */
