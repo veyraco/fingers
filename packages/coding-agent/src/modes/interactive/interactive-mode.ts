@@ -85,10 +85,12 @@ import {
 	EditionGate,
 	type EeFeatureId,
 	type EeFeatureState,
+	editionToolHooks,
 	formatFeatureList,
 	loadEeModule,
 	parseEeCommand,
 	SIGNED_OUT,
+	savingsLedger,
 } from "../../core/edition/index.ts";
 import type {
 	AutocompleteProviderFactory,
@@ -3930,6 +3932,7 @@ export class InteractiveMode {
 					this.autoCompactionEscapeHandler = undefined;
 				}
 				this.clearStatusIndicator("compaction");
+				if (!event.result) editionToolHooks.takeNotices();
 				if (event.aborted) {
 					if (event.reason === "manual") {
 						this.showError("Compaction cancelled");
@@ -3958,6 +3961,8 @@ export class InteractiveMode {
 							usage: event.result.usage,
 						});
 					}
+					// ee token saving's lines about this compaction (its saving against the estimate), after the redraw.
+					for (const notice of editionToolHooks.takeNotices()) this.showStatus(notice);
 					this.footer.invalidate();
 				} else if (event.errorMessage) {
 					if (event.reason === "manual") {
@@ -6382,7 +6387,12 @@ export class InteractiveMode {
 	// =========================================================================
 
 	private getEditionGate(): EditionGate {
-		this.editionGate ??= new EditionGate({ loadModule: () => loadEeModule() });
+		// ee features act on tool results through the built-in `edition` extension, which calls these hooks.
+		this.editionGate ??= new EditionGate({
+			loadModule: () => loadEeModule(),
+			toolHooks: editionToolHooks,
+			savings: savingsLedger,
+		});
 		return this.editionGate;
 	}
 

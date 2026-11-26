@@ -63,10 +63,18 @@ export {
 	EE_FEATURE_IDS,
 	type EeCommandContext,
 	type EeCommandHandler,
+	type EeCompactionOutcome,
+	type EeCompactionPreview,
+	type EeContextEdit,
+	type EeContextEntry,
+	type EeContextView,
 	type EeEntitlement,
 	type EeFeatureId,
 	type EeHost,
 	type EeModule,
+	type EeToolHooks,
+	type EeToolResult,
+	type EeToolResultChange,
 	isVeyraTier,
 	tierIncludes,
 	VEYRA_TIERS,
@@ -274,6 +282,16 @@ export type {
 export { DefaultPackageManager } from "./core/package-manager.ts";
 export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
+// The savings ledger token saving writes to (ee/ imports its types)
+export {
+	estimateTextTokens,
+	SAVINGS_TECHNIQUES,
+	type SavingsEntry,
+	SavingsLedger,
+	type SavingsRecord,
+	type SavingsTechnique,
+	type SavingsTotals,
+} from "./core/savings-ledger.ts";
 // SDK for programmatic usage
 export {
 	AgentSessionRuntime,

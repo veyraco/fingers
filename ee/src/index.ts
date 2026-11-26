@@ -6,15 +6,25 @@
  */
 import type { EeHost, EeModule } from "@veyraco/fingers";
 import { minimumTier, TIER_MATRIX_VERSION } from "./tier-matrix.ts";
+import { TokenSaving } from "./token-saving/index.ts";
 
 /** The core contract this module was built for (the core's EE_API_VERSION). */
-export const apiVersion = 1;
+export const apiVersion = 3;
 
 export const matrixVersion = TIER_MATRIX_VERSION;
 
 export { minimumTier };
 
+/** One per process: its read cache lives across entitlement checks and is cleared when the context is rebuilt. */
+export const tokenSaving = new TokenSaving();
+
 export function activate(host: EeHost): void {
+	if (host.isOn("token_saving")) {
+		tokenSaving.attach(host);
+		host.registerToolHooks("token_saving", tokenSaving.hooks);
+	} else {
+		tokenSaving.reset();
+	}
 	if (host.isOn("subagents")) {
 		// The sub-agents panel (start, watch, steer, stop) is Fingers item F19; until then /agents says it is on.
 		host.registerCommand("agents", (context) => {

@@ -7,8 +7,10 @@
  * `fingers` app on, Connect's tier is one Fingers knows, and the tier is at least the feature's minimum tier in the
  * ee module's tier matrix.
  */
+import type { SavingsLedger } from "../savings-ledger.ts";
 import { type EntitlementSource, resolveEntitlement } from "./entitlement.ts";
 import { EE_COMMANDS } from "./features.ts";
+import type { EditionToolHooks } from "./tool-hooks.ts";
 import {
 	EE_API_VERSION,
 	EE_FEATURE_IDS,
@@ -18,6 +20,7 @@ import {
 	type EeFeatureState,
 	type EeHost,
 	type EeModule,
+	type EeToolHooks,
 	isVeyraTier,
 	SIGNED_OUT,
 	tierIncludes,
@@ -50,8 +53,15 @@ export interface EditionGateOptions {
 	/** Finds and imports the ee module; undefined when this build has none (loader.ts by default). */
 	loadModule: () => Promise<EeModule | undefined>;
 	now?: () => number;
-	/** Told when the module failed to activate (it stays loaded, its commands are dropped). */
+	/** Told when the module failed to activate (it stays loaded, its commands and tool hooks are dropped). */
 	onActivateError?: (error: unknown) => void;
+	/**
+	 * Where the tool hooks of the features that are on go (the terminal app passes the process' hooks, which the
+	 * built-in `edition` extension calls). Without it ee registers commands only.
+	 */
+	toolHooks?: EditionToolHooks;
+	/** The savings ledger ee's token saving writes to. Without it savings are not recorded. */
+	savings?: SavingsLedger;
 }
 
 export class EditionGate {
@@ -136,9 +146,13 @@ export class EditionGate {
 
 	private activate(): void {
 		this.commands = new Map();
+		const toolHooks = this.options.toolHooks;
+		toolHooks?.clear();
 		const module = this.module;
 		if (!module) return;
 		const commands = new Map<string, EeCommandHandler>();
+		const hooks: { feature: EeFeatureId; hooks: EeToolHooks }[] = [];
+		const savings = this.options.savings;
 		const host: EeHost = {
 			apiVersion: EE_API_VERSION,
 			entitlement: this.current,
@@ -148,10 +162,20 @@ export class EditionGate {
 				if (!feature || !this.state(feature).on) return;
 				commands.set(name, handler);
 			},
+			registerToolHooks: (feature, featureHooks) => {
+				if (!(EE_FEATURE_IDS as readonly string[]).includes(feature) || !this.state(feature).on) return;
+				if (!featureHooks || typeof featureHooks !== "object") return;
+				hooks.push({ feature, hooks: featureHooks });
+			},
+			recordSaving: (entry) => {
+				if (!this.isOn()) return;
+				savings?.record(entry);
+			},
 		};
 		try {
 			module.activate(host);
 			this.commands = commands;
+			toolHooks?.set(hooks, (feature) => this.state(feature).on);
 		} catch (error) {
 			this.options.onActivateError?.(error);
 		}

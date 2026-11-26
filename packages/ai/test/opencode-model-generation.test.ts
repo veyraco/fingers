@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelsDevV2Model } from "../catalog/sources/models-dev.ts";
-import type { Api, Model } from "../src/types.ts";
+import { streamSimple } from "../src/compat.ts";
+import type { Api, FetchFunction, Model } from "../src/types.ts";
 import { writeUpstreamMock } from "./catalog-generation-utils.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -93,5 +94,53 @@ describe("OpenCode model generation", () => {
 		);
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain("models.dev lists no supported API for opencode/live (bidi-generate-content)");
+	});
+
+	// models.dev lists OpenCode Kimi K2.6 as deprecated (seen 2026-11-26), so the live catalog no longer
+	// lists it; its corrections stay covered against a fixture.
+	it("keeps the OpenCode Kimi K2.6 thinking and cache corrections", async () => {
+		const base = "https://example.test/zen";
+		const { result, models } = generateOpencodeModels([
+			{
+				...sourceModel("kimi-k2.6", { "chat-completions": { base_url: `${base}/openai/v1` } }),
+				capabilities: { tools: { supported: true }, reasoning: { supported: true, toggle: true } },
+			},
+		]);
+		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+
+		const model = models()["kimi-k2.6"];
+		expect(model.api).toBe("openai-completions");
+		expect(model.compat).toMatchObject({
+			// OpenCode Kimi K2.6 accepts Anthropic-style thinking objects and rejects reasoning_effort.
+			thinkingFormat: "deepseek",
+			supportsReasoningEffort: false,
+			maxTokensField: "max_tokens",
+			supportsLongCacheRetention: false,
+		});
+
+		// No request leaves the test: the payload is captured, then the fetch answers 400.
+		const fetch: FetchFunction = async () => new Response("{}", { status: 400 });
+		const payloadFor = async (reasoning?: "high") => {
+			let payload: { thinking?: unknown; reasoning_effort?: string } | undefined;
+			await streamSimple(
+				model,
+				{ messages: [{ role: "user", content: "Hi", timestamp: Date.now() }] },
+				{
+					apiKey: "test",
+					fetch,
+					...(reasoning ? { reasoning } : {}),
+					onPayload: (params) => {
+						payload = params as typeof payload;
+					},
+				},
+			).result();
+			return payload;
+		};
+		const off = await payloadFor();
+		expect(off?.thinking).toEqual({ type: "disabled" });
+		expect(off?.reasoning_effort).toBeUndefined();
+		const high = await payloadFor("high");
+		expect(high?.thinking).toEqual({ type: "enabled" });
+		expect(high?.reasoning_effort).toBeUndefined();
 	});
 });

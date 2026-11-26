@@ -233,6 +233,33 @@ describe("managed RPC checkpoints", () => {
 		expect(a.stderr.join("") + b.stderr.join("")).not.toContain(TOKEN);
 	});
 
+	it("a resumed session takes the system_prompt of the importing process's configure (F6c)", async () => {
+		const systemText = (request: { body: Rec }): string =>
+			typeof request.body.system === "string"
+				? request.body.system
+				: ((request.body.system ?? []) as Rec[]).map((block) => block.text).join("\n");
+		const box = sandbox();
+		const a = await startProcess(box, [text("Plan written.")]);
+		await a.configure({ system_prompt: "Instructions v1: write plans as numbered lists." });
+		await a.credentials();
+		await a.run("Write the plan.");
+		expect(systemText(a.anthropic.requests[0]!)).toContain("Instructions v1");
+		const path = join(box.checkpoints, "cp_sp.jsonl");
+		const checkpoint = (await a.command({ type: "checkpoint_export", path })).data.checkpoint;
+
+		const b = await startProcess(box, [text("Step 1 done.")]);
+		await b.configure({ system_prompt: "Instructions v2: answer in one line." });
+		await b.credentials();
+		const imported = await b.command({ type: "checkpoint_import", path, sha256: checkpoint.sha256, mode: "resume" });
+		expect(imported).toMatchObject({ success: true });
+		await b.run("Do step 1.");
+		const system = systemText(b.anthropic.requests[0]!);
+		expect(system).toContain("Instructions v2: answer in one line.");
+		expect(system).not.toContain("Instructions v1");
+		expect(system).toContain("running inside fingers");
+		expect(JSON.stringify(b.anthropic.requests[0]!.body.messages)).not.toContain("Instructions v");
+	});
+
 	it("import fork starts a new session at the given entry", async () => {
 		const box = sandbox();
 		const a = await startProcess(box, [text("First answer."), text("Second answer.")]);

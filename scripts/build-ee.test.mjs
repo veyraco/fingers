@@ -66,7 +66,8 @@ describe("build-ee", () => {
 		const outDir = join(tree({}), "ee");
 		assert.equal((await buildEe({ root: repoRoot, outDir })).built, true);
 		const loaded = await import(pathToFileURL(join(outDir, "index.js")).href);
-		assert.equal(loaded.apiVersion, 1);
+		// The core's EE_API_VERSION (3 since saving context's context hooks, F15).
+		assert.equal(loaded.apiVersion, 3);
 		assert.equal(typeof loaded.default.activate, "function");
 	});
 });

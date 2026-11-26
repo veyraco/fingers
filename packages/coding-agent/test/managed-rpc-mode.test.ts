@@ -514,6 +514,85 @@ describe("managed RPC policy through the stack", () => {
 	});
 });
 
+describe("managed RPC configure.system_prompt (F6c)", () => {
+	const INSTRUCTIONS = "You are the release engineer of Acme. Answer in haiku and sign every reply with ACME-REL-7.";
+	/** The system prompt text of one Anthropic request (`system` is a string or text blocks). */
+	const systemText = (request: { body: Rec }): string =>
+		typeof request.body.system === "string"
+			? request.body.system
+			: ((request.body.system ?? []) as Rec[]).map((block) => block.text).join("\n");
+	const userText = (request: { body: Rec }): string => JSON.stringify(request.body.messages);
+
+	it("sends the host's instructions as the system prompt of every model request, after Fingers' own prompt", async () => {
+		const m = await startManaged([
+			{ content: [{ type: "toolCall", id: "toolu_l", name: "ls", arguments: {} }], usage, stopReason: "toolUse" },
+			{ content: [{ type: "text", text: "Done." }], usage, stopReason: "stop" },
+		]);
+		const configured = await m.configure({
+			system_prompt: INSTRUCTIONS,
+			tools: { builtin: ["read", "ls"], approval: "never" },
+		});
+		expect(configured, JSON.stringify(configured)).toMatchObject({ success: true });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "look around" });
+		const [result] = await m.waitFor("result");
+		expect(result).toMatchObject({ status: "completed" });
+		expect(m.anthropic.requests).toHaveLength(2);
+		for (const request of m.anthropic.requests) {
+			const system = systemText(request);
+			expect(system).toContain(INSTRUCTIONS);
+			// Fingers' own prompt (identity, tools, rules) stays and comes first.
+			expect(system).toContain("running inside fingers");
+			expect(system.indexOf("running inside fingers")).toBeLessThan(system.indexOf(INSTRUCTIONS));
+			// Never in a user message.
+			expect(userText(request)).not.toContain(INSTRUCTIONS);
+		}
+		expect(userText(m.anthropic.requests[0]!)).toContain("look around");
+		// Logged by size only, never by content.
+		expect(m.stderr.join("")).not.toContain("ACME-REL-7");
+		const configuredLog = m.stderr.map((line) => JSON.parse(line)).find((line) => line.msg === "configured");
+		expect(configuredLog).toMatchObject({ system_prompt_chars: INSTRUCTIONS.length });
+		for (const out of m.outs) expect(validateOutbound(out), JSON.stringify(out)).toEqual([]);
+	});
+
+	it("uses the text verbatim, never as a file path", async () => {
+		const m = await startManaged([{ content: [{ type: "text", text: "ok" }], usage, stopReason: "stop" }]);
+		// A path to a file that exists (and is protected): its content must not reach the model.
+		const path = join(m.root, "private", "secret.txt");
+		await m.configure({ system_prompt: path });
+		await m.credentials();
+		await m.command({ type: "prompt", message: "hi" });
+		await m.waitFor("result");
+		const system = systemText(m.anthropic.requests[0]!);
+		expect(system).toContain(path);
+		expect(system).not.toContain("runner state");
+	});
+
+	it("without system_prompt, or with an empty one, sends Fingers' own system prompt only", async () => {
+		const prompts: string[] = [];
+		for (const extra of [{}, { system_prompt: "" }]) {
+			const m = await startManaged([{ content: [{ type: "text", text: "ok" }], usage, stopReason: "stop" }]);
+			await m.configure(extra);
+			await m.credentials();
+			await m.command({ type: "prompt", message: "hi" });
+			await m.waitFor("result");
+			prompts.push(systemText(m.anthropic.requests[0]!).replaceAll(m.root, "<root>"));
+			expect(prompts.at(-1)).toContain("running inside fingers");
+			expect(prompts.at(-1)).not.toContain("<addendum>");
+		}
+		expect(prompts[1]).toBe(prompts[0]);
+	});
+
+	it("fails configure when system_prompt is not text or too long", async () => {
+		for (const system_prompt of [["one", "two"], "x".repeat(200_001)]) {
+			const m = await startManaged([]);
+			const response = await m.configure({ system_prompt });
+			expect(response).toMatchObject({ success: false, code: "invalid_command" });
+			expect(m.anthropic.requests).toHaveLength(0);
+		}
+	});
+});
+
 describe("managed RPC limits", () => {
 	it("max_turns stops the run with agent_error after the turn", async () => {
 		const call = (id: string): ScriptedResponse => ({
