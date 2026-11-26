@@ -14,6 +14,7 @@
 ### Fixed
 
 - Managed RPC mode: `configure` with provider `openai-compatible` failed with "Unknown model" for every model id, because no catalog lists such a model. Fingers now builds the model from `configure.model.model_id` and points it at the `credentials` message's `base_url` (OpenAI chat completions, models.json custom-model defaults), with no catalog or models.json entry. A request before a `base_url` arrived fails instead of going to a default endpoint.
+- Default models: models.dev no longer lists Devstral Medium or Kimi K2.7 Code on Workers AI, so the `mistral` default named a model the catalog no longer has and Cloudflare Workers AI / AI Gateway had none. The defaults are now `mistral-medium-latest` and `@cf/zai-org/glm-5.3` (`workers-ai/@cf/zai-org/glm-5.3` through AI Gateway).
 
 ### Removed
 
