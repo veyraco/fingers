@@ -10,6 +10,12 @@
  * ones. Other web addresses are not fetched. Code blocks and inline code are skipped, and so are changelogs (they
  * record history, including paths that no longer exist).
  *
+ * Folders whose names start with "." are not scanned, except .github (pull request and issue templates).
+ *
+ * Open core: CI checks the MIT core once more with the ee/ folder deleted. When `<root>/ee` does not exist, a link to
+ * a path under ee/ (relative, or to this repository on GitHub) is not reported, because the published repository
+ * has it. When ee/ exists, every link into it is checked as usual.
+ *
  * Usage: node scripts/check-doc-links.mjs [root]
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -18,13 +24,15 @@ import { fileURLToPath } from "node:url";
 
 const IGNORED_DIRECTORIES = new Set([".git", ".wt", "coverage", "dist", "node_modules", "fixtures"]);
 const IGNORED_FILES = new Set(["CHANGELOG.md"]);
+const SCANNED_DOT_DIRECTORIES = new Set([".github"]);
 const OWN_REPOSITORY = /^https:\/\/github\.com\/veyraco\/fingers\/(?:blob|tree)\/main\/([^?#)\s]*)(#[^)\s]*)?$/;
 
 function* markdownFiles(directory) {
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
 		const path = join(directory, entry.name);
 		if (entry.isDirectory()) {
-			if (IGNORED_DIRECTORIES.has(entry.name) || entry.name.startsWith(".")) continue;
+			if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+			if (entry.name.startsWith(".") && !SCANNED_DOT_DIRECTORIES.has(entry.name)) continue;
 			yield* markdownFiles(path);
 		} else if (entry.isFile() && entry.name.endsWith(".md") && !IGNORED_FILES.has(entry.name)) {
 			yield path;
@@ -100,6 +108,12 @@ export function linksOf(text) {
 	return links;
 }
 
+/** True when `path` lies under `<root>/ee` and that folder is absent (the core checked without ee/). */
+function isUnderMissingEe(root, path) {
+	const ee = resolve(root, "ee");
+	return (path === ee || path.startsWith(ee + sep)) && !existsSync(ee);
+}
+
 /** Problems with one link of `file` (absolute path) inside `root`; an empty list when it is fine or not checked. */
 export function linkProblems(root, file, target, read = (path) => readFileSync(path, "utf8")) {
 	let path;
@@ -116,7 +130,10 @@ export function linkProblems(root, file, target, read = (path) => readFileSync(p
 		fragment = afterHash.length > 0 ? afterHash.join("#") : undefined;
 		path = pathPart === "" ? file : resolve(dirname(file), decodeURIComponent(pathPart));
 	}
-	if (!existsSync(path)) return [`${target}: ${relative(root, path) || "."} does not exist`];
+	if (!existsSync(path)) {
+		if (isUnderMissingEe(root, path)) return [];
+		return [`${target}: ${relative(root, path) || "."} does not exist`];
+	}
 	if (fragment === undefined || fragment === "" || !path.endsWith(".md") || !statSync(path).isFile()) return [];
 	const anchors = anchorsOf(read(path));
 	const wanted = decodeURIComponent(fragment).toLowerCase();

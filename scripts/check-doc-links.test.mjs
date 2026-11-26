@@ -1,6 +1,7 @@
 // The Markdown link check: a relative link or image to a missing file, or a #fragment that names no heading of the
 // target page, fails it; links to this repository on GitHub are checked like relative ones; code, other web
-// addresses and changelogs are not checked. The repository's own Markdown passes it.
+// addresses and changelogs are not checked. The repository's own Markdown passes it, with ee/ and without it (the
+// open-core CI job deletes ee/), and links into ee/ are still checked while ee/ exists.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -67,6 +68,7 @@ describe("findBrokenLinks", () => {
 				"<img src=\"missing.png\">",
 			].join("\n"),
 			"docs/index.md": "# Index\n",
+			"ee/README.md": "# Enterprise\n",
 		});
 		assert.deepEqual(findBrokenLinks(root), [
 			"README.md:2: docs/gone.md: docs/gone.md does not exist",
@@ -75,6 +77,31 @@ describe("findBrokenLinks", () => {
 			"README.md:5: https://github.com/veyraco/fingers/blob/main/ee/LICENSE: ee/LICENSE does not exist",
 			"README.md:6: https://github.com/veyraco/fingers/blob/main/docs/index.md#intro: no heading or anchor #intro in docs/index.md",
 			"README.md:7: missing.png: missing.png does not exist",
+		]);
+	});
+
+	it("accepts links into ee/ when the ee/ folder is deleted, and still reports other broken links", () => {
+		const links = [
+			"# Readme",
+			"[license](ee/LICENSE)",
+			"[ee](ee/README.md#enterprise)",
+			"[ee folder](ee)",
+			"[gh](https://github.com/veyraco/fingers/blob/main/ee/LICENSE)",
+			"[gh tree](https://github.com/veyraco/fingers/tree/main/ee/src)",
+			"[gone](docs/gone.md)",
+		].join("\n");
+		const root = repo({ "README.md": links, "docs/open-core.md": "# Open core\n[up](../ee/README.md)\n" });
+		assert.deepEqual(findBrokenLinks(root), ["README.md:7: docs/gone.md: docs/gone.md does not exist"]);
+	});
+
+	it("checks Markdown under .github but not other dot folders", () => {
+		const root = repo({
+			"README.md": "# R\n",
+			".github/PULL_REQUEST_TEMPLATE.md": "[guide](../CONTRIBUTING.md)\n",
+			".husky/notes.md": "[x](gone.md)\n",
+		});
+		assert.deepEqual(findBrokenLinks(root), [
+			".github/PULL_REQUEST_TEMPLATE.md:1: ../CONTRIBUTING.md: CONTRIBUTING.md does not exist",
 		]);
 	});
 
@@ -89,6 +116,10 @@ describe("findBrokenLinks", () => {
 
 	it("passes on this repository, and the command exits 1 on a broken link", () => {
 		assert.deepEqual(findBrokenLinks(repoRoot), []);
+		const withoutEe = repo({ "README.md": "# R\n[license](ee/LICENSE)\n" });
+		const ok = spawnSync(process.execPath, [script, withoutEe], { encoding: "utf8" });
+		assert.equal(ok.status, 0, ok.stderr);
+		assert.match(ok.stdout, /Markdown links OK/);
 		const root = repo({ "README.md": "[gone](gone.md)\n" });
 		const run = spawnSync(process.execPath, [script, root], { encoding: "utf8" });
 		assert.equal(run.status, 1);
