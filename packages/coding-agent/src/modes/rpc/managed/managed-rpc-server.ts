@@ -62,6 +62,8 @@ export interface ManagedConfigure {
 	traceparent?: string;
 	workspace: { root: string; protected_paths?: string[] };
 	model: { provider: string; model_id: string; thinking_level?: string };
+	/** The host's instructions (Hands: RunTask.instructions), added verbatim to the end of Fingers' system prompt. */
+	system_prompt?: string;
 	limits?: { max_cost_usd?: number; max_output_tokens?: number; max_duration_ms?: number; max_turns?: number };
 	tools?: { builtin?: string[]; approval?: ApprovalMode };
 	mcp_servers?: ManagedMcpServer[];
@@ -400,6 +402,8 @@ export class ManagedRpcServer {
 			workspace: this.policy.workspace.logical,
 			provider: configure.model.provider,
 			model: configure.model.model_id,
+			// The instructions themselves are never logged.
+			system_prompt_chars: configure.system_prompt?.length ?? 0,
 			approval: configure.tools?.approval ?? "write_tools",
 			mcp_servers: (configure.mcp_servers ?? []).map((server) => server.name),
 			builtin_tools: configure.tools?.builtin,

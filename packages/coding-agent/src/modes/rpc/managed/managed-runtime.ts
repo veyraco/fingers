@@ -2,7 +2,7 @@
  * The agent runtime managed mode builds after `configure`, under the fixed managed policy: no extension,
  * package, skill, prompt template or theme discovery, the project is never trusted (so a repository cannot
  * change settings or add MCP servers), no cache warming, and only the built-in MCP extension and the managed
- * extension are loaded. The session works in `workspace.root`.
+ * extension are loaded. The session works in `workspace.root`. `configure.system_prompt` ends the system prompt.
  */
 
 import { join } from "node:path";
@@ -43,6 +43,11 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 			(entry) => typeof entry !== "function" && MANAGED_BUILTIN_EXTENSIONS.has(entry.name),
 		);
 		const tools = [...(configure.tools?.builtin ?? DEFAULT_TOOL_NAMES), "mcp__*"];
+		// `configure.system_prompt` is added after any append prompt the loader found. It goes through the
+		// override, not `appendSystemPrompt`: the loader reads an `appendSystemPrompt` entry that names an
+		// existing file as that file, and the host's text must reach the model verbatim.
+		const hostSystemPrompt = configure.system_prompt;
+		const appendSystemPromptOverride = hostSystemPrompt ? (base: string[]) => [...base, hostSystemPrompt] : undefined;
 
 		const createRuntime: CreateAgentSessionRuntimeFactory = async ({
 			cwd: runtimeCwd,
@@ -76,6 +81,7 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 					noSkills: true,
 					noPromptTemplates: true,
 					noThemes: true,
+					appendSystemPromptOverride,
 					extensionFactories: [...builtin, extension] as InlineExtension[],
 				},
 			});
