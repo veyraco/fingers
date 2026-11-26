@@ -25,6 +25,7 @@ interface SubmitContext {
 	handleVeyraLogout: Mock;
 	showOAuthSelector: Mock;
 	handleOrgCommand: Mock;
+	showWarning: Mock;
 }
 
 interface FakeAuth {
@@ -105,6 +106,7 @@ function submitContext(options: { signedIn?: boolean } = {}): SubmitContext {
 		handleVeyraLogout: vi.fn(async () => {}),
 		showOAuthSelector: vi.fn(async () => {}),
 		handleOrgCommand: vi.fn(async () => {}),
+		showWarning: vi.fn(),
 	};
 }
 
@@ -199,6 +201,33 @@ describe("routing of /login, /logout and /org", () => {
 		await submit(context, "/org switch");
 		expect(context.handleOrgCommand.mock.calls).toEqual([[""], ["switch"]]);
 		expect(context.session.prompt).not.toHaveBeenCalled();
+	});
+});
+
+describe("the Veyra sign-in while a run streams", () => {
+	it("/login, /logout and /org switch wait for the run: a warning, and the command stays in the editor", async () => {
+		const context = submitContext({ signedIn: true });
+		context.session.isStreaming = true;
+		for (const command of ["/login", "/logout", "/org switch"]) await submit(context, command);
+		expect(context.handleVeyraLogin).not.toHaveBeenCalled();
+		expect(context.handleVeyraLogout).not.toHaveBeenCalled();
+		expect(context.handleOrgCommand).not.toHaveBeenCalled();
+		expect(context.session.prompt).not.toHaveBeenCalled();
+		expect(context.showWarning).toHaveBeenCalledTimes(3);
+		expect(String(context.showWarning.mock.calls[0]![0])).toContain("A run is going on");
+		expect(context.editor.setText.mock.calls).toEqual([["/login"], ["/logout"], ["/org switch"]]);
+	});
+
+	it("what does not change the organization still works during a run", async () => {
+		const context = submitContext({ signedIn: true });
+		context.session.isStreaming = true;
+		await submit(context, "/org");
+		await submit(context, "/login anthropic");
+		await submit(context, "/logout anthropic");
+		expect(context.handleOrgCommand.mock.calls).toEqual([[""]]);
+		expect(context.handleLoginCommand).toHaveBeenCalledWith("anthropic");
+		expect(context.showOAuthSelector).toHaveBeenCalledWith("logout", "anthropic");
+		expect(context.showWarning).not.toHaveBeenCalled();
 	});
 });
 

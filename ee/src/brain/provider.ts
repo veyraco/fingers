@@ -102,12 +102,12 @@ export class BrainMemoryProvider implements MemoryProvider {
 		options: MemoryCallOptions | undefined,
 	): Promise<Record<string, unknown>> {
 		// The sign-in moved to another organization: never this organization's memory with that one's token.
-		if (this.api.org !== this.org) {
-			throw new BrainUnavailableError(
+		const orgChanged = () =>
+			new BrainUnavailableError(
 				"org_changed",
 				"the signed-in organization changed; this memory belongs to the previous one",
 			);
-		}
+		if (this.api.org !== this.org) throw orgChanged();
 		let token: string;
 		try {
 			token = await this.api.accessToken({ signal: options?.signal });
@@ -117,6 +117,8 @@ export class BrainMemoryProvider implements MemoryProvider {
 				`no Brain access: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+		// A switch that finished while the token was fetched: that token is the other organization's.
+		if (this.api.org !== this.org) throw orgChanged();
 		let response: Response;
 		try {
 			response = await this.fetch(this.url(operation), {

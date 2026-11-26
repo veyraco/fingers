@@ -10,6 +10,9 @@
  *   Before every model request, memory of another owner that is still in the transcript (an earlier system message's
  *   `memory` section, a `memory_recall` or `memory_remember` result) is taken out of the request, so it never reaches
  *   a run of another organization, whatever the provider does with mid-conversation system messages.
+ * - A run belongs to the owner that was live when it started. When the live owner changes during the run (a sign-in
+ *   to another organization while it streams), memory is off for the rest of that run: the tools save and find
+ *   nothing, no memory goes into its requests and no learning event is sent, to either owner.
  * - It offers the model two tools: `memory_recall` (search) and `memory_remember` (save a lasting item).
  * - When a run ends, it reports how it went as a learning event (`outcome`) with an id that is the same every time
  *   it is sent for that run (session id and the run's last entry), so a repeat is a duplicate, not a second lesson.
@@ -268,6 +271,17 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 	return (fingers: ExtensionAPI) => {
 		/** The prompt that started the current run, for its learning event. */
 		let runPrompt: string | undefined;
+		/** The owner the current (or last) run started with; undefined: it started without memory. */
+		let runKey: string | undefined;
+		/**
+		 * The live provider, but only while it is the owner the run started with: after a change of owner mid-run, the
+		 * rest of that run has no memory, so nothing of the first owner's run reaches the second owner.
+		 */
+		const runProvider = async (cwd: string): Promise<MemoryProvider | undefined> => {
+			if (runKey === undefined) return undefined;
+			const provider = await liveProvider(cwd);
+			return provider?.key === runKey ? provider : undefined;
+		};
 
 		fingers.registerTool({
 			name: MEMORY_RECALL_TOOL,
@@ -283,7 +297,7 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 			async execute(_toolCallId, params: Static<typeof recallSchema>, signal, _onUpdate, ctx) {
 				const query = params.query.trim();
 				if (!query) throw new Error("query must not be empty");
-				const provider = await liveProvider(ctx.cwd);
+				const provider = await runProvider(ctx.cwd);
 				if (!provider) return { content: [{ type: "text", text: "Memory is off." }], details: { items: 0 } };
 				const owner = provider.key;
 				try {
@@ -317,7 +331,7 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 				const text = params.text.trim();
 				if (!text) throw new Error("text must not be empty");
 				if (text.length > 8_000) throw new Error("text is longer than 8,000 characters: save one item per call");
-				const provider = await liveProvider(ctx.cwd);
+				const provider = await runProvider(ctx.cwd);
 				if (!provider)
 					return { content: [{ type: "text", text: "Memory is off; nothing was saved." }], details: {} };
 				const owner = provider.key;
@@ -357,6 +371,7 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 			runPrompt = event.messageType === "user" ? event.prompt : undefined;
 			const { sections } = event.systemPromptOptions;
 			const provider = await liveProvider(ctx.cwd);
+			runKey = provider?.key;
 			// The live loadout, not this run's selection: the run takes it, and so do later runs and tool calls.
 			syncTools(provider !== undefined);
 			if (!provider) {
@@ -396,9 +411,10 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 			else delete sections[MEMORY_SECTION];
 		});
 
-		// Memory of another owner never goes into a request, even where the transcript still holds it.
+		// Memory of another owner never goes into a request, even where the transcript still holds it; after a change of
+		// owner mid-run, no memory at all.
 		fingers.on("context_with_system", async (event, ctx) => {
-			const provider = await liveProvider(ctx.cwd);
+			const provider = await runProvider(ctx.cwd);
 			const own = provider ? ownSections(ctx, provider.key, provider.name) : new Set<string>();
 			const messages = withoutForeignMemory(event.messages, own, provider?.key);
 			return messages ? { messages } : undefined;
@@ -409,7 +425,9 @@ export function createMemoryExtension(options: MemoryExtensionOptions): Extensio
 			runPrompt = undefined;
 			const final = lastAssistant(event.messages);
 			if (!final) return;
-			const provider = await liveProvider(ctx.cwd);
+			// Only the owner the run started with, and only while it is still live: a run whose owner changed reports
+			// nothing (its prompt and answer are the first owner's; the first owner is no longer signed in).
+			const provider = await runProvider(ctx.cwd);
 			if (!provider) return;
 			const result = assistantText(final);
 			const text = [prompt?.trim() ? `Task: ${prompt.trim()}` : undefined, result ? `Result: ${result}` : undefined]

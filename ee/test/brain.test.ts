@@ -410,6 +410,29 @@ describe("Brain memory through the gate", () => {
 		);
 	});
 
+	it("refuses when the organization changes while the token is fetched (no request with the other org's token)", async () => {
+		const mock = await brain();
+		let org: string | undefined = ORG;
+		const api: EeVeyraApi = {
+			app: "brain",
+			baseUrl: mock.api.baseUrl,
+			get org() {
+				return org;
+			},
+			// `/org switch` finishes while the token is on its way: the token that comes back is the new org's.
+			accessToken: async () => {
+				org = "org_beta";
+				return "token-of-org-beta";
+			},
+		};
+		const provider = new BrainMemoryProvider({ api, org: ORG, repository: REPO, scope: "web" });
+		await expect(provider.remember({ type: "fact", text: "ORG_A_ONLY copied", refs: [] })).rejects.toMatchObject({
+			name: "MemoryUnavailableError",
+			code: "org_changed",
+		});
+		expect(mock.requests).toEqual([]);
+	});
+
 	it("hands ee a Brain API only while signed in, and no other app's", async () => {
 		const asked: string[] = [];
 		const providers = new MemoryProviders({ lookupRepository: async () => REPO });

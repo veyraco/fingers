@@ -3540,8 +3540,19 @@ export class InteractiveMode {
 				await this.handleEeCommand(eeCommand.name, eeCommand.args);
 				return;
 			}
+			// A run belongs to the organization it started in (its memory, its Brain and Eyes): the Veyra sign-in does not
+			// change while one streams. The command stays in the editor, to send once the run is over.
+			const accountChangeWhileRunning = () => {
+				if (!this.session.isStreaming) return false;
+				this.showWarning(
+					"A run is going on. Wait for it to finish, or press Esc to stop it, before you change the Veyra sign-in or organization.",
+				);
+				this.editor.setText(text);
+				return true;
+			};
 			if (text === "/login" || text.startsWith("/login ")) {
 				const providerRef = text.startsWith("/login ") ? text.slice(7).trim() : undefined;
+				if (!providerRef && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				// Canvas FingersTuiSlash: /login alone is the Veyra sign-in; with a provider it configures that provider.
 				if (providerRef) await this.handleLoginCommand(providerRef);
@@ -3550,6 +3561,7 @@ export class InteractiveMode {
 			}
 			if (text === "/logout" || text.startsWith("/logout ")) {
 				const providerRef = text.startsWith("/logout ") ? text.slice(8).trim() : undefined;
+				if (!providerRef && this.veyraAccount && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				if (providerRef) this.showOAuthSelector("logout", providerRef);
 				else if (this.veyraAccount) await this.handleVeyraLogout();
@@ -3558,6 +3570,7 @@ export class InteractiveMode {
 			}
 			if (text === "/org" || text.startsWith("/org ")) {
 				const argument = text.startsWith("/org ") ? text.slice(5).trim() : "";
+				if (argument === "switch" && accountChangeWhileRunning()) return;
 				this.editor.setText("");
 				await this.handleOrgCommand(argument);
 				return;

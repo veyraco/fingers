@@ -189,6 +189,73 @@ describe("memory extension", () => {
 		expect(captures[2]!.latest.memory).not.toContain("ORG_B note");
 	});
 
+	it("turns memory off for the rest of a run whose organization changes mid-run (nothing of it reaches either org)", async () => {
+		const orgA = fakeProvider({ context: async () => ({ context: "- ORG_A_ONLY note", tokens: 5 }) });
+		const orgB = fakeProvider({
+			key: "org_b:github.com/acme/web",
+			context: async (request) => {
+				orgB.calls.context.push(request);
+				return { context: "- ORG_B note", tokens: 5 };
+			},
+		});
+		let live: MemoryProvider = orgA;
+		const { harness, captures, capture } = await session({ provider: async () => live });
+		harness.setResponses([
+			(context) => {
+				// `/org switch` (or a sign-in elsewhere) lands while the first model turn of org A's run streams.
+				live = orgB;
+				return capture(
+					fauxAssistantMessage(
+						[fauxToolCall("memory_remember", { text: "ORG_A_ONLY copied" }, { id: "call_1" })],
+						{ stopReason: "toolUse" },
+					),
+				)(context);
+			},
+			capture(fauxAssistantMessage("Answer using ORG_A_ONLY note")),
+		]);
+		await harness.session.prompt("Fix the flaky checkout test.");
+		expect(captures[0]!.latest.memory).toContain("ORG_A_ONLY");
+
+		// The rest of the run: the tool saves nothing, to either org; no memory in the request; no learning event.
+		expect(orgB.calls.remember).toEqual([]);
+		expect(orgA.calls.remember).toEqual([]);
+		expect(captures[1]!.messages).toContain("Memory is off; nothing was saved.");
+		expect(captures[1]!.system).not.toContain("ORG_A_ONLY note");
+		expect(orgB.calls.events).toEqual([]);
+		expect(orgA.calls.events).toEqual([]);
+		expect(orgB.calls.context).toEqual([]);
+
+		// The next run starts under org B: its own memory, assembled for it, and its own outcome.
+		harness.setResponses([capture(fauxAssistantMessage("ok"))]);
+		await harness.session.prompt("Go on.");
+		expect(orgB.calls.context).toHaveLength(1);
+		expect(captures[2]!.latest.memory).toContain("ORG_B note");
+		expect(captures[2]!.system).not.toContain("ORG_A_ONLY note");
+		expect(orgB.calls.events).toHaveLength(1);
+		expect(orgB.calls.events[0]![0]!.text).toBe("Task: Go on.\n\nResult: ok");
+		expect(orgA.calls.events).toEqual([]);
+	});
+
+	it("does not start memory in the middle of a run that started without it", async () => {
+		const provider = fakeProvider();
+		let live: MemoryProvider | undefined;
+		const { harness, capture } = await session({ provider: async () => live });
+		harness.setResponses([
+			(context) => {
+				live = provider;
+				return capture(
+					fauxAssistantMessage([fauxToolCall("memory_recall", { query: "paths" }, { id: "call_1" })], {
+						stopReason: "toolUse",
+					}),
+				)(context);
+			},
+			capture(fauxAssistantMessage("done")),
+		]);
+		await harness.session.prompt("Where do the tests live?");
+		expect(provider.calls.recall).toEqual([]);
+		expect(provider.calls.events).toEqual([]);
+	});
+
 	it("takes another organization's recall results out of the next organization's requests", async () => {
 		const orgA = fakeProvider({
 			recall: async () => [{ ref: "lt_1 v1", kind: "fact", text: "ORG_A_RECALLED secret path", score: 0.9 }],
