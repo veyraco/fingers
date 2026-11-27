@@ -44,6 +44,7 @@ Commands tagged `ee` in the command menu are part of Fingers ee, under the Veyra
 | `/agents [steer <id> <message> \| pause <id> \| resume <id> [cp-N] \| checkpoint <id> \| stop <id> \| remove <id>]` | Sub-agents: the panel with their status, tokens and cost; open, approve, steer, pause, stop, checkpoint and resume one (Medium tier or higher; see [Sub-agents](#sub-agents)) |
 | `/memory [recall <query> \| remember <text> \| off \| on]` | Brain memory for this repository: status, search, save, off and on for the session (Medium tier or higher; see [Brain memory](#brain-memory)) |
 | `/eyes [open \| off \| on]` | Eyes telemetry: status, the link to the last run's trace, off and on for the session (Medium tier or higher; see [Eyes telemetry](#eyes-telemetry)) |
+| `/hooks [refresh]` | Organization hooks and rules from Veyra Connect: the list, and a fresh read (High tier; see [Organization hooks](#organization-hooks)) |
 
 ### Open core
 
@@ -122,6 +123,16 @@ Memory is best effort: when Brain does not answer in time (3 seconds at task sta
 With Eyes on (Medium tier or higher), each run in the terminal app is a trace in Veyra Eyes: an `invoke_agent` span for the run, a `chat` span per model call (provider, model, tokens with cache reads and writes, finish reason, retries with their reason, errors by type) and an `execute_tool` span per tool call, in the OpenTelemetry GenAI conventions. They go to Eyes' OTLP door (`api.veyra.so/eyes/otlp/v1/traces`) with your token for Eyes, as an ordinary source named `fingers` of the signed-in organization. Only metadata: no prompts, answers, code, tool arguments or results, and credentials never. Spans belong to the organization they were made in; spans still queued when you `/org switch` are dropped, not sent to the new organization.
 
 `/eyes` shows the status and the link to the last run's trace (`eyes.veyra.so/<org>/traces/<trace id>`), `/eyes open` prints that link, and `/eyes off` stops sending until `/eyes on` or a restart. Managed RPC mode never sends to Eyes itself: with `telemetry.mode: relay` the host gets the spans (see [Managed RPC](rpc-managed.md)). To send traces to your own collector instead, or as well, see [Telemetry](telemetry.md).
+
+### Organization hooks
+
+With organization hooks on (High tier), Fingers reads your Fingers policy from Veyra Connect (the Fingers tab of the group editor; `GET /connect/v1/organizations/{org}/fingers-policy/mine`) when it starts, at every tier check, and again with the policy's revision when the last read is a minute old and a tool call comes. Your organization's admins set it in Connect; Fingers only reads it.
+
+- **Hooks.** Before each tool call, in the terminal app, the first hook whose tools include the call's tool (`*` is every tool) and whose pattern matches decides. A pattern is a glob over the whole command (bash, PowerShell) or the file's path (read, edit, write, grep, find, ls: the absolute path, and the path relative to the working directory): `*` is any run of characters, `?` one character, case-sensitive; a hook without a pattern matches every call of its tools. A pattern must match the whole subject: `git push --force*` does not catch `cd app && git push --force`, so write `*git push --force*` to catch the command anywhere in a line. A path pattern matches the path as written (made absolute), not where a symbolic link leads: `/repo/secrets/*` does not catch a read through a link that points into that folder. `block` refuses the call and tells the model why; `ask` shows the approval box with the hook's message and no "always allow", so you answer every time. Hooks run before your own [approvals](settings.md), so a blocked call never asks. Each decision is written to the session as an `org_hook` entry. Sub-agents follow the same hooks: a sub-agent's call that a hook blocks is blocked, and an `ask` hook asks in your terminal, naming the sub-agent.
+- **Rules.** The organization's rules (Markdown) are added to the end of every run's system prompt, under "Organization rules", and to the end of each sub-agent's.
+- **Fail closed.** While Fingers could not read the policy of the organization you are signed in to (Connect unreachable at the first read, a refusal, an answer that does not match the contract), every tool call asks first. A later failed read keeps the policy read before. After `/org switch` the old organization's policy is dropped.
+
+`/hooks` lists the hooks ("N from org policy") with their tools, pattern, decision and message, the size of the rules, and when the policy was read; `/hooks refresh` reads it again. Hooks are data: Fingers never runs a command a hook names. The group's allowed providers, models and task budget in the same policy are not applied yet. Managed RPC, print and JSON modes don't apply organization hooks (in a Hands run, Hands applies the policy).
 
 ## Sessions and context
 

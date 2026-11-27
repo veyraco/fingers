@@ -722,7 +722,7 @@ describe("managed RPC sub-agents: the ee engine and the workspace", () => {
 		let host: EeHost | undefined;
 		const engine = new StandInEngine();
 		const module: EeModule = {
-			apiVersion: 8,
+			apiVersion: 9,
 			matrixVersion: "test",
 			minimumTier: () => "medium",
 			activate(received) {

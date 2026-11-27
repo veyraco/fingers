@@ -13,15 +13,17 @@
  * - Sign out revokes the refresh token at Connect (RFC 7009) and deletes the sign-in from the keychain, even when
  *   Connect can't be reached, and even when another fingers process holds the lock past the wait.
  *
- * Callers: the ee gate (`organization()` for tier and apps), model connections (`listModelConnections()`, and
- * `getAccessToken("hands")` on every model call through Hands' proxy), Brain and Eyes features
- * (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
+ * Callers: the ee gate (`organization()` for tier and apps), organization hooks (`fingersPolicy()`), model
+ * connections (`listModelConnections()`, and `getAccessToken("hands")` on every model call through Hands' proxy),
+ * Brain and Eyes features (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
  */
 
 import { raceWithAbortSignal } from "../../utils/abort.ts";
+import type { EeFingersPolicyRead } from "../edition/types.ts";
 import type { TraceContext } from "../trace-context.ts";
 import { FINGERS_APP, FINGERS_CLIENT_ID, resolveApiUrl, type VeyraApp, veyraApiBaseUrl } from "./connect-config.ts";
 import { type DeviceCodePrompt, DeviceFlowError, runDeviceFlow, type Sleep } from "./device-flow.ts";
+import { FingersPolicyError, parseFingersPolicy, revisionEtag } from "./fingers-policy.ts";
 import { ConnectOidcClient, newVeyraTrace, OAuthResponseError, type TokenSet } from "./oidc-client.ts";
 import {
 	type StoredAccessToken,
@@ -446,6 +448,28 @@ export class VeyraAuth {
 			newVeyraTrace(),
 			options.signal,
 		);
+	}
+
+	/**
+	 * The Fingers policy that applies to the signed-in person (`GET <api>/connect/v1/organizations/{org}/
+	 * fingers-policy/mine`, Fingers `cli:use`), checked by fingers-policy.ts. With `revision` (the last one read) it
+	 * sends `If-None-Match` and answers `{ changed: false }` when Connect says nothing changed.
+	 */
+	async fingersPolicy(options: { revision?: string; signal?: AbortSignal } = {}): Promise<EeFingersPolicyRead> {
+		const org = this.account()?.org;
+		if (!org) throw new VeyraSignedOutError("not_signed_in");
+		const token = await this.getAccessToken("connect", { signal: options.signal });
+		const answer = await this.client.getJsonIfChanged(
+			`${this.apiBaseUrl("connect")}/organizations/${encodeURIComponent(org)}/fingers-policy/mine`,
+			token,
+			newVeyraTrace(),
+			{ etag: options.revision ? revisionEtag(options.revision) : undefined, signal: options.signal },
+		);
+		if (answer.notModified) {
+			if (!options.revision) throw new FingersPolicyError("Connect's Fingers policy is not readable (304).");
+			return { changed: false };
+		}
+		return { changed: true, policy: parseFingersPolicy(answer.body, org) };
 	}
 
 	/**

@@ -1,7 +1,8 @@
 /**
  * The ee tool hooks that are live in this process: the gate fills this after each activation of the ee module with
  * the hooks of the features that are on, and the built-in `edition` extension (src/extensions/edition) calls them on
- * every tool result, at the end of every turn (context edits) and around compactions. Each call checks the feature
+ * every tool result, at the end of every turn (context edits) and around compactions; the built-in `org-hooks`
+ * extension (src/extensions/org-hooks) asks them before every tool call. Each call checks the feature
  * again, so a hook stops the moment its feature goes off.
  *
  * Only the terminal app's gate fills it; managed RPC, print and JSON modes never do, so there the extension changes
@@ -18,6 +19,8 @@ import type {
 	EeRouteChoice,
 	EeRouteOutcome,
 	EeRouteRequest,
+	EeToolCall,
+	EeToolCallDecision,
 	EeToolHooks,
 	EeToolResult,
 	EeToolResultChange,
@@ -104,6 +107,45 @@ export class EditionToolHooks {
 			}
 		}
 		return changed ? { content } : undefined;
+	}
+
+	/** Some hook of a feature that is on wants to see tool calls before they run. */
+	get hasToolCallHooks(): boolean {
+		return this.live().some(({ hooks }) => typeof hooks.beforeToolCall === "function");
+	}
+
+	/**
+	 * Ask the tool-call hooks about a call before it runs, in registration order; the first that decides wins. A hook
+	 * that throws, or answers anything but a block or an ask with a message, makes the call wait for the person
+	 * (`ask`): a policy hook that fails must never let a call through unseen.
+	 */
+	async beforeToolCall(call: EeToolCall): Promise<EeToolCallDecision | undefined> {
+		for (const { hooks } of this.live()) {
+			if (!hooks.beforeToolCall) continue;
+			let answer: EeToolCallDecision | undefined;
+			try {
+				answer = await hooks.beforeToolCall({ ...call, input: { ...call.input } });
+			} catch (error) {
+				this.onError(error);
+				return { decision: "ask", message: "An ee hook failed while checking this call.", source: "ee hooks" };
+			}
+			if (answer === undefined || answer === null) continue;
+			if (
+				typeof answer !== "object" ||
+				(answer.decision !== "block" && answer.decision !== "ask") ||
+				typeof answer.message !== "string" ||
+				typeof answer.source !== "string"
+			) {
+				return { decision: "ask", message: "An ee hook gave an answer Fingers can't read.", source: "ee hooks" };
+			}
+			return { decision: answer.decision, message: answer.message, source: answer.source };
+		}
+		return undefined;
+	}
+
+	/** System prompt text of the features that are on, in registration order. */
+	systemPrompt(): string[] {
+		return this.lines((hooks) => hooks.systemPrompt?.());
 	}
 
 	/** Tool guideline lines of the features that are on, by tool name. */

@@ -3,8 +3,13 @@
  * uses the parent's model runtime (the same credentials, never written anywhere), a copy of the parent's effective
  * settings (approval rules, shell, retries) and the parent's approvals: in the terminal app a child's command or
  * outside-the-project write asks in the parent's terminal, one question at a time, naming the child. A child gets
- * the default built-in tools and no extension of its own beyond those approvals: no `agents` tool (no grandchildren),
- * no MCP servers, no memory and no telemetry. Its transcript stays in memory.
+ * the default built-in tools and no extension of its own beyond those approvals and the organization's policy: no
+ * `agents` tool (no grandchildren), no MCP servers, no memory and no telemetry. Its transcript stays in memory.
+ *
+ * The organization's policy (ee `org_hooks`) applies to a terminal-app child as to the parent: its hooks see every
+ * tool call of the child before the personal approvals (a `block` blocks it, an `ask` asks in the parent's terminal
+ * like the child's approvals, with no "always allow"), and its rules end the child's system prompt. Otherwise a model
+ * could avoid a hook by handing the call to a sub-agent.
  *
  * Managed RPC gives a child its own gate instead of the terminal approvals (ChildSessionHooks): the host's path
  * policy and approvals, the run's tools and no skills, and it watches the child's session to forward its records.
@@ -19,6 +24,7 @@ import type { ThinkingLevel } from "@veyraco/fingers-agent";
 import type { AssistantMessage, Usage } from "@veyraco/fingers-ai";
 import { getAgentDir } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
+import { type EditionToolHooks, editionToolHooks } from "../../core/edition/tool-hooks.ts";
 import type { ExtensionContext, ExtensionUIContext, InlineExtension } from "../../core/extensions/types.ts";
 import type { ModelRuntime } from "../../core/model-runtime.ts";
 import { DefaultResourceLoader } from "../../core/resource-loader.ts";
@@ -37,6 +43,7 @@ import {
 } from "../../core/subagents/types.ts";
 import { combineUsage } from "../../core/usage-totals.ts";
 import { type AskForApproval, askInTerminal, createApprovalsExtension } from "../approvals/index.ts";
+import { type AskOrgHook, askOrgHookInTerminal, createOrgHooksExtension } from "../org-hooks/index.ts";
 
 /** The usage of every model call recorded in a session's entries, as one Usage (costs at list price). */
 function sessionUsage(entries: readonly SessionEntry[]): Usage {
@@ -112,6 +119,10 @@ interface ChildSessionDeps {
 	parent: ExtensionContext;
 	/** How to ask the person (default: the approval box in the parent's terminal). */
 	ask?: AskForApproval;
+	/** The ee tool hooks whose organization policy applies to the child (default: this process' hooks). */
+	toolHooks?: EditionToolHooks;
+	/** How to ask the person about an organization hook (default: the box without "always allow" in the parent's terminal). */
+	askOrgHook?: AskOrgHook;
 	/** Default: the agent directory (global AGENTS.md and skills). */
 	agentDir?: string;
 	/** One approval question at a time across every child of the process. */
@@ -241,23 +252,34 @@ export async function createChildSession(
 	// child's box is open (one box at a time).
 	// Aborted when the child stops or is rolled back: a question still waiting in the panel is then dropped (denied).
 	let questions = new AbortController();
-	const childAsk: AskForApproval = async (_childCtx, request) => {
-		const question: SubagentApprovalRequest = { command: request.command, reason: request.reason };
+	/** One question of the child to the person: waits its turn on the desk and the queue, then asks in the parent. */
+	const askParent = async <T extends { decision: string }>(
+		command: string,
+		reason: string,
+		denied: T,
+		question: (reason: string) => Promise<T>,
+	): Promise<T> => {
+		const request: SubagentApprovalRequest = { command, reason };
 		const signal = questions.signal;
-		for (const listener of waiting) listener(true, question);
+		for (const listener of waiting) listener(true, request);
 		try {
 			await desk.turn(options.id, signal);
-			if (signal.aborted) return { decision: "deny" };
-			return await queue.run(() =>
-				ask(deps.parent, {
-					...request,
-					reason: `Sub-agent ${options.id} (${options.label}): ${request.reason}`,
-				}),
-			);
+			if (signal.aborted) return denied;
+			return await queue.run(() => question(`Sub-agent ${options.id} (${options.label}): ${reason}`));
 		} finally {
 			for (const listener of waiting) listener(false);
 		}
 	};
+	const childAsk: AskForApproval = (_childCtx, request) =>
+		askParent(request.command, request.reason, { decision: "deny" }, (reason) =>
+			ask(deps.parent, { ...request, reason }),
+		);
+	const askOrgHook = deps.askOrgHook ?? askOrgHookInTerminal;
+	const childOrgAsk: AskOrgHook = (_childCtx, request) =>
+		askParent(request.summary, request.reason, { decision: "deny" }, (reason) =>
+			askOrgHook(deps.parent, { ...request, reason }),
+		);
+	const toolHooks = deps.toolHooks ?? editionToolHooks;
 	const identity: ChildIdentity = { id: options.id, label: options.label, cwd: options.cwd };
 	const hooks = deps.hooks;
 	const gate: InlineExtension[] = hooks?.extensions
@@ -268,7 +290,14 @@ export async function createChildSession(
 				},
 				signal: () => questions.signal,
 			})
-		: [{ name: "approvals", factory: createApprovalsExtension({ ask: childAsk }) }];
+		: [
+				// The organization's hooks first, as in the parent: a call the organization blocks never asks the person.
+				{ name: "org-hooks", factory: createOrgHooksExtension({ hooks: toolHooks, ask: childOrgAsk }) },
+				{ name: "approvals", factory: createApprovalsExtension({ ask: childAsk }) },
+			];
+	// The organization's rules end the child's system prompt as they end the parent's (terminal app only: managed RPC
+	// has no organization policy).
+	const orgRules = hooks?.extensions ? [] : toolHooks.systemPrompt().filter((text) => text.trim().length > 0);
 
 	// Pause, checkpoints and roll-back: every model call of the child passes this gate first (its `context` event),
 	// at a point where each step it started has its result.
@@ -319,7 +348,7 @@ export async function createChildSession(
 		noSkills: hooks?.noSkills === true,
 		noPromptTemplates: true,
 		noThemes: true,
-		appendSystemPromptOverride: (base) => [...base, rules],
+		appendSystemPromptOverride: (base) => [...base, rules, ...orgRules],
 	});
 	await resourceLoader.reload();
 	({ session } = await createAgentSession({

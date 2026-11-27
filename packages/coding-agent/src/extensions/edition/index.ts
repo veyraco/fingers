@@ -236,6 +236,14 @@ export function createEditionExtension(options: EditionExtensionOptions = {}): E
 				for (const line of lines) if (!existing.includes(line)) existing.push(line);
 				toolGuidelines[tool] = existing;
 			}
+			// Text the features add to the whole prompt (organization rules), after the person's own appended text.
+			const additions = hooks.systemPrompt().filter((text) => text.trim().length > 0);
+			if (additions.length > 0) {
+				const options = event.systemPromptOptions;
+				options.appendSystemPrompt = [options.appendSystemPrompt, ...additions]
+					.filter((text) => text.length > 0)
+					.join("\n\n");
+			}
 			return undefined;
 		});
 

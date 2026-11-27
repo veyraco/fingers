@@ -5,12 +5,16 @@ import editionExtension from "./edition/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import memoryExtension from "./memory/index.ts";
+import orgHooksExtension from "./org-hooks/index.ts";
 import subagentsExtension from "./subagents/index.ts";
 import telemetryExtension from "./telemetry/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
 	{ name: "llama.cpp", factory: llamaExtension, builtin: true },
+	// Open core: organization hooks (an ee feature) see each tool call before it runs while they are on; core only, it
+	// does nothing. Before `approvals`, so a call the organization blocks never asks the person first.
+	{ name: "org-hooks", factory: orgHooksExtension, builtin: true },
 	// The approval box before shell commands in the terminal (`approvals` setting).
 	{ name: "approvals", factory: approvalsExtension, builtin: true },
 	// Replaceable: an extension that registers `codemode`, `tool_search`, or `/mcp` (such as a third-party

@@ -29,6 +29,8 @@ interface ApprovalBoxOptions {
 	reason: string;
 	/** What "always allow" adds, e.g. `pnpm vitest`. */
 	allowPattern: string;
+	/** Offer "always allow" (default true); an organization hook that asks has the person answer every time. */
+	allowAlways?: boolean;
 	onAnswer: (answer: ApprovalAnswer) => void;
 }
 
@@ -140,20 +142,20 @@ export class ApprovalBoxComponent implements Component, Focusable {
 		rows.push(theme.fg("muted", reason), "");
 
 		// The answers on one row when they fit, otherwise one per row, wrapped.
-		const labels = [
-			"Yes",
-			`Yes, always allow “${visibleCommandText(allowPattern)}”`,
-			"No, tell Fingers what to do instead",
-		];
+		const answers = [
+			{ choice: 0, label: "Yes" },
+			{ choice: 1, label: `Yes, always allow “${visibleCommandText(allowPattern)}”` },
+			{ choice: 2, label: "No, tell Fingers what to do instead" },
+		].filter(({ choice }) => this.offers(choice));
 		const style = (index: number, text: string) =>
-			index === this.choice ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text);
-		const marked = labels.map((label, index) => (index === this.choice ? `❯ ${label}` : label));
+			answers[index]?.choice === this.choice ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text);
+		const marked = answers.map(({ choice, label }) => (choice === this.choice ? `❯ ${label}` : label));
 		const oneRow = marked.join("    ");
 		if (visibleWidth(oneRow) <= inner) {
 			rows.push(marked.map((label, index) => style(index, label)).join("    "));
 		} else {
 			marked.forEach((label, index) => {
-				const lead = index === this.choice ? "" : "  ";
+				const lead = answers[index]?.choice === this.choice ? "" : "  ";
 				for (const piece of hardWrap(`${lead}${label}`, inner)) rows.push(style(index, piece));
 			});
 		}
@@ -178,12 +180,12 @@ export class ApprovalBoxComponent implements Component, Focusable {
 			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorLeft") || kb.matches(data, "tui.select.up")) {
-			this.choice = (this.choice + 2) % 3;
+			this.move(2);
 		} else if (kb.matches(data, "tui.editor.cursorRight") || kb.matches(data, "tui.select.down") || data === "\t") {
-			this.choice = (this.choice + 1) % 3;
+			this.move(1);
 		} else if (data === "y") {
 			this.finish({ decision: "allow_once" });
-		} else if (data === "a") {
+		} else if (data === "a" && this.offers(1)) {
 			this.finish({ decision: "allow_always" });
 		} else if (data === "v") {
 			this.expanded = !this.expanded;
@@ -197,6 +199,17 @@ export class ApprovalBoxComponent implements Component, Focusable {
 		} else if (kb.matches(data, "tui.select.cancel")) {
 			this.finish({ decision: "deny" });
 		}
+	}
+
+	/** Whether the box offers answer `choice` (0 Yes, 1 always allow, 2 No). */
+	private offers(choice: number): boolean {
+		return choice !== 1 || this.options.allowAlways !== false;
+	}
+
+	/** Move the selection by `step` (1 right, 2 left) over the answers the box offers. */
+	private move(step: number): void {
+		do this.choice = (this.choice + step) % 3;
+		while (!this.offers(this.choice));
 	}
 
 	private startTelling(): void {

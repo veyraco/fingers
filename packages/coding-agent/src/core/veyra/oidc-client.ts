@@ -262,6 +262,30 @@ export class ConnectOidcClient {
 		return body;
 	}
 
+	/**
+	 * GET an app API resource with a Bearer token and `If-None-Match: <etag>` when one is given: `{ notModified: true }`
+	 * on 304, otherwise the body with the answer's ETag.
+	 */
+	async getJsonIfChanged(
+		url: string,
+		accessToken: string,
+		trace: TraceContext,
+		options: { etag?: string; signal?: AbortSignal } = {},
+	): Promise<{ notModified: true } | { notModified: false; body: unknown; etag: string | undefined }> {
+		const headers = options.etag ? { "if-none-match": options.etag } : undefined;
+		const response = await this.send("GET", url, undefined, accessToken, trace, options.signal, headers);
+		if (response.status === 304) {
+			await response.body?.cancel().catch(() => {});
+			return { notModified: true };
+		}
+		const body = await this.readJson(response);
+		if (!response.ok) {
+			const problem = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+			throw new VeyraApiError(response.status, stringField(problem.code), stringField(problem.title));
+		}
+		return { notModified: false, body, etag: response.headers.get("etag") ?? undefined };
+	}
+
 	private async postForm(
 		url: string,
 		form: Record<string, string>,
@@ -309,10 +333,12 @@ export class ConnectOidcClient {
 		accessToken: string | undefined,
 		trace: TraceContext,
 		signal: AbortSignal | undefined,
+		extraHeaders?: Record<string, string>,
 	): Promise<Response> {
 		const span = childSpan(trace);
 		const requestId = randomUUID();
 		const headers: Record<string, string> = {
+			...extraHeaders,
 			accept: "application/json",
 			"x-request-id": requestId,
 			traceparent: formatTraceparent(span),

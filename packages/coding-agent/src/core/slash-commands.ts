@@ -46,6 +46,13 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		argumentHint: "[open | off | on]",
 		edition: "ee",
 	},
+	// Canvas FingersTuiSlash `/hooks` "1 from org policy": an ee feature (organization hooks) from Connect's Fingers tab.
+	{
+		name: "hooks",
+		description: "organization hooks and rules from Veyra Connect",
+		argumentHint: "[refresh]",
+		edition: "ee",
+	},
 	{ name: "budget", description: "set or view the task budget", argumentHint: "<dollars> | off" },
 	// Canvas FingersTuiSavings: the token-saving report. Core: prompt caching always, ee token saving when it is on.
 	{ name: "savings", description: "token-saving report: what each technique saved in this conversation" },

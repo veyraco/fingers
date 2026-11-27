@@ -96,6 +96,13 @@ export class FakeConnect {
 	orgApps: string[] = ["connect", "fingers", "brain"];
 	/** A scripted answer for the organization lookup instead of the organization, e.g. 503 or 403. */
 	orgAnswer: { status: number; body: Record<string, unknown> } | undefined;
+	/**
+	 * The person's Fingers policy (connect.yaml `FingersEffectivePolicy`) `GET /organizations/{org}/fingers-policy/mine`
+	 * answers, with `revision` as its quoted ETag and 304 for a matching `If-None-Match`; undefined answers 404.
+	 */
+	fingersPolicy: Record<string, unknown> | undefined;
+	/** A scripted answer for the policy read instead (e.g. a 403). */
+	fingersPolicyAnswer: { status: number; body: Record<string, unknown> } | undefined;
 	/** The organization's model connections (connect.yaml `ModelConnection`) the list answers. */
 	modelConnections: Array<Record<string, unknown>> = [];
 	/** Connect filters the list by `app`; off, the fake answers every connection (to test Fingers' own check). */
@@ -188,6 +195,7 @@ export class FakeConnect {
 		}
 		const orgMatch = url.pathname.match(/^\/connect\/v1\/organizations\/([^/]+)$/);
 		const connectionsMatch = url.pathname.match(/^\/connect\/v1\/organizations\/([^/]+)\/model-connections$/);
+		const policyMatch = url.pathname.match(/^\/connect\/v1\/organizations\/([^/]+)\/fingers-policy\/mine$/);
 		const proxyMatch = url.pathname.match(/^\/hands\/v1\/model-proxy\/([^/]+)\/(anthropic|openai|google)(\/.*)$/);
 		if (proxyMatch) {
 			await this.handsDoor(req, res, body, proxyMatch[3]!);
@@ -200,6 +208,7 @@ export class FakeConnect {
 			this.revoke(res, form);
 		} else if (req.method === "GET" && orgMatch) this.organization(res, req, orgMatch[1]!);
 		else if (req.method === "GET" && connectionsMatch) this.listModelConnections(res, req, url, connectionsMatch[1]!);
+		else if (req.method === "GET" && policyMatch) this.myFingersPolicy(res, req, policyMatch[1]!);
 		else json(res, 404, { error: "not_found" });
 	}
 
@@ -377,6 +386,29 @@ export class FakeConnect {
 				(Array.isArray(connection.apps) && (connection.apps as unknown[]).includes(app)),
 		);
 		json(res, 200, { data });
+	}
+
+	private myFingersPolicy(res: ServerResponse, req: IncomingMessage, org: string): void {
+		if (!this.bearerFor(req, "connect")) {
+			json(res, 401, { status: 401, code: "unauthenticated", title: "Unauthorized" });
+			return;
+		}
+		if (org !== ORG.id || !this.fingersPolicy) {
+			json(res, 404, { code: "not_found" });
+			return;
+		}
+		if (this.fingersPolicyAnswer) {
+			json(res, this.fingersPolicyAnswer.status, this.fingersPolicyAnswer.body);
+			return;
+		}
+		const etag = `"${String(this.fingersPolicy.revision)}"`;
+		if (req.headers["if-none-match"] === etag) {
+			res.writeHead(304, { etag, "cache-control": "private, no-cache" });
+			res.end();
+			return;
+		}
+		res.writeHead(200, { "content-type": "application/json", etag, "cache-control": "private, no-cache" });
+		res.end(JSON.stringify(this.fingersPolicy));
 	}
 
 	private async handsDoor(req: IncomingMessage, res: ServerResponse, body: string, rest: string): Promise<void> {

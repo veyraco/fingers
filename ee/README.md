@@ -98,9 +98,20 @@ shows the status and the console link of the last run's trace (`eyes.<domain>/<o
 from `api.<domain>` and `host.veyraApi("eyes").orgCode`), `/eyes open` prints it, `/eyes off` and `/eyes on` stop
 and resume sending. Managed RPC never loads it: there the core relays spans to the host (`telemetry_span`).
 
+## Organization hooks
+
+`src/org-hooks/` (High tier): reads the signed-in person's Fingers policy through `host.fingersPolicy()` (the core
+calls Connect's `getMyFingersPolicy` with the Connect token, which ee never sees, and checks the answer as a whole:
+platform connect.yaml `FingersEffectivePolicy`). It registers tool hooks with `host.registerToolHooks("org_hooks", …)`:
+`beforeToolCall` matches the policy's hooks in order (the first match decides `block` or `ask`; `*` and `?` globs over
+the command or the path) and `systemPrompt` adds the organization's rules. The core's built-in `org-hooks` extension
+carries the decision out before the personal approvals. The policy is read again by revision (`If-None-Match`) when
+the last read is a minute old; while no policy of the signed-in organization is known, every call asks (fail closed).
+`/hooks` lists the hooks, `/hooks refresh` reads them again.
+
 ## Layout and checks
 
-- `src/index.ts`: the module the core loads (`apiVersion` 8, `matrixVersion`, `minimumTier`, `activate`). It only
+- `src/index.ts`: the module the core loads (`apiVersion` 9, `matrixVersion`, `minimumTier`, `activate`). It only
   imports types from `@veyraco/fingers`.
 - `test/`: run with `npm run test:ee` from the repository root.
 - `scripts/build-ee.mjs` builds `src/index.ts` into `packages/coding-agent/dist/ee/index.js` with this `LICENSE`
