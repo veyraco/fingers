@@ -5,8 +5,11 @@
  * picks each child's model (a cheaper one when the ee routing rule finds one, F16), and turns the children's usage
  * into the tool result's usage, so the session's cost, the status line, `/budget` and `/savings` count every child.
  * A child's spend counts toward the session's budget while it runs: the engine stops the children once the budget
- * is reached, and a call made when it is already reached starts none. Calls of one answer run one after the other. With no engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON modes)
- * the tool is not offered and nothing changes.
+ * is reached, and a call made when it is already reached starts none. Calls of one answer run one after the other. With no engine (core only, signed out, a tier without sub-agents, print and JSON modes, managed RPC without
+ * `configure.subagents`) the tool is not offered and nothing changes.
+ *
+ * Managed RPC (F18b) loads it with its own engines, the run's limits in place of the budget and its own child hooks
+ * (the host's gate and tools, records forwarded with the child's id).
  */
 import type { Api, Model } from "@veyraco/fingers-ai";
 import { type Static, Type } from "typebox";
@@ -24,7 +27,7 @@ import {
 	type SubagentRunHost,
 } from "../../core/subagents/types.ts";
 import type { AskForApproval } from "../approvals/index.ts";
-import { ApprovalQueue, createChildSession } from "./child-session.ts";
+import { ApprovalQueue, type ChildSessionHooks, createChildSession } from "./child-session.ts";
 
 export const AGENTS_TOOL = "agents";
 
@@ -80,6 +83,14 @@ export interface SubagentsExtensionOptions {
 	ask?: AskForApproval;
 	/** Default: the agent directory. */
 	agentDir?: string;
+	/**
+	 * In place of the session's cost budget (managed RPC: a limit of the run is reached). Asked before a call starts
+	 * children and before each child starts and after each of its model calls; the host counts the children's spend
+	 * itself.
+	 */
+	limitReached?: () => boolean;
+	/** A host's own gate, tools and watcher for each child (managed RPC). */
+	child?: ChildSessionHooks;
 }
 
 function formatUsd(usd: number): string {
@@ -126,13 +137,15 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 					};
 				}
 				// The answer that asked for sub-agents may itself have reached the budget: start none.
-				const budget = engines.budget();
-				if (budget && costCapReached(budget.spentUsd, budget.capUsd)) {
+				const budget = options.limitReached ? undefined : engines.budget();
+				if (options.limitReached?.() || (budget && costCapReached(budget.spentUsd, budget.capUsd))) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: "The session's budget is reached, so no sub-agents were started. Stop here and tell the person.",
+								text: options.limitReached
+									? "A limit of this run is reached, so no sub-agents were started. Stop here."
+									: "The session's budget is reached, so no sub-agents were started. Stop here and tell the person.",
 							},
 						],
 						details: { agents: [] },
@@ -187,6 +200,7 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 							agentDir: options.agentDir,
 							approvalQueue,
 							approvalDesk: engines.approvals,
+							hooks: options.child,
 						}),
 					report(event) {
 						live.set(event.agent.id, event.agent);
@@ -198,6 +212,7 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 						if (ctx.hasUI) for (const line of lines) ctx.ui.notify(line, "info");
 					},
 					budgetReached(childrenCostUsd) {
+						if (options.limitReached) return options.limitReached();
 						const budget = engines.budget();
 						return budget ? costCapReached(budget.spentUsd + childrenCostUsd, budget.capUsd) : false;
 					},

@@ -22,6 +22,7 @@ import { ModelRuntime } from "../../../core/model-runtime.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
 import { DEFAULT_TOOL_NAMES, type Settings, SettingsManager } from "../../../core/settings-manager.ts";
 import { builtInExtensions } from "../../../extensions/index.ts";
+import { AGENTS_TOOL } from "../../../extensions/subagents/index.ts";
 import type { ManagedRuntimeFactory, ManagedRuntimeFactoryInput } from "./managed-rpc-server.ts";
 import { OPENAI_COMPATIBLE_PROVIDER, openAICompatibleProvider } from "./openai-compatible.ts";
 
@@ -48,6 +49,8 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 			"mcp__*",
 			// The memory relay's tools (the managed extension registers them with `memory.mode: relay`).
 			...(configure.memory?.mode === "relay" ? MEMORY_TOOL_NAMES : []),
+			// Sub-agents (F18b): the managed extension registers the `agents` tool with `subagents.enabled`.
+			...(configure.subagents?.enabled ? [AGENTS_TOOL] : []),
 		];
 		// `configure.system_prompt` is added after any append prompt the loader found. It goes through the
 		// override, not `appendSystemPrompt`: the loader reads an `appendSystemPrompt` entry that names an

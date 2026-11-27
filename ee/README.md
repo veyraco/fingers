@@ -58,7 +58,9 @@ and handles `/agents` (list, `steer <id> <message>`, `stop <id>`). The core's bu
 the `agents` tool, makes the child sessions (`packages/coding-agent/src/extensions/subagents/child-session.ts`: the
 parent's model runtime and settings, approvals asked in the parent's terminal) and picks each child's model through
 the token-saving routing hooks. Lifecycle events follow Fingers RPC v1 (`subagent_started`, `subagent_updated`,
-`subagent_finished`); managed RPC does not offer sub-agents yet.
+`subagent_finished`). Managed RPC (F18b) activates this module with only `subagents` (and `checkpoints` while the
+run configured them) on when the host sends `configure.subagents.enabled`; the core then runs the children under the
+managed gate and forwards their records with their `agent_id` (`packages/coding-agent/docs/rpc-managed.md`).
 
 The `/agents` panel (F19) is the core's (`packages/coding-agent/src/modes/interactive/components/agents-panel.ts`);
 `/agents` opens it through `openAgentsPanel` in the command context. The engine adds `pause`/`resume` (the child

@@ -9,8 +9,14 @@
  * `credentials`), `seq` and `traceparent` correlation, structured stderr logs, the managed path policy,
  * approvals, `usage`, `file_changed`, limits, checkpoints, the memory and telemetry relays and a `result` after
  * every `agent_settled`.
+ *
+ * With `configure.subagents.enabled` (F18b) the agent gets the `agents` tool of the ee sub-agent engine
+ * (./subagents.ts): each child runs under the same gate (path policy on its worktree, approvals, the run's tools,
+ * correlation headers, telemetry relay), its records are forwarded with its `agent_id`, its usage counts toward the
+ * run's limits, and `steer`, `abort` and checkpoints can name it.
  */
 import { randomUUID } from "node:crypto";
+import { join, relative, sep } from "node:path";
 import type { AssistantMessage, ProviderHeaders } from "@veyraco/fingers-ai";
 import type { AgentSession, AgentSessionEvent } from "../../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../../core/agent-session-runtime.ts";
@@ -26,12 +32,21 @@ import {
 import { type MemoryResponseRecord, RelayMemoryProvider } from "../../../core/memory/relay.ts";
 import type { MemoryUnavailableError } from "../../../core/memory/types.ts";
 import { SessionManager } from "../../../core/session-manager.ts";
+import { DEFAULT_TOOL_NAMES } from "../../../core/settings-manager.ts";
+import { SubagentEngines } from "../../../core/subagents/registry.ts";
+import type { SubagentEngine, SubagentEvent, SubagentStatus } from "../../../core/subagents/types.ts";
 import { childSpan, continueTrace, formatTraceparent, type TraceContext } from "../../../core/trace-context.ts";
 import type { SpanExporter } from "../../../core/tracing/spans.ts";
 import { SessionTracer } from "../../../core/tracing/tracer.ts";
 import { BROWSER_TOOL_NAME, createBrowserExtension } from "../../../extensions/browser/index.ts";
+import type {
+	ChildGateContext,
+	ChildIdentity,
+	ChildSessionHooks,
+} from "../../../extensions/subagents/child-session.ts";
+import { AGENTS_TOOL, createSubagentsExtension } from "../../../extensions/subagents/index.ts";
 import { toJsonEvent } from "../../json-event.ts";
-import { ApprovalBroker, type ApprovalMode, approvalNeed, describeManagedTool } from "./approvals.ts";
+import { ApprovalBroker, type ApprovalMode, approvalNeed, approvalSummary, describeManagedTool } from "./approvals.ts";
 import {
 	branchMessageCount,
 	CHECKPOINT_FORMAT,
@@ -54,8 +69,9 @@ import {
 import { applyCredentials, type CredentialsMessage, type ManagedMcpServer, mcpServerEntries } from "./credentials.ts";
 import { FileChangeTracker } from "./file-changes.ts";
 import { ManagedLogger } from "./log.ts";
-import { checkManagedToolPaths, type PathPolicy, preparePathPolicy } from "./path-policy.ts";
+import { checkManagedToolPaths, inside, type PathPolicy, physicalPath, preparePathPolicy } from "./path-policy.ts";
 import { SecretSet, secretHeaderValues } from "./secrets.ts";
+import { workspaceBoundEngine } from "./subagents.ts";
 
 type JsonRecord = Record<string, any>;
 
@@ -89,6 +105,8 @@ export interface ManagedConfigure {
 	/** `relay`: finished spans go to the host as `telemetry_span`; `off` (default): no spans. */
 	telemetry?: { mode?: string; capture_content?: boolean };
 	checkpoints?: { dir?: string };
+	/** `enabled`: the agent gets the `agents` tool (F18b); the host decided the organization may use sub-agents. */
+	subagents?: { enabled: boolean };
 }
 
 export interface ManagedRuntimeFactoryInput {
@@ -113,6 +131,48 @@ export interface ManagedRpcServerOptions {
 	env?: string;
 	logLevel?: "debug" | "info" | "warn" | "error";
 	now?: () => number;
+	/**
+	 * The sub-agent engine of this build (the ee module, ./subagents.ts), or undefined when it has none: then `hello`
+	 * does not announce `subagents` and `configure.subagents.enabled` is refused. `checkpointsOn` says whether the run
+	 * configured checkpoints.
+	 */
+	subagentEngine?: (checkpointsOn: () => boolean) => SubagentEngine | undefined;
+}
+
+/** A `configure` failure with its own error code. */
+class ConfigureError extends Error {
+	readonly code: ErrorCode;
+
+	constructor(code: ErrorCode, message: string) {
+		super(message);
+		this.code = code;
+	}
+}
+
+/** The agent a tool call or a model request belongs to: the main agent or a sub-agent (F18b). */
+interface GateAgent {
+	/** `main` or `sub_…`. */
+	id: string;
+	policy(): Promise<PathPolicy>;
+	tracker: FileChangeTracker;
+	session(): AgentSession | undefined;
+	/** A sub-agent: tell its engine it waits for an approval. */
+	waiting?(waiting: boolean, request?: { command: string; reason: string }): void;
+	/** A sub-agent: aborted when it stops, which cancels its pending approval. */
+	signal?(): AbortSignal;
+}
+
+/** A sub-agent's session as managed mode watches it. */
+interface ChildState extends ChildIdentity {
+	session?: AgentSession;
+	tracker: FileChangeTracker;
+	policy?: Promise<PathPolicy>;
+	tracer?: SessionTracer;
+}
+
+/** The key a held `tool_execution_start` waits under: tool call ids are only unique within one agent's session. */
+function holdKey(agentId: string, toolCallId: string): string {
+	return agentId === "main" ? toolCallId : `${agentId}\u0000${toolCallId}`;
 }
 
 type LimitStop = {
@@ -151,6 +211,31 @@ function cloneTotals(totals: Totals): Totals {
 
 function formatUsd(value: number): string {
 	return `$${Number(value.toPrecision(6))}`;
+}
+
+/** An agent's usage (the core's Usage) as the contract's totals. */
+function usageTotals(usage: {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+}): Totals {
+	return {
+		tokens: {
+			input_tokens: usage.input,
+			output_tokens: usage.output,
+			cache_read_tokens: usage.cacheRead,
+			cache_write_tokens: usage.cacheWrite,
+		},
+		cost_usd: {
+			input: round(usage.cost.input),
+			output: round(usage.cost.output),
+			cache_read: round(usage.cost.cacheRead),
+			cache_write: round(usage.cost.cacheWrite),
+			total: round(usage.cost.total),
+		},
+	};
 }
 
 function errorMessage(error: unknown): string {
@@ -206,9 +291,25 @@ export class ManagedRpcServer {
 	/** The trace of the command that started the current (or last) run: model requests are its child spans. */
 	private workTrace?: TraceContext;
 	private compactionStartedAt?: number;
+	/** This build's sub-agent engine (ee); undefined: no sub-agents. */
+	private readonly subagentEngine?: SubagentEngine;
+	/** The engine while this run has sub-agents on (`configure.subagents.enabled`). */
+	private subagents?: SubagentEngines;
+	private unsubscribeSubagents?: () => void;
+	/** Sub-agents whose session is live, by id. */
+	private readonly children = new Map<string, ChildState>();
+	/** The last status announced per sub-agent (`subagent_updated` only on a change). */
+	private readonly subagentStatus = new Map<string, SubagentStatus>();
+	/** The repository root the sub-agents' worktrees are relative to (resolved), once a call ran. */
+	private repositoryRoot?: string;
+	/** Sub-agent checkpoints this process wrote, by SHA-256 (they restore only here). */
+	private readonly subagentCheckpoints = new Map<string, { agentId: string; checkpoint: string; entryId: string }>();
+	/** One checkpoint export or import per sub-agent at a time. */
+	private readonly subagentLocks = new Map<string, Promise<unknown>>();
 
 	constructor(options: ManagedRpcServerOptions) {
 		this.options = options;
+		this.subagentEngine = options.subagentEngine?.(() => this.configure?.checkpoints?.dir !== undefined);
 		this.logger = new ManagedLogger({
 			write: (line) => options.io.writeStderr(line),
 			secrets: this.secrets,
@@ -229,7 +330,11 @@ export class ManagedRpcServer {
 			protocol: FINGERS_RPC_PROTOCOL,
 			fingers_version: this.options.version,
 			managed: true,
-			capabilities: [...MANAGED_CAPABILITIES, ...(findBrowserExecutable() ? ["browser"] : [])],
+			capabilities: [
+				...MANAGED_CAPABILITIES,
+				...(findBrowserExecutable() ? ["browser"] : []),
+				...(this.subagentEngine ? ["subagents"] : []),
+			],
 		});
 		this.logger.info("managed rpc started", { protocol: FINGERS_RPC_PROTOCOL });
 	}
@@ -404,6 +509,12 @@ export class ManagedRpcServer {
 					"tools.builtin names browser, but no Chromium-based browser was found (FINGERS_BROWSER_PATH or a standard install)",
 				);
 			}
+			if (configure.subagents?.enabled && !this.subagentEngine) {
+				throw new ConfigureError(
+					"unsupported",
+					"subagents.enabled, but this Fingers has no sub-agents (hello did not announce subagents)",
+				);
+			}
 			this.policy = await preparePathPolicy({
 				workspaceRoot: configure.workspace.root,
 				protectedPaths: configure.workspace.protected_paths ?? [],
@@ -428,7 +539,24 @@ export class ManagedRpcServer {
 					},
 				});
 			}
-			if (configure.telemetry?.mode === "relay") this.tracer = this.createRelayTracer(configure);
+			if (configure.telemetry?.mode === "relay") {
+				this.tracer = this.createRelayTracer(configure, "main", () => this.session);
+			}
+			if (configure.subagents?.enabled && this.subagentEngine) {
+				const engines = new SubagentEngines();
+				engines.set(
+					workspaceBoundEngine(
+						this.subagentEngine,
+						() => this.policy!.workspace.physical,
+						(root) => {
+							this.repositoryRoot = root;
+						},
+					),
+					() => true,
+				);
+				this.unsubscribeSubagents = engines.onEvent((event) => this.onSubagentEvent(event));
+				this.subagents = engines;
+			}
 			this.runtime = await this.options.createRuntime({ configure, extension: this.createManagedExtension() });
 			this.runtime.setRebindSession(async () => {
 				await this.bindSession();
@@ -444,8 +572,16 @@ export class ManagedRpcServer {
 			this.unsubscribeTracer?.();
 			this.unsubscribeTracer = undefined;
 			this.tracer = undefined;
+			this.unsubscribeSubagents?.();
+			this.unsubscribeSubagents = undefined;
+			this.subagents = undefined;
 			this.logger.error("configure failed", { err: error });
-			this.fail(configure.id, "configure", "invalid_command", `configure failed: ${errorMessage(error)}`);
+			this.fail(
+				configure.id,
+				"configure",
+				error instanceof ConfigureError ? error.code : "invalid_command",
+				`configure failed: ${errorMessage(error)}`,
+			);
 			await this.runtime?.dispose().catch(() => {});
 			this.runtime = undefined;
 			this.session = undefined;
@@ -465,6 +601,7 @@ export class ManagedRpcServer {
 			memory_mode: this.memory ? "relay" : "off",
 			telemetry_mode: this.tracer ? "relay" : "off",
 			telemetry_capture_content: this.tracer ? configure.telemetry?.capture_content === true : undefined,
+			subagents: this.subagents !== undefined,
 			session_id: this.session.sessionId,
 		});
 		this.respond(configure.id, "configure", { session_id: this.session.sessionId });
@@ -496,8 +633,20 @@ export class ManagedRpcServer {
 								: { app: "fingers", type: "session", id: ctx.sessionManager.getSessionId() },
 					})(fingers);
 				}
+				if (this.subagents) {
+					const server = this;
+					createSubagentsExtension({
+						engines: this.subagents,
+						limitReached: () => this.limitStop !== undefined,
+						child: this.childHooks(),
+						// The children read the same global instructions as the main agent.
+						get agentDir() {
+							return server.runtime?.services.agentDir;
+						},
+					})(fingers);
+				}
 				fingers.on("before_provider_headers", (event) => {
-					this.addCorrelationHeaders(event.headers);
+					this.addCorrelationHeaders(event.headers, this.tracer);
 				});
 				fingers.on("tool_call", async (event) => {
 					try {
@@ -506,6 +655,7 @@ export class ManagedRpcServer {
 							event.toolCallId,
 							event.input as JsonRecord,
 							event.parentToolCallId,
+							this.mainAgent(),
 						);
 					} finally {
 						this.releaseHeldStart(event.toolCallId);
@@ -515,13 +665,223 @@ export class ManagedRpcServer {
 		};
 	}
 
+	private mainAgent(): GateAgent {
+		return {
+			id: "main",
+			policy: async () => this.policy!,
+			tracker: this.fileTracker!,
+			session: () => this.session,
+		};
+	}
+
+	// =====================================================================
+	// Sub-agents (F18b)
+	// =====================================================================
+
+	/** The run's built-in tools for a child: no browser, memory or agents of its own (and no MCP servers). */
+	private childToolNames(): string[] {
+		const tools = this.configure?.tools?.builtin ?? DEFAULT_TOOL_NAMES;
+		return tools.filter((name) => name !== BROWSER_TOOL_NAME && name !== AGENTS_TOOL && !name.startsWith("memory_"));
+	}
+
+	private childHooks(): ChildSessionHooks {
+		return {
+			tools: this.childToolNames(),
+			noSkills: true,
+			extensions: (child) => [this.createChildExtension(child)],
+			attach: (child, session) => this.attachChild(child, session),
+		};
+	}
+
+	private childState(child: ChildIdentity): ChildState {
+		let state = this.children.get(child.id);
+		if (!state) {
+			state = { id: child.id, label: child.label, cwd: child.cwd, tracker: new FileChangeTracker(child.cwd) };
+			this.children.set(child.id, state);
+		}
+		return state;
+	}
+
+	/**
+	 * A child's path policy: the workspace rules on its worktree (its copy of `workspace.root`), which must itself lie
+	 * inside the workspace.
+	 */
+	private childPolicy(state: ChildState): Promise<PathPolicy> {
+		state.policy ??= (async () => {
+			const policy = await preparePathPolicy({
+				workspaceRoot: state.cwd,
+				protectedPaths: this.configure?.workspace.protected_paths ?? [],
+			});
+			const workspace = this.policy!.workspace.physical;
+			if (!inside(workspace, policy.workspace.physical) || !inside(workspace, await physicalPath(state.cwd))) {
+				throw new Error("The sub-agent's worktree is outside the workspace");
+			}
+			return policy;
+		})();
+		return state.policy;
+	}
+
+	/** The gate of a child's tool calls and model requests: the main agent's rules, under the child's id. */
+	private createChildExtension(child: ChildGateContext): InlineExtension {
+		const state = this.childState(child);
+		const agent: GateAgent = {
+			id: child.id,
+			policy: () => this.childPolicy(state),
+			tracker: state.tracker,
+			session: () => state.session,
+			waiting: (on, request) => child.waiting(on, request),
+			signal: () => child.signal(),
+		};
+		return {
+			name: "veyra-managed-subagent",
+			hidden: true,
+			factory: (fingers: ExtensionAPI) => {
+				fingers.on("before_provider_headers", (event) => {
+					this.addCorrelationHeaders(event.headers, state.tracer);
+				});
+				fingers.on("tool_call", async (event) => {
+					try {
+						return await this.gateToolCall(
+							event.toolName,
+							event.toolCallId,
+							event.input as JsonRecord,
+							event.parentToolCallId,
+							agent,
+						);
+					} finally {
+						this.releaseHeldStart(holdKey(child.id, event.toolCallId));
+					}
+				});
+			},
+		};
+	}
+
+	/** Watch a child's session: its records go to the host with its id, its spans to the telemetry relay. */
+	private attachChild(child: ChildIdentity, session: AgentSession): () => void {
+		const state = this.childState(child);
+		state.session = session;
+		const unsubscribe = session.subscribe((event) => this.onChildEvent(state, event));
+		let unsubscribeTracer: (() => void) | undefined;
+		if (this.tracer && this.configure) {
+			const tracer = this.createRelayTracer(this.configure, child.id, () => session);
+			state.tracer = tracer;
+			unsubscribeTracer = session.subscribe((event) => this.traceEvent(tracer, event));
+		}
+		return () => {
+			unsubscribe();
+			unsubscribeTracer?.();
+			for (const key of [...this.heldStarts.keys()]) {
+				if (key.startsWith(`${child.id}\u0000`)) this.heldStarts.delete(key);
+			}
+			if (this.children.get(child.id) === state) this.children.delete(child.id);
+		};
+	}
+
+	/**
+	 * A child's records: its messages, tool calls, usage and file changes, with its `agent_id`. Its run's own
+	 * lifecycle (agent_*, turn_*) is not forwarded: `subagent_*` is, and only the main agent ends a run.
+	 */
+	private onChildEvent(state: ChildState, event: AgentSessionEvent): void {
+		const record = { ...(toJsonEvent(event) as JsonRecord), agent_id: state.id };
+		switch (event.type) {
+			case "tool_execution_start":
+				this.heldStarts.set(holdKey(state.id, event.toolCallId), record);
+				return;
+			case "tool_execution_end": {
+				this.releaseHeldStart(holdKey(state.id, event.toolCallId));
+				this.emit(record);
+				if (event.isError) {
+					state.tracker.discard(event.toolCallId);
+					return;
+				}
+				try {
+					const change = state.tracker.after(event.toolCallId);
+					if (change) {
+						this.emit({ type: "file_changed", agent_id: state.id, ...change, tool_call_id: event.toolCallId });
+					}
+				} catch (error) {
+					this.logger.warn("file change not computed", { agent_id: state.id, err: error });
+				}
+				return;
+			}
+			case "message_start":
+			case "message_update":
+			case "tool_execution_update":
+				this.emit(record);
+				return;
+			case "message_end":
+				this.emit(record);
+				if (event.message.role === "assistant") this.recordUsage(event.message as AssistantMessage, state.id);
+				return;
+			default:
+				return;
+		}
+	}
+
+	/** The engine's lifecycle events as `subagent_started`, `subagent_updated` (on a status change) and `subagent_finished`. */
+	private onSubagentEvent(event: SubagentEvent): void {
+		const agent = event.agent;
+		if (event.type === "subagent_started") {
+			const status = agent.status === "queued" ? "queued" : "running";
+			this.subagentStatus.set(agent.id, status);
+			const worktree = this.worktreePath(agent.worktree);
+			this.emit({
+				type: "subagent_started",
+				agent_id: agent.id,
+				parent_agent_id: agent.parentId,
+				label: agent.label,
+				task: agent.task,
+				...(agent.model ? { model: { provider: agent.model.provider, model_id: agent.model.id } } : {}),
+				...(worktree ? { worktree } : {}),
+				depends_on: [...new Set(agent.dependsOn)],
+				status,
+			});
+			if (status !== agent.status) this.onSubagentEvent({ type: "subagent_updated", agent });
+			return;
+		}
+		if (event.type === "subagent_updated") {
+			if (this.subagentStatus.get(agent.id) === agent.status) return;
+			this.subagentStatus.set(agent.id, agent.status);
+			this.emit({ type: "subagent_updated", agent_id: agent.id, status: agent.status });
+			return;
+		}
+		this.subagentStatus.delete(agent.id);
+		const status = agent.status === "done" || agent.status === "failed" ? agent.status : "stopped";
+		this.emit({
+			type: "subagent_finished",
+			agent_id: agent.id,
+			status,
+			usage: usageTotals(agent.usage),
+			...(agent.summary ? { summary: agent.summary.slice(0, 4000) } : {}),
+		});
+		this.logger.info("sub-agent finished", {
+			agent_id: agent.id,
+			status,
+			merged: agent.merged,
+			cost_usd: agent.usage.cost.total,
+		});
+	}
+
+	/** A worktree relative to the repository root, as the contract has it: relative to the workspace root. */
+	private worktreePath(worktree: string | undefined): string | undefined {
+		if (!worktree) return undefined;
+		const root = this.repositoryRoot;
+		const workspace = this.policy?.workspace.physical;
+		if (!root || !workspace) return worktree;
+		return relative(workspace, join(root, worktree)).split(sep).join("/");
+	}
+
 	/**
 	 * The telemetry relay: every finished span (model calls, tool calls, compactions) becomes a `telemetry_span` record
 	 * for the host, which sends it to Eyes as the run's Fingers feed or drops it. Spans continue the trace of the
 	 * command that started the run, carry the run's ids and are masked: the host's secrets never appear in them, and
 	 * prompts, answers and tool arguments only with `capture_content`.
 	 */
-	private createRelayTracer(configure: ManagedConfigure): SessionTracer {
+	private createRelayTracer(
+		configure: ManagedConfigure,
+		agentId: string,
+		session: () => AgentSession | undefined,
+	): SessionTracer {
 		const relay: SpanExporter = {
 			content: configure.telemetry?.capture_content === true,
 			export: (span) => this.emit({ type: "telemetry_span", span }),
@@ -529,7 +889,7 @@ export class ManagedRpcServer {
 		const exporters = [relay];
 		const runAttributes = {
 			...(configure.run_id ? { "veyra.run_id": configure.run_id } : {}),
-			"veyra.fingers.agent_id": "main",
+			"veyra.fingers.agent_id": agentId,
 			...(configure.request_id && CORRELATION_ID.test(configure.request_id)
 				? { "veyra.correlation_id": configure.request_id }
 				: {}),
@@ -538,9 +898,9 @@ export class ManagedRpcServer {
 			exporters: () => exporters,
 			parent: () => this.spanParent(),
 			attributes: () => runAttributes,
-			conversationId: () => this.session?.sessionId,
-			systemPrompt: () => this.session?.systemPrompt,
-			messages: () => this.session?.messages ?? [],
+			conversationId: () => session()?.sessionId,
+			systemPrompt: () => session()?.systemPrompt,
+			messages: () => session()?.messages ?? [],
 			mask: { redactSecrets: (text) => this.secrets.redact(text) },
 			onError: (error) => this.logger.warn("telemetry span not sent", { err: error }),
 			now: () => this.now(),
@@ -558,8 +918,7 @@ export class ManagedRpcServer {
 	}
 
 	/** Feed the relay tracer; it listens after the server, so a model call's span follows its `usage` record. */
-	private traceEvent(event: AgentSessionEvent): void {
-		const tracer = this.tracer;
+	private traceEvent(tracer: SessionTracer | undefined, event: AgentSessionEvent): void {
 		if (!tracer) return;
 		switch (event.type) {
 			case "agent_start":
@@ -604,11 +963,11 @@ export class ManagedRpcServer {
 	 * Every model request (turns, compaction, summaries) carries a new child span of the run's trace as
 	 * `traceparent` and the run's `X-Request-Id` (contracts/v1/logging.md, Correlation headers).
 	 */
-	private addCorrelationHeaders(headers: ProviderHeaders): void {
+	private addCorrelationHeaders(headers: ProviderHeaders, tracer: SessionTracer | undefined): void {
 		const parent = this.spanParent();
 		if (!parent) return;
 		// With the telemetry relay, the request's span is the model call's `chat` span.
-		const span = this.tracer?.modelRequest() ?? childSpan(parent);
+		const span = tracer?.modelRequest() ?? childSpan(parent);
 		const requestId = this.configure?.request_id;
 		for (const key of Object.keys(headers)) {
 			if (!CORRELATION_HEADER.test(key)) continue;
@@ -630,12 +989,26 @@ export class ManagedRpcServer {
 		toolCallId: string,
 		input: JsonRecord,
 		parentToolCallId: string | undefined,
+		agent: GateAgent,
 	): Promise<{ block: true; reason: string } | undefined> {
 		const configure = this.configure!;
-		const policy = this.policy!;
+		const sub = agent.id === "main" ? undefined : agent.id;
+		let policy: PathPolicy;
+		try {
+			policy = await agent.policy();
+		} catch (error) {
+			this.logger.warn("tool call blocked: no path policy for the sub-agent", {
+				agent_id: sub,
+				tool: toolName,
+				tool_call_id: toolCallId,
+				err: error,
+			});
+			return { block: true, reason: "Tool path is outside the workspace" };
+		}
 		const blocked = await checkManagedToolPaths(toolName, input, policy);
 		if (blocked) {
 			this.logger.warn("tool call blocked by the managed path policy", {
+				agent_id: sub,
 				tool: toolName,
 				tool_call_id: toolCallId,
 				reason: blocked,
@@ -649,8 +1022,22 @@ export class ManagedRpcServer {
 			(tool.kind === "mcp_tool" ? serverMode : undefined) ?? configure.tools?.approval ?? "write_tools";
 		const need = approvalNeed(tool, mode);
 		if (need.required && !this.broker!.isAllowed(tool, input)) {
-			const outcome = await this.broker!.request({ toolCallId, tool, args: input, reason: need.reason });
+			agent.waiting?.(true, { command: approvalSummary(tool, input), reason: need.reason });
+			let outcome: Awaited<ReturnType<ApprovalBroker["request"]>>;
+			try {
+				outcome = await this.broker!.request({
+					toolCallId,
+					tool,
+					args: input,
+					reason: need.reason,
+					agentId: sub,
+					signal: agent.signal?.(),
+				});
+			} finally {
+				agent.waiting?.(false);
+			}
 			this.logger.info("approval resolved", {
+				agent_id: sub,
 				tool: toolName,
 				tool_call_id: toolCallId,
 				decision: outcome.decision,
@@ -658,7 +1045,7 @@ export class ManagedRpcServer {
 				decided_by_id: outcome.decidedBy?.id,
 			});
 			try {
-				this.session?.sessionManager.appendCustomEntry("veyra.approval", {
+				agent.session()?.sessionManager.appendCustomEntry("veyra.approval", {
 					tool_call_id: toolCallId,
 					tool: { server: tool.server, name: tool.name },
 					decision: outcome.decision,
@@ -685,6 +1072,7 @@ export class ManagedRpcServer {
 			const again = await checkManagedToolPaths(toolName, input, policy);
 			if (again) {
 				this.logger.warn("tool call blocked by the managed path policy after approval", {
+					agent_id: sub,
 					tool: toolName,
 					tool_call_id: toolCallId,
 					reason: again,
@@ -692,7 +1080,7 @@ export class ManagedRpcServer {
 				return { block: true, reason: again };
 			}
 		}
-		if (!parentToolCallId) this.fileTracker!.before(toolCallId, toolName, input);
+		if (!parentToolCallId) agent.tracker.before(toolCallId, toolName, input);
 		return undefined;
 	}
 
@@ -725,7 +1113,8 @@ export class ManagedRpcServer {
 		this.unsubscribe?.();
 		this.unsubscribe = session.subscribe((event) => this.onSessionEvent(event));
 		this.unsubscribeTracer?.();
-		this.unsubscribeTracer = this.tracer ? session.subscribe((event) => this.traceEvent(event)) : undefined;
+		const tracer = this.tracer;
+		this.unsubscribeTracer = tracer ? session.subscribe((event) => this.traceEvent(tracer, event)) : undefined;
 		// A limit reached during a turn ends the run after the turn's tool calls (the same stop as /budget).
 		endRunAfterTurnWhen(session.agent, () => this.limitStop !== undefined);
 		await session.bindExtensions({
@@ -832,12 +1221,20 @@ export class ManagedRpcServer {
 		if (!this.run) this.run = { startedAt: this.now(), turns: 0, limitNoticeSent: false };
 		const run = this.run;
 		run.turns++;
-		this.totalTurns++;
 		if (message.stopReason === "error") {
 			const text = message.errorMessage ?? "unknown error";
 			run.turnError = text;
 			run.error = text;
 		}
+		this.recordUsage(message);
+	}
+
+	/**
+	 * One model call of any agent: a `usage` record (with a sub-agent's `agent_id`), the process' cumulative totals and
+	 * the limits, which count every agent. A sub-agent's failed call is its own failure, never the run's.
+	 */
+	private recordUsage(message: AssistantMessage, agentId?: string): void {
+		this.totalTurns++;
 		const usage = message.usage;
 		const turn: Totals = {
 			tokens: {
@@ -864,6 +1261,7 @@ export class ManagedRpcServer {
 		addTotals(this.cumulative, turn);
 		this.emit({
 			type: "usage",
+			...(agentId ? { agent_id: agentId } : {}),
 			provider: message.provider,
 			model: message.model,
 			...(message.responseId ? { response_id: message.responseId } : {}),
@@ -1047,7 +1445,7 @@ export class ManagedRpcServer {
 			case "steer":
 			case "follow_up": {
 				if (command.agent_id && command.agent_id !== "main") {
-					this.fail(id, type, "not_found", `No agent ${command.agent_id}`);
+					this.steerSubagent(id, command);
 					return;
 				}
 				const disposition =
@@ -1060,7 +1458,7 @@ export class ManagedRpcServer {
 			}
 			case "abort": {
 				if (command.agent_id && command.agent_id !== "main") {
-					this.fail(id, "abort", "not_found", `No agent ${command.agent_id}`);
+					this.stopSubagent(id, command.agent_id);
 					return;
 				}
 				this.broker?.cancelAll();
@@ -1135,7 +1533,8 @@ export class ManagedRpcServer {
 			case "checkpoint_export":
 			case "checkpoint_import":
 				try {
-					if (type === "checkpoint_export") await this.exportCheckpoint(id, command);
+					if (command.agent_id) await this.subagentCheckpoint(type, id, command);
+					else if (type === "checkpoint_export") await this.exportCheckpoint(id, command);
 					else await this.importCheckpoint(id, command);
 				} catch (error) {
 					if (!(error instanceof CheckpointError)) throw error;
@@ -1145,6 +1544,38 @@ export class ManagedRpcServer {
 			default:
 				this.fail(id, type, "unknown_command", `Unknown command: ${type}`);
 		}
+	}
+
+	/** `steer` with a sub-agent's `agent_id`: to that running sub-agent only (text; images reach the main agent only). */
+	private steerSubagent(id: string | undefined, command: JsonRecord): void {
+		const agentId = command.agent_id as string;
+		if (command.images?.length) {
+			this.fail(id, "steer", "unsupported", "A sub-agent takes text only; send images to the main agent");
+			return;
+		}
+		if (!this.subagents?.engine()?.steer(agentId, command.message)) {
+			this.fail(id, "steer", "not_found", `No running sub-agent ${agentId}`);
+			return;
+		}
+		this.logger.info("message queued", { kind: "steer", agent_id: agentId, message_id: command.message_id });
+		this.respond(id, "steer", { disposition: "queued" });
+	}
+
+	/** `abort` with a sub-agent's `agent_id`: stops that running or queued sub-agent and cancels its approvals. */
+	private stopSubagent(id: string | undefined, agentId: string): void {
+		const engine = this.subagents?.engine();
+		const known = engine?.list().find((agent) => agent.id === agentId);
+		if (!engine || !known || ["done", "failed", "stopped"].includes(known.status)) {
+			this.fail(id, "abort", "not_found", `No running or queued sub-agent ${agentId}`);
+			return;
+		}
+		this.broker?.cancelAgent(agentId);
+		if (!engine.stop(agentId)) {
+			this.fail(id, "abort", "not_found", `No running or queued sub-agent ${agentId}`);
+			return;
+		}
+		this.logger.info("sub-agent stopped by the host", { agent_id: agentId });
+		this.respond(id, "abort");
 	}
 
 	/**
@@ -1201,6 +1632,128 @@ export class ManagedRpcServer {
 			sha256,
 			size_bytes: sizeBytes,
 			entry_id: entryId,
+		});
+	}
+
+	/** One checkpoint export or import of `agentId` at a time. */
+	private async withSubagentLock<T>(agentId: string, task: () => Promise<T>): Promise<T> {
+		const previous = this.subagentLocks.get(agentId) ?? Promise.resolve();
+		const next = previous.then(task, task);
+		const settled = next.catch(() => undefined);
+		this.subagentLocks.set(agentId, settled);
+		try {
+			return await next;
+		} finally {
+			if (this.subagentLocks.get(agentId) === settled) this.subagentLocks.delete(agentId);
+		}
+	}
+
+	/**
+	 * A sub-agent's checkpoint (`agent_id`): export holds it before its next model call, keeps the engine's checkpoint
+	 * (its worktree as a commit, its transcript's point), writes its transcript and lets it go on; import rolls the
+	 * running sub-agent back to a checkpoint this process took. The engine's checkpoints live in this process only.
+	 */
+	private async subagentCheckpoint(
+		type: "checkpoint_export" | "checkpoint_import",
+		id: string | undefined,
+		command: JsonRecord,
+	): Promise<void> {
+		const agentId = command.agent_id as string;
+		const path = await resolveCheckpointPath(command.path, this.configure?.checkpoints?.dir);
+		const engine = this.subagents?.engine();
+		const running = () => {
+			const state = this.children.get(agentId);
+			const status = engine?.list().find((agent) => agent.id === agentId)?.status;
+			if (!engine || !state?.session || !status || ["queued", "done", "failed", "stopped"].includes(status)) {
+				throw new CheckpointError("not_found", `No running sub-agent ${agentId}`);
+			}
+			return { engine, session: state.session };
+		};
+		if (type === "checkpoint_import") {
+			const checkpoint = await readCheckpointFile(path, command.sha256);
+			const known = this.subagentCheckpoints.get(String(command.sha256).toLowerCase());
+			if (!known || known.agentId !== agentId || checkpoint.header.id !== running().session.sessionId) {
+				throw new CheckpointError(
+					"not_found",
+					`This process kept no such checkpoint of ${agentId}: a sub-agent checkpoint is restored only in the process that took it, while the sub-agent runs`,
+				);
+			}
+			await this.withSubagentLock(agentId, async () => {
+				const { engine: live } = running();
+				live.pause(agentId);
+				try {
+					await live.resume(agentId, known.checkpoint);
+				} catch (error) {
+					await live.resume(agentId).catch(() => undefined);
+					throw new CheckpointError("not_found", errorMessage(error));
+				}
+			});
+			const session = this.children.get(agentId)?.session;
+			this.logger.info("sub-agent checkpoint imported", {
+				agent_id: agentId,
+				checkpoint: known.checkpoint,
+				sha256: command.sha256,
+			});
+			this.respond(id, "checkpoint_import", {
+				session_id: session?.sessionId ?? checkpoint.header.id,
+				mode: "resume",
+				entry_id: known.entryId,
+			});
+			return;
+		}
+		const taken = await this.withSubagentLock(agentId, async () => {
+			const { engine: live, session } = running();
+			const pausedHere = live.pause(agentId);
+			try {
+				const kept = await live.checkpoint(agentId).catch((error: unknown) => {
+					throw new CheckpointError("not_found", errorMessage(error));
+				});
+				// Held before its next model call: the transcript is whole and does not move.
+				const sessionManager = session.sessionManager;
+				const entryId = sessionManager.getLeafId() ?? session.sessionId;
+				const content = serializeCheckpoint(sessionManager, (line) => this.secrets.redactJsonLine(line));
+				return {
+					kept,
+					entryId,
+					content,
+					messageCount: branchMessageCount(sessionManager),
+					sessionId: session.sessionId,
+				};
+			} finally {
+				if (pausedHere) await live.resume(agentId).catch(() => undefined);
+			}
+		});
+		const { sha256, sizeBytes } = await writeCheckpointFile(path, taken.content);
+		this.subagentCheckpoints.set(sha256, { agentId, checkpoint: taken.kept.id, entryId: taken.entryId });
+		const checkpoint = {
+			id: checkpointId(path, sha256),
+			format: CHECKPOINT_FORMAT,
+			session_id: taken.sessionId,
+			entry_id: taken.entryId,
+			...(command.label !== undefined ? { label: command.label } : {}),
+			path: command.path,
+			sha256,
+			size_bytes: sizeBytes,
+			message_count: taken.messageCount,
+			created_at: new Date(this.now()).toISOString(),
+			agent_id: agentId,
+		};
+		this.logger.info("sub-agent checkpoint exported", {
+			agent_id: agentId,
+			checkpoint_id: checkpoint.id,
+			checkpoint: taken.kept.id,
+			sha256,
+			size_bytes: sizeBytes,
+		});
+		this.respond(id, "checkpoint_export", { checkpoint });
+		this.emit({
+			type: "checkpoint_created",
+			agent_id: agentId,
+			checkpoint_id: checkpoint.id,
+			...(command.label !== undefined ? { label: command.label } : {}),
+			sha256,
+			size_bytes: sizeBytes,
+			entry_id: taken.entryId,
 		});
 	}
 
@@ -1289,6 +1842,7 @@ export class ManagedRpcServer {
 		}
 		this.unsubscribe?.();
 		this.unsubscribeTracer?.();
+		this.unsubscribeSubagents?.();
 		await this.runtime?.dispose().catch((error) => this.logger.warn("dispose failed", { err: error }));
 	}
 }

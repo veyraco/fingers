@@ -4,8 +4,9 @@
  * runs them in parallel (a child with dependencies waits for them), and merges what a finished child changed into the
  * parent's working tree. The core offers the `agents` tool (extensions/subagents/index.ts), makes the child sessions
  * (child-session.ts: same credentials, the parent's settings and approvals) and keeps the engine that is live
- * (registry.ts). Without an engine (core only, signed out, a tier without sub-agents, managed RPC, print and JSON
- * modes) the tool is not offered.
+ * (registry.ts). Without an engine (core only, signed out, a tier without sub-agents, print and JSON modes, managed
+ * RPC without `configure.subagents`) the tool is not offered. In managed RPC (F18b) the host's gate, tools and
+ * limits apply to every child (modes/rpc/managed).
  *
  * The `/agents` panel (F19, modes/interactive/components/agents-panel.ts) lists them and can open, approve, steer,
  * pause, stop, checkpoint and resume one; checkpoints (a commit of the child's worktree plus a point of its

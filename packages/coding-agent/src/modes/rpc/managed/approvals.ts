@@ -159,6 +159,10 @@ function patternMatches(
 interface PendingApproval {
 	resolve: (outcome: ApprovalOutcome) => void;
 	timer: ReturnType<typeof setTimeout>;
+	/** The sub-agent that asks (F18b); undefined for the main agent. */
+	agentId?: string;
+	/** Detach from the asker's abort signal. */
+	release?: () => void;
 }
 
 export interface ApprovalBrokerOptions {
@@ -200,15 +204,22 @@ export class ApprovalBroker {
 		args: Record<string, unknown>;
 		reason: string;
 		agentId?: string;
+		/** Aborted when the asker stops (a sub-agent stopped or rolled back): the request resolves `cancelled`. */
+		signal?: AbortSignal;
 	}): Promise<ApprovalOutcome> {
 		const id = this.options.newId?.() ?? `apr_${randomBytes(6).toString("hex")}`;
 		const now = this.options.now?.() ?? Date.now();
 		const pattern = allowAlwaysPattern(input.tool, input.args);
+		if (input.signal?.aborted) return Promise.resolve({ decision: "cancelled" });
 		return new Promise<ApprovalOutcome>((resolve) => {
 			const timer = setTimeout(() => this.settle(id, { decision: "expired" }), this.options.timeoutMs);
 			timer.unref?.();
+			const onAbort = () => this.settle(id, { decision: "cancelled" });
+			input.signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
 				timer,
+				agentId: input.agentId,
+				release: () => input.signal?.removeEventListener("abort", onAbort),
 				resolve: (outcome) => {
 					if (outcome.decision === "allow_always") {
 						this.allowList.push({ server: input.tool.server, kind: input.tool.kind, pattern });
@@ -258,12 +269,25 @@ export class ApprovalBroker {
 		for (const id of [...this.pending.keys()]) this.settle(id, { decision: "cancelled" });
 	}
 
+	/** Resolve the pending requests of one sub-agent as `cancelled` (an `abort` with its `agent_id`). */
+	cancelAgent(agentId: string): void {
+		for (const [id, pending] of [...this.pending]) {
+			if (pending.agentId === agentId) this.settle(id, { decision: "cancelled" });
+		}
+	}
+
 	private settle(id: string, outcome: ApprovalOutcome): void {
 		const pending = this.pending.get(id);
 		if (!pending) return;
 		this.pending.delete(id);
 		clearTimeout(pending.timer);
-		this.options.emit({ type: "approval_resolved", id, decision: outcome.decision });
+		pending.release?.();
+		this.options.emit({
+			type: "approval_resolved",
+			...(pending.agentId ? { agent_id: pending.agentId } : {}),
+			id,
+			decision: outcome.decision,
+		});
 		pending.resolve(outcome);
 	}
 }
