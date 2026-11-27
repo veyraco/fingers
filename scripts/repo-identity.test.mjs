@@ -46,6 +46,9 @@ const EXPECTED_PACKAGES = {
 // Upstream names that must not appear anywhere but LICENSE.
 const FORBIDDEN = [/@earendil-works\//, /earendil-works\/pi\b/, /\bbadlogic\b/, /\bpi-mono\b/, /\bmariozechner\b/, /Mario Zechner/];
 
+// Names of Veyra's earlier products and domain that must not come back.
+const OLD_VEYRA = [/withveyra/i, /paperclip/i];
+
 // Hosted services Fingers does not call: upstream's pi.dev (install reports, version checks, model
 // catalogs, installer, share viewer, bug uploads), its placeholder rename fingers.veyra.so, and
 // upstream's Radius gateway.
@@ -134,7 +137,7 @@ describe("repository identity", () => {
 		const hits = [];
 		for (const file of textFiles(root)) {
 			const text = readFileSync(file, "utf8");
-			for (const pattern of FORBIDDEN) {
+			for (const pattern of [...FORBIDDEN, ...OLD_VEYRA]) {
 				if (pattern.test(text)) hits.push(`${relative(root, file)}: ${pattern}`);
 			}
 		}
