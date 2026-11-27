@@ -27,6 +27,7 @@ import {
 	type SubagentRunHost,
 } from "../../core/subagents/types.ts";
 import type { AskForApproval } from "../approvals/index.ts";
+import type { AskOrgHook } from "../org-hooks/index.ts";
 import { ApprovalQueue, type ChildSessionHooks, createChildSession } from "./child-session.ts";
 
 export const AGENTS_TOOL = "agents";
@@ -79,6 +80,8 @@ export interface SubagentsExtensionOptions {
 	hooks?: EditionToolHooks;
 	/** How a child asks the person (default: the approval box in the parent's terminal). */
 	ask?: AskForApproval;
+	/** How a child asks the person about an organization hook (default: the parent's terminal, no "always allow"). */
+	askOrgHook?: AskOrgHook;
 	/** Default: the agent directory. */
 	agentDir?: string;
 	/**
@@ -195,6 +198,8 @@ export function createSubagentsExtension(options: SubagentsExtensionOptions = {}
 							ui: ctx.ui,
 							parent: ctx,
 							ask: options.ask,
+							toolHooks: hooks,
+							askOrgHook: options.askOrgHook,
 							agentDir: options.agentDir,
 							approvalQueue,
 							approvalDesk: engines.approvals,

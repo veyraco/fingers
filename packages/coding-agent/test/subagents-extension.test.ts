@@ -45,6 +45,7 @@ import { emptyUsage } from "../src/core/subagents/types.ts";
 import { combineUsage } from "../src/core/usage-totals.ts";
 import type { AskForApproval } from "../src/extensions/approvals/index.ts";
 import { builtInExtensions } from "../src/extensions/index.ts";
+import type { AskOrgHook } from "../src/extensions/org-hooks/index.ts";
 import { ApprovalQueue, subagentRules } from "../src/extensions/subagents/child-session.ts";
 import {
 	AGENTS_TOOL,
@@ -418,6 +419,105 @@ describe("the agents tool", () => {
 		for (const agent of details.agents) {
 			expect(agent.summary).toContain("The user did not allow this command and said what to do instead: Not now.");
 		}
+	});
+
+	it("applies the organization's hooks and rules to a child: a block hook blocks, an ask hook asks the parent", async () => {
+		const hooks = new EditionToolHooks();
+		hooks.set(
+			[
+				{
+					feature: "org_hooks",
+					hooks: {
+						beforeToolCall: (call) => {
+							const command = String(call.input.command ?? "");
+							if (command.startsWith("git push --force")) {
+								return {
+									decision: "block",
+									message: "No force pushes.",
+									source: "organization hook “no-force-push”",
+								};
+							}
+							if (command.startsWith("rm ")) {
+								return {
+									decision: "ask",
+									message: "Deleting needs a person.",
+									source: "organization hook “ask-rm”",
+								};
+							}
+							return undefined;
+						},
+						systemPrompt: () => "# Organization rules\n\nPLANTED-ORG-RULE",
+					},
+				},
+			],
+			() => true,
+		);
+		const orgAsked: { reason: string; summary: string; parentSession: string }[] = [];
+		const askOrgHook: AskOrgHook = async (ctx, request) => {
+			orgAsked.push({
+				reason: request.reason,
+				summary: request.summary,
+				parentSession: ctx.sessionManager.getSessionId(),
+			});
+			return { decision: "deny", message: "Keep the build." };
+		};
+		const personalAsks: string[] = [];
+		const ask: AskForApproval = async (_ctx, request) => {
+			personalAsks.push(request.command);
+			return { decision: "deny" };
+		};
+		const { harness, engines } = await setup({ hooks, ask, askOrgHook });
+		engines.set(new FakeEngine(), () => true);
+		const calls: Call[] = [];
+		const step = scripted(calls, (task, turn, context) => {
+			if (task === "Ship it.") {
+				if (turn === 0) {
+					return fauxAssistantMessage(
+						[
+							fauxToolCall(AGENTS_TOOL, {
+								start: [
+									{ label: "pusher", task: "git push --force origin main" },
+									{ label: "cleaner", task: "rm -rf build" },
+								],
+							}),
+						],
+						{ stopReason: "toolUse" },
+					);
+				}
+				return fauxAssistantMessage("Done.");
+			}
+			if (turn === 0) {
+				return fauxAssistantMessage([fauxToolCall("bash", { command: task })], { stopReason: "toolUse" });
+			}
+			return fauxAssistantMessage(`Result: ${text(context.messages.at(-1))}`);
+		});
+		harness.setResponses(Array.from({ length: 6 }, () => step));
+
+		await harness.session.prompt("Ship it.");
+
+		// The organization's rules end each child's system prompt.
+		const children = calls.filter((call) => call.child);
+		expect(children.length).toBeGreaterThan(0);
+		for (const child of children) expect(child.system).toContain("PLANTED-ORG-RULE");
+		// The block hook blocked the child's force push without asking anyone; the ask hook asked in the parent, once.
+		expect(orgAsked).toEqual([
+			{
+				summary: "rm -rf build",
+				reason:
+					"Sub-agent sub_2 (cleaner): Organization policy (organization hook “ask-rm”): Deleting needs a person.",
+				parentSession: harness.sessionManager.getSessionId(),
+			},
+		]);
+		// A call the organization blocked or the person denied never reaches the personal approvals.
+		expect(personalAsks).toEqual([]);
+		const details = toolResult(harness).details as unknown as { agents: SubagentInfo[] };
+		const byLabel = new Map(details.agents.map((agent) => [agent.label, agent.summary ?? ""]));
+		expect(byLabel.get("pusher")).toContain(
+			"Your organization's policy does not allow this call (organization hook “no-force-push”): No force pushes.",
+		);
+		expect(byLabel.get("cleaner")).toContain(
+			"The user did not allow this call and said what to do instead: Keep the build.",
+		);
 	});
 
 	it("counts the children's spend toward the session's budget", async () => {
