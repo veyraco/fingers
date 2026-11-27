@@ -6,7 +6,7 @@ const wordSegmenter = getWordSegmenter();
  * Options for word navigation functions.
  * When omitted, uses the default Intl.Segmenter word segmentation.
  */
-export interface WordNavigationOptions {
+interface WordNavigationOptions {
 	/** Custom segmenter returning word segments for the given text. */
 	segment?: (text: string) => Iterable<Intl.SegmentData>;
 	/** Predicate identifying atomic segments that should be treated as single units (e.g. paste markers). */

@@ -126,7 +126,7 @@ export interface PackageInstallFailure {
 	message: string;
 }
 
-export type MissingSourceAction = "install" | "skip" | "error";
+type MissingSourceAction = "install" | "skip" | "error";
 
 export interface ProgressEvent {
 	/**
@@ -143,14 +143,14 @@ export interface ProgressEvent {
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 
-export interface PackageUpdate {
+interface PackageUpdate {
 	source: string;
 	displayName: string;
 	type: "npm" | "git";
 	scope: Exclude<SourceScope, "temporary">;
 }
 
-export interface ConfiguredPackage {
+interface ConfiguredPackage {
 	source: string;
 	scope: "user" | "project";
 	filtered: boolean;
@@ -298,7 +298,7 @@ function getHomeDir(): string {
 	return process.env.HOME || homedir();
 }
 
-export function getExtensionTempFolder(agentDir: string): string {
+function getExtensionTempFolder(agentDir: string): string {
 	const tempFolder = join(agentDir, "tmp", "extensions");
 	mkdirSync(tempFolder, { recursive: true, mode: 0o700 });
 	chmodSync(tempFolder, 0o700);

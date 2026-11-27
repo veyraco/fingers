@@ -444,7 +444,7 @@ describe("AgentSession codemode tool", () => {
 		expect(JSON.parse(resultText(codemodeResult(harness)))).toEqual({ files: 0, names: [] });
 	});
 
-	// Saved images: https://github.com/veyraco/fingers/issues/10310
+	// Saved images: upstream #10310
 	it("attaches only the images the script passes to image(), in output order, each after its saved path", async () => {
 		const harness = await setup();
 		harness.setResponses([
@@ -669,7 +669,7 @@ describe("codemode options and store", () => {
 		expect(resultText(result)).toBe('["out\\n",3,"number"]');
 	});
 
-	// https://github.com/veyraco/fingers/issues/10251
+	// upstream #10251
 	it("resolves read calls to text for text files and to image blocks that image() shows", async () => {
 		const harness = await createHarness({
 			initialActiveToolNames: ["codemode", "read"],

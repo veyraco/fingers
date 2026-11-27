@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Sub-agents in the terminal app (F18): registers the engine with the core while the `subagents` feature is on
+ * Sub-agents in the terminal app: registers the engine with the core while the `subagents` feature is on
  * (signed in, Fingers on for the organization, a tier that includes sub-agents) and handles `/agents`.
  *
  * The core's `subagents` extension does the rest: the `agents` tool, the child sessions (same credentials, the
  * parent's settings and approvals) and the cheaper model per child. `/agents` opens the core's sub-agents panel
- * (F19: open, approve, steer, pause, stop, checkpoint, resume) where the terminal app has one, else lists this
+ * (open, approve, steer, pause, stop, checkpoint, resume) where the terminal app has one, else lists this
  * process' sub-agents; the text forms (`/agents steer <id> <message>` and the others in AGENTS_USAGE) act on one.
  * Checkpoints are their own feature (`checkpoints`): the engine asks it before every checkpoint and roll-back.
- * Managed RPC (Hands) keeps ee off; its sub-agent events and checkpoints are F18b.
+ * Managed RPC (Hands) activates this module with only `subagents` (modes/rpc/managed/subagents.ts in the core).
  */
 import type { EeCommandContext, EeHost, SubagentInfo } from "@veyraco/fingers";
 import { SubagentEngineImpl, type SubagentEngineOptions } from "./engine.ts";

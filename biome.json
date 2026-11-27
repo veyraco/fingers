@@ -38,9 +38,7 @@
 			"!**/models.generated.ts",
 			"!**/contract-schemas.ts",
 			"!**/*.models.ts",
-			"!packages/mom/data/**/*",
-			"!!**/node_modules",
-			"!!apps"
+			"!!**/node_modules"
 		]
 	},
 	"plugins": ["./scripts/biome/model-type-comparison.grit"]

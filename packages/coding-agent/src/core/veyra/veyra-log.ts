@@ -10,7 +10,7 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
-export type VeyraLogLevel = "debug" | "info" | "warn" | "error";
+type VeyraLogLevel = "debug" | "info" | "warn" | "error";
 
 export interface VeyraLog {
 	log(level: VeyraLogLevel, msg: string, fields?: Record<string, unknown>): void;
@@ -57,7 +57,7 @@ function serializeError(value: unknown): unknown {
 	return { type: "Error", message: String(value) };
 }
 
-export interface VeyraLogOptions {
+interface VeyraLogOptions {
 	path: string;
 	version: string;
 	env: string;

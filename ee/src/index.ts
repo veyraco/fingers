@@ -48,7 +48,7 @@ export function activate(host: EeHost): void {
 		eyesTelemetry.reset();
 	}
 	if (host.isOn("subagents")) {
-		// The `agents` tool and /agents (list, steer, stop); the full panel is F19.
+		// The `agents` tool and /agents (the panel, or list, steer, stop in the text forms).
 		subagents.attach(host);
 	}
 }

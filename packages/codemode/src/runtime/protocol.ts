@@ -38,7 +38,7 @@ export interface WorkerData extends VmStartData {
 }
 
 /** JSON-encoded `{ name?, message, stack? }` of an error thrown by the script. */
-export type ScriptErrorJson = string;
+type ScriptErrorJson = string;
 
 export type WorkerToHostMessage =
 	| { type: "call"; id: number; target: "tool" | "global"; name: string; args: string | undefined }

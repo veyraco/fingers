@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Eyes telemetry in the terminal app (F21): while the `eyes` feature is on (signed in, Fingers on for the
+ * Eyes telemetry in the terminal app: while the `eyes` feature is on (signed in, Fingers on for the
  * organization, a tier that includes Eyes), the spans of the person's sessions go to Veyra Eyes as an ordinary OTLP
  * source (platform contracts/v1/eyes-feed.md, "Fingers on a person's machine"): OTLP/HTTP JSON at
  * `<api>/eyes/otlp/v1/traces` with the person's token for Eyes (`aud: eyes`), `service.name = fingers` and no

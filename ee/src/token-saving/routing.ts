@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Cheaper-model routing (F16): a sub-task (a compaction summary today; search and review sub-agents with F18) runs on
+ * Cheaper-model routing: a sub-task (a compaction summary today; search and review sub-agents) runs on
  * a cheaper model of the same provider when one fits it. The core offers the candidates (same provider and
  * credentials, priced, room for the request and the output); this rule picks one.
  *
@@ -43,7 +43,7 @@ function byTieBreak(a: EeModelFacts, b: EeModelFacts): number {
 }
 
 /** The candidates the rule may pick for `taskClass`, cheapest first. */
-export function eligibleModels(request: EeRouteRequest): EeModelFacts[] {
+function eligibleModels(request: EeRouteRequest): EeModelFacts[] {
 	const current = blendedPrice(request.current);
 	if (!(current > 0)) return [];
 	const currentVendor = vendor(request.current.id);

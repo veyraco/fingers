@@ -283,7 +283,7 @@ describe("openai-codex streaming", () => {
 		expect(providerEventModels).toEqual([model, model, model, model, model]);
 	});
 
-	// Regression test for https://github.com/veyraco/fingers/issues/9047
+	// Regression test for upstream #9047
 	it("processes a terminal SSE event without a trailing blank line", async () => {
 		const token = mockToken();
 		const sse = buildSSEPayload({ status: "completed" }).trimEnd();
@@ -1073,7 +1073,7 @@ describe("openai-codex streaming", () => {
 		expect(requestedToolChoice).toBe("required");
 	});
 
-	// Regression test for https://github.com/veyraco/fingers/issues/12273
+	// Regression test for upstream #12273
 	it("sends the system prompt as a leading developer item instead of instructions", async () => {
 		const token = mockToken();
 		const requestBodies = captureSSERequestBodies();
@@ -1096,7 +1096,7 @@ describe("openai-codex streaming", () => {
 		expect(requestBodies[1]?.input).toEqual([userItem]);
 	});
 
-	// Regression test for https://github.com/veyraco/fingers/issues/12269
+	// Regression test for upstream #12269
 	it("sends thinking level changes as configuration_update items with a fixed request effort", async () => {
 		const token = mockToken();
 		const requestBodies = captureSSERequestBodies();
@@ -2439,7 +2439,7 @@ describe("openai-codex streaming", () => {
 		});
 	});
 
-	// Regression test for https://github.com/veyraco/fingers/issues/12269
+	// Regression test for upstream #12269
 	it("keeps sending input deltas in websocket-cached mode when the thinking level changes", async () => {
 		const token = mockToken();
 		const sentBodies: Array<{ input: unknown[]; previous_response_id?: string; reasoning?: unknown }> = [];

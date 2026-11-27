@@ -318,7 +318,7 @@ export interface AgentSessionConfig {
 	sessionStartEvent?: SessionStartEvent;
 }
 
-export interface ExtensionBindings {
+interface ExtensionBindings {
 	uiContext?: ExtensionUIContext;
 	mode?: ExtensionMode;
 	commandContextActions?: ExtensionCommandContextActions;
@@ -345,7 +345,7 @@ export interface PromptOptions {
 }
 
 /** Options for model/thinking mutations. */
-export interface ModelMutationOptions {
+interface ModelMutationOptions {
 	/** Persist the new value to global defaults. Defaults to session-only. */
 	persist?: boolean;
 }
@@ -664,7 +664,7 @@ export class AgentSession {
 	}
 
 	/**
-	 * The cheaper model for a compaction summary (F16), when ee routing is on and picks one: a model of the same
+	 * The cheaper model for a compaction summary, when ee routing is on and picks one: a model of the same
 	 * provider with room for the messages being summarised, the previous summary and the summary itself.
 	 */
 	private _routeCompactionSummary(model: Model<any>, preparation: CompactionPreparation): Model<any> | undefined {

@@ -102,7 +102,7 @@ These issues come from conhost. Microsoft has fixed them in its source, but has 
 
 | Issue | Affects | Remedy |
 |---|---|---|
-| Switching from fullscreen to regular mode, or `Ctrl+G` from fullscreen, crashes the session ([#9186](https://github.com/veyraco/fingers/issues/9186), [microsoft/terminal#17515](https://github.com/microsoft/terminal/issues/17515)) | Built-in conhost | Use a terminal with a current conhost, or start Fingers with `--tui-mode regular` |
-| Text such as `;0;rgb:0000/0000/0000` appears in the prompt, and BEL opens the external editor ([#10256](https://github.com/veyraco/fingers/issues/10256)) | Built-in conhost behind another terminal: mintty, Windows OpenSSH | Use a terminal with a current conhost |
-| Fragments such as `79` or `55` appear in the prompt ([#10717](https://github.com/veyraco/fingers/issues/10717)) | WezTerm 20240203 | Use WezTerm nightly |
-| In regular mode, each keystroke redraws the input line on a new row ([#6300](https://github.com/veyraco/fingers/issues/6300)) | Built-in conhost, classic console | Use fullscreen mode (the default), or a terminal with a current conhost |
+| Switching from fullscreen to regular mode, or `Ctrl+G` from fullscreen, crashes the session (upstream #9186, [microsoft/terminal#17515](https://github.com/microsoft/terminal/issues/17515)) | Built-in conhost | Use a terminal with a current conhost, or start Fingers with `--tui-mode regular` |
+| Text such as `;0;rgb:0000/0000/0000` appears in the prompt, and BEL opens the external editor (upstream #10256) | Built-in conhost behind another terminal: mintty, Windows OpenSSH | Use a terminal with a current conhost |
+| Fragments such as `79` or `55` appear in the prompt (upstream #10717) | WezTerm 20240203 | Use WezTerm nightly |
+| In regular mode, each keystroke redraws the input line on a new row (upstream #6300) | Built-in conhost, classic console | Use fullscreen mode (the default), or a terminal with a current conhost |

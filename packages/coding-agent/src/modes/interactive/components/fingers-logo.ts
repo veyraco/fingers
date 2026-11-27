@@ -2,7 +2,7 @@ import { backgroundAnsi, foregroundAnsi, isAppleTerminalSession, type RgbColor, 
 import { theme } from "../theme/theme.ts";
 
 /** The Fingers mark's colors (canvas Foundations → Logo). They stay fixed across themes. */
-export const FINGERS_MARK_COLORS = {
+const FINGERS_MARK_COLORS = {
 	yellow: rgbColor(0xfd, 0xd6, 0x63),
 	green: rgbColor(0x81, 0xc9, 0x95),
 	blue: rgbColor(0x8a, 0xb4, 0xf8),
@@ -30,9 +30,6 @@ export const FINGERS_MARK_PIXELS: readonly (readonly MarkPixel[])[] = [
 	[_, _, B, _, _, _, _],
 ];
 
-/** Width of the mark in terminal cells. */
-export const FINGERS_MARK_WIDTH = FINGERS_MARK_PIXELS[0].length;
-
 const RESET = "\x1b[0m";
 
 function cell(top: MarkPixel, bottom: MarkPixel, fg: (pixel: NonNullable<MarkPixel>) => string): string {
@@ -45,8 +42,8 @@ function cell(top: MarkPixel, bottom: MarkPixel, fg: (pixel: NonNullable<MarkPix
 	return `${fg(top!)}${bg}▀${RESET}`;
 }
 
-/** The mark as three terminal lines of FINGERS_MARK_WIDTH cells each. */
-export function fingersMarkLines(): string[] {
+/** The mark as three terminal lines, one cell per pixel column. */
+function fingersMarkLines(): string[] {
 	const mode = theme.getColorMode();
 	const fg = (pixel: NonNullable<MarkPixel>) => foregroundAnsi(FINGERS_MARK_COLORS[pixel], mode);
 	const lines: string[] = [];
@@ -62,16 +59,16 @@ export function fingersMarkLines(): string[] {
  * Whether the terminal renders the half-block mark correctly. Apple Terminal draws gaps between rows and
  * misaligns the half blocks, so it gets the text wordmark instead.
  */
-export function supportsFingersLogo(): boolean {
+function supportsFingersLogo(): boolean {
 	return !isAppleTerminalSession();
 }
 
 /** The product name as on the canvas banner: "Veyra" bold, then "Fingers". */
-export function fingersWordmark(): string {
+function fingersWordmark(): string {
 	return `${theme.bold(theme.fg("text", "Veyra"))}${theme.fg("text", " Fingers")}`;
 }
 
-export interface FingersBannerOptions {
+interface FingersBannerOptions {
 	version: string;
 	/** Second line, after the version, e.g. "coding agent harness" or "first run". */
 	subtitle?: string;

@@ -1,12 +1,12 @@
 /**
- * Open core: the built-in extension through which ee features act on a session (F14 token saving, F15 saving
+ * Open core: the built-in extension through which ee features act on a session (token saving, saving
  * context, and later ee features). It is MIT and holds no ee logic: it passes each tool result to the ee tool hooks
  * of the features that are on (core/edition/tool-hooks.ts), adds their tool guidelines to the system prompt, tells
  * them when the model's context was rebuilt, saves the context edits they ask for at the end of a turn, and shows
  * their lines around a compaction. With no hooks (core only, signed out, a tier without the feature, managed RPC,
  * print and JSON modes) it changes nothing, and it listens to turn ends only while some hook edits the context.
  *
- * It also keeps the conversation's savings ledger (F17): it prices each saving at the list price of the model in use,
+ * It also keeps the conversation's savings ledger: it prices each saving at the list price of the model in use,
  * writes new savings to the session file as custom entries when a run settles (and before the session is left), reads
  * them back when a conversation is opened or the tree is navigated, and says what a run saved when it ends.
  */
@@ -41,7 +41,7 @@ import { runSavingsLine } from "../../core/savings-report.ts";
 import { buildSessionProjection, type ProjectedSessionEntry, type SessionEntry } from "../../core/session-manager.ts";
 import { resolveReadPathAsync, resolveToCwd } from "../../core/tools/path-utils.ts";
 
-export interface EditionExtensionOptions {
+interface EditionExtensionOptions {
 	/** Default: this process' hooks, which the terminal app's gate fills. */
 	hooks?: EditionToolHooks;
 	/** Default: this process' savings ledger. */

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Saving context (F15): old tool results are pruned in stages before the core's compaction has to summarise, and a
+ * Saving context: old tool results are pruned in stages before the core's compaction has to summarise, and a
  * compaction shows what it should save before it runs and what it saved after.
  *
  * Pruning runs at the end of a turn on the view the core hands over. The core compacts above
@@ -28,23 +28,23 @@ import type {
 } from "@veyraco/fingers";
 import { estimateTokens } from "./text.ts";
 
-export interface PruneStage {
+interface PruneStage {
 	/** The stage starts when the context reaches this share of the compaction limit. */
 	at: number;
 	/** Results inside the most recent `keep × this` tokens are kept, keep = min(keepRecentTokens, 40% of limit). */
 	keepFactor: number;
 }
 
-export const PRUNE_STAGES: readonly PruneStage[] = [
+const PRUNE_STAGES: readonly PruneStage[] = [
 	{ at: 0.5, keepFactor: 1 },
 	{ at: 0.75, keepFactor: 0.5 },
 ];
 
 /** The recent part stage 1 keeps, as a share of the compaction limit at most. */
-export const PRUNE_KEEP_SHARE = 0.4;
+const PRUNE_KEEP_SHARE = 0.4;
 
 /** Results smaller than this are not worth a note and a cache break. */
-export const PRUNE_MIN_RESULT_TOKENS = 200;
+const PRUNE_MIN_RESULT_TOKENS = 200;
 /** The most recent tool results that are never pruned, whatever their size. */
 export const PRUNE_KEEP_LAST_RESULTS = 2;
 
@@ -101,14 +101,14 @@ export function prunedNote(entry: EeContextEntry, cwd: string): string {
 	return `[pruned by token saving] This earlier ${kind}${what} (${size}, about ${entry.tokens} tokens) was taken out of the context to save tokens. Run the tool again if you still need it.`;
 }
 
-export interface PrunedResult {
+interface PrunedResult {
 	edit: EeContextEdit;
 	entry: EeContextEntry;
 	savedTokens: number;
 }
 
 /** The stage the context is in, or undefined below the first stage. */
-export function pruneStage(view: EeContextView): PruneStage | undefined {
+function pruneStage(view: EeContextView): PruneStage | undefined {
 	const limit = compactionLimit(view);
 	let stage: PruneStage | undefined;
 	for (const candidate of PRUNE_STAGES) if (view.tokens >= candidate.at * limit) stage = candidate;

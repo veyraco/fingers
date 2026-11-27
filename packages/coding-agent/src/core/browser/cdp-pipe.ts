@@ -7,7 +7,7 @@ import type { Readable, Writable } from "node:stream";
 
 type Json = Record<string, any>;
 
-export interface CdpEvent {
+interface CdpEvent {
 	method: string;
 	params: Json;
 	sessionId?: string;
@@ -19,7 +19,7 @@ interface Pending {
 	method: string;
 }
 
-export class CdpError extends Error {
+class CdpError extends Error {
 	readonly method: string;
 
 	constructor(method: string, message: string) {

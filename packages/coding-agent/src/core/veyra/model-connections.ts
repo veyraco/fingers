@@ -27,7 +27,7 @@ import type { VeyraAccount } from "./session-vault.ts";
 /** The API a connection speaks through Hands' proxy: the path segment after the connection id. */
 export type ProxyWire = "anthropic" | "openai" | "google";
 
-export interface ProxyRoute {
+interface ProxyRoute {
 	wire: ProxyWire;
 	/** Fingers' built-in provider whose models and request code the connection uses. */
 	fingersProvider: string;
@@ -73,7 +73,7 @@ export interface ModelConnection {
 	keyHint?: string;
 }
 
-export type NotOfferedReason =
+type NotOfferedReason =
 	| "not_for_fingers"
 	| "not_for_hands"
 	| "provider"
@@ -118,7 +118,7 @@ export class ModelConnectionsError extends Error {
 const PROVIDER_ID_PREFIX = "veyra-";
 
 /** `veyra-mc_openai_prod`: a provider id `provider/model` references can name (no `/` or `:`). */
-export function connectionProviderId(connectionId: string): string {
+function connectionProviderId(connectionId: string): string {
 	return `${PROVIDER_ID_PREFIX}${connectionId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
@@ -251,7 +251,7 @@ const REASON_TEXT: Readonly<Record<NotOfferedReason, string>> = {
 	group: "not for your group",
 };
 
-export function notOfferedText(reason: NotOfferedReason): string {
+function notOfferedText(reason: NotOfferedReason): string {
 	return REASON_TEXT[reason];
 }
 

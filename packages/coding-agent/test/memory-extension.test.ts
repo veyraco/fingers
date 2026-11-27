@@ -1,5 +1,5 @@
 /**
- * Memory (F20, open core): the memory extension in real sessions with a stand-in provider (the task's memory at its
+ * Memory (open core): the memory extension in real sessions with a stand-in provider (the task's memory at its
  * start, kept for later prompts and a resume; the recall and remember tools; the learning event at the end of a run;
  * best effort when the provider fails or hangs; nothing at all without a provider), and the process' provider slot.
  */

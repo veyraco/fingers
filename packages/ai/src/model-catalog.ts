@@ -9,7 +9,7 @@ import type {
 	ProviderId,
 } from "./types.ts";
 
-export type ModelGroups = Record<string, Record<string, object>>;
+type ModelGroups = Record<string, Record<string, object>>;
 
 type ModelKey<TGroups extends ModelGroups> = {
 	[TApi in keyof TGroups]: keyof TGroups[TApi];

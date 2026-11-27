@@ -1,4 +1,4 @@
-export type LlamaModelStatus = "unloaded" | "loading" | "loaded" | "downloading" | "sleeping";
+type LlamaModelStatus = "unloaded" | "loading" | "loaded" | "downloading" | "sleeping";
 
 export interface LlamaModelInfo {
 	id: string;
@@ -23,17 +23,12 @@ export interface LlamaModelInfo {
 	};
 }
 
-export interface LlamaModelsResponse {
-	data: LlamaModelInfo[];
-	object?: string;
-}
-
 export interface LlamaServerProps {
 	models_autoload?: boolean;
 	chat_template?: string;
 }
 
-export interface LlamaModelEvent {
+interface LlamaModelEvent {
 	model: string;
 	event: string;
 	data?: unknown;

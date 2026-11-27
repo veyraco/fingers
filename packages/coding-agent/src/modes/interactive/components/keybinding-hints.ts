@@ -5,7 +5,7 @@
 import { getKeybindings, type Keybinding, type KeyId } from "@veyraco/fingers-tui";
 import { theme } from "../theme/theme.ts";
 
-export interface KeyTextFormatOptions {
+interface KeyTextFormatOptions {
 	capitalize?: boolean;
 }
 

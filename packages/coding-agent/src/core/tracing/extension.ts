@@ -1,5 +1,5 @@
 /**
- * The telemetry extension (open core, F21): traces the sessions of the terminal app, print and JSON modes with the
+ * The telemetry extension (open core): traces the sessions of the terminal app, print and JSON modes with the
  * session tracer and hands the spans to the live exporters (the person's own OTLP destination, Eyes while the ee
  * feature is on). Without an exporter it makes no span at all. Each run is one trace; spans go out when the run ends
  * and when the session shuts down. Managed RPC does not use it: there the server relays spans to the host.
@@ -10,7 +10,7 @@ import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../extens
 import type { MaskOptions, SpanExporter } from "./spans.ts";
 import { SessionTracer } from "./tracer.ts";
 
-export interface TelemetryExtensionOptions {
+interface TelemetryExtensionOptions {
 	/** The exporters that take spans right now. */
 	exporters(): readonly SpanExporter[];
 	/** Send what the exporters have queued. */

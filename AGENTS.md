@@ -47,6 +47,12 @@ Rules for people and agents working in this repository.
 - Never commit unless the user asks.
 - Commit messages end with the attribution lines the session asks for.
 
+## Public Repository
+
+- This repository is public. Never commit a real key, token, password, personal e-mail address, or an internal host, plan or ticket name. Tests use obviously fake values.
+- `npm run check` runs the secret scan (`scripts/check-secrets.mjs`); `node scripts/check-secrets.mjs --history` scans the lines every commit added. A fake value a redaction test needs goes into its `ALLOWED` list.
+- `scripts/repo-identity.test.mjs` keeps upstream names and Veyra's earlier names out of every file but `LICENSE`.
+
 ## Dependency and Install Security
 
 - Treat npm dep and lockfile changes as reviewed code. Direct registry deps, including internal workspace deps, stay pinned to exact versions.

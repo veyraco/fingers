@@ -103,7 +103,7 @@ describe("the ee module", () => {
 			showStatus,
 			showWarning: vi.fn(),
 		});
-		// F18: /agents lists this process' sub-agents (none yet) instead of the placeholder line.
+		// /agents lists this process' sub-agents (none yet) instead of the placeholder line.
 		expect(showStatus).toHaveBeenCalledWith(expect.stringContaining("No sub-agents yet in this session."));
 	});
 });

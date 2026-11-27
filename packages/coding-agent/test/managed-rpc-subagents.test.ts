@@ -1,5 +1,5 @@
 /**
- * Sub-agents in managed RPC mode (F18b; contracts/v1/fingers-rpc.md, Sub-agents, amendment 2026-11-27), with a
+ * Sub-agents in managed RPC mode (contracts/v1/fingers-rpc.md, Sub-agents, amendment 2026-11-27), with a
  * stand-in engine (the real one is ee: ee/test/managed-subagents.test.ts runs it end to end). The server announces
  * `subagents` only with an engine and offers the `agents` tool only after `configure.subagents.enabled`; children are
  * real sessions on the run's credentials under the managed gate (their worktree as the workspace, the protected

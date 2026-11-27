@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Cheaper-model routing (F16): the routing rule per sub-task class, the ledger entry and the line it writes, and a
+ * Cheaper-model routing: the routing rule per sub-task class, the ledger entry and the line it writes, and a
  * compaction summary routed through the real gate, ee module and core in a session.
  */
 import type { EeEntitlement, EeModelFacts, EeRouteRequest, SavingsEntry } from "@veyraco/fingers";

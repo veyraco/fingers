@@ -49,7 +49,7 @@ export function createManagedRuntimeFactory(options: ManagedRuntimeOptions = {})
 			"mcp__*",
 			// The memory relay's tools (the managed extension registers them with `memory.mode: relay`).
 			...(configure.memory?.mode === "relay" ? MEMORY_TOOL_NAMES : []),
-			// Sub-agents (F18b): the managed extension registers the `agents` tool with `subagents.enabled`.
+			// Sub-agents: the managed extension registers the `agents` tool with `subagents.enabled`.
 			...(configure.subagents?.enabled ? [AGENTS_TOOL] : []),
 		];
 		// `configure.system_prompt` is added after any append prompt the loader found. It goes through the

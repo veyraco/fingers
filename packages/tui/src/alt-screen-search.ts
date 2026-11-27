@@ -19,7 +19,7 @@ interface SearchCorpus {
 	spans: SearchSourceSpan[];
 }
 
-export interface AltScreenSearchSegment {
+interface AltScreenSearchSegment {
 	row: number;
 	startCol: number;
 	endCol: number;
@@ -147,7 +147,7 @@ function findSearchCorpusMatches(corpus: SearchCorpus, normalizedQuery: string):
 	return matches;
 }
 
-export interface AltScreenSearchResult {
+interface AltScreenSearchResult {
 	matches: AltScreenSearchMatch[];
 	changed: boolean;
 }

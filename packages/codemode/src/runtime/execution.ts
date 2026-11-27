@@ -61,7 +61,7 @@ const RESERVED_GLOBALS: ReadonlySet<string> = new Set([
 ]);
 
 /** Callbacks a launcher uses to report what its VM does. */
-export interface VmEvents {
+interface VmEvents {
 	/** A message from the VM. Validated here, so launchers can pass through anything they receive. */
 	message(message: unknown): void;
 	/** The VM failed or stopped outside the bridge, for example a worker exit or a remote error. */

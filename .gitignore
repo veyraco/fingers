@@ -4,10 +4,7 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
-# packages/*/node_modules/
 packages/*/dist/
-packages/*/dist-chrome/
-packages/*/dist-firefox/
 packages/ai/src/providers/data/
 packages/ai/src/providers/.model-generation-*/
 *.cpuprofile
@@ -27,20 +24,7 @@ packages/ai/src/providers/.model-generation-*/
 # Package specific
 .npm/
 coverage/
-.nyc_output/
-.pi_config/
 tui-debug.log
-compaction-results/
-.opencode/
-syntax.jsonl
-out.jsonl
 fingers-*.html
-out.html
 packages/coding-agent/binaries/
-todo.md
-plans/
-.fingers/hf-sessions/
-.fingers/hf-sessions-backup/
 .fingers/settings.json
-collect.sh
-packages/agent/docs/extensions/fingers-server-artifact/index.md

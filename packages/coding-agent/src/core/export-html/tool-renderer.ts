@@ -12,7 +12,7 @@ import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { ToolRenderContext, ToolRenderers } from "../extensions/types.ts";
 import { ansiLinesToHtml, stripAnsiEscapes } from "./ansi-to-html.ts";
 
-export interface ToolHtmlRendererDeps {
+interface ToolHtmlRendererDeps {
 	/** Renderers of calls to a tool, as resolved by extensions and the registered tool */
 	getToolRenderers: (name: string) => ToolRenderers | undefined;
 	/** Theme for styling */

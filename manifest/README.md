@@ -36,11 +36,11 @@ node scripts/register-manifest.mjs --check
 
 # Local stack: use the instance file that Connect's dev seed writes
 node scripts/register-manifest.mjs \
-  --connect-url http://connect-internal.connect.svc:8081 \
-  --instance-file ../connect/.local/instances/fingers.json
+  --connect-url "$CONNECT_INTERNAL_URL" \
+  --instance-file path/to/fingers-instance.json
 
 # A deployed environment: give the Fingers instance through the environment
-VEYRA_CONNECT_INTERNAL_URL=http://connect-internal.connect.svc:8081 \
+VEYRA_CONNECT_INTERNAL_URL="$CONNECT_INTERNAL_URL" \
 VEYRA_INSTANCE_ID=inst_... VEYRA_INSTANCE_KEY='{"kty":"OKP","crv":"Ed25519",...}' \
 VEYRA_ENV=prod node scripts/register-manifest.mjs
 ```

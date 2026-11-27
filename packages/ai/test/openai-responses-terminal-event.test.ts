@@ -264,7 +264,7 @@ describe("OpenAI Responses terminal event handling", () => {
 		).rejects.toThrow("OpenAI Responses stream completed with an unfinished tool call: bash (call_1|fc_1)");
 	});
 
-	// https://github.com/veyraco/fingers/issues/9974
+	// upstream #9974
 	it("rejects parallel tool calls without output_index instead of running mixed-up calls", async () => {
 		const model = createModel();
 

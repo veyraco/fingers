@@ -18,7 +18,7 @@ export type FirstRunChoice =
 	| { kind: "api_key"; provider: FirstRunProvider }
 	| { kind: "env"; detected: readonly DetectedCredential[] };
 
-export interface FirstRunChooserOptions {
+interface FirstRunChooserOptions {
 	version: string;
 	detected: readonly DetectedCredential[];
 	providers?: readonly FirstRunProvider[];

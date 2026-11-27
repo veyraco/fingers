@@ -50,7 +50,7 @@ import {
 import { VeyraAudienceError, VeyraSignedOutError } from "./veyra-auth.ts";
 
 /** Gives the person's Connect access token for Hands; VeyraAuth.getAccessToken("hands"). */
-export type HandsTokenSource = (signal?: AbortSignal) => Promise<string>;
+type HandsTokenSource = (signal?: AbortSignal) => Promise<string>;
 
 /** Sent where a provider client insists on an API key but Hands takes the person's token from Authorization. */
 const NO_KEY = "veyra-hands";
@@ -115,7 +115,7 @@ function authorized<T extends StreamOptions>(
 }
 
 /** Who answered a 401: Hands itself (the sign-in), or the provider through Hands (the connection's credential). */
-export type RefusedBy = "hands" | "provider";
+type RefusedBy = "hands" | "provider";
 
 /** Hands' own 401 texts (hands proxy.ts), for an error whose response the call could not see. */
 const HANDS_401_TEXT = /Connect access token for Hands|The access token (is not valid|was rejected)/;
@@ -219,7 +219,7 @@ function failedMessage(model: Model<Api>, errorMessage: string, aborted: boolean
 	};
 }
 
-export interface ConnectionProviderOptions {
+interface ConnectionProviderOptions {
 	offered: OfferedConnection;
 	/** `<api>/hands/v1`. */
 	handsApiBaseUrl: string;
@@ -318,7 +318,7 @@ export function createConnectionProvider(options: ConnectionProviderOptions): Pr
 }
 
 /** The part of VeyraAuth the set needs (tests pass a fake). */
-export interface ConnectionsAuth extends ModelConnectionsSource {
+interface ConnectionsAuth extends ModelConnectionsSource {
 	apiBaseUrl(app: "hands"): string;
 	getAccessToken(app: "hands", options?: { signal?: AbortSignal }): Promise<string>;
 }
@@ -411,7 +411,7 @@ export class VeyraModelConnections {
 
 export const veyraModelConnections = new VeyraModelConnections();
 
-export interface PrepareModelConnectionsOptions {
+interface PrepareModelConnectionsOptions {
 	/** The sign-in, opened only when needed (a start without a sign-in never touches the keychain). */
 	auth: () => ConnectionsAuth | undefined;
 	/**

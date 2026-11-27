@@ -169,7 +169,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 	});
 });
 
-// Regression tests for https://github.com/veyraco/fingers/issues/11875
+// Regression tests for upstream #11875
 describe("InteractiveMode pending user bash output", () => {
 	function createPendingBashComponent() {
 		return { render: () => [], invalidate: () => {}, setExpanded: vi.fn() };

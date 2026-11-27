@@ -80,7 +80,7 @@ export interface CodemodeToolOptions {
 
 const TEXT_OUTPUT_SCHEMA: CodemodeJsonSchema = { type: "string" };
 
-export const codemodeSchema = Type.Object({
+const codemodeSchema = Type.Object({
 	code: Type.String({
 		description: "Raw JavaScript source.",
 	}),
@@ -88,7 +88,7 @@ export const codemodeSchema = Type.Object({
 
 export type CodemodeToolInput = Static<typeof codemodeSchema>;
 
-export type CodemodeNestedCallStatus = "running" | "ok" | "error" | "cancelled";
+type CodemodeNestedCallStatus = "running" | "ok" | "error" | "cancelled";
 
 export interface CodemodeNestedCall {
 	/** Tool call id of the nested call, `<codemode call id>/<n>`. */
@@ -110,7 +110,7 @@ export interface CodemodeToolDetails {
 	fullOutputPath?: string;
 }
 
-export const codemodeToolSystemPromptContribution = {
+const codemodeToolSystemPromptContribution = {
 	snippet: "Run JavaScript that calls other tools",
 	guidelines: [
 		"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls.",
@@ -139,7 +139,7 @@ function describeGlobals(models: boolean): string {
 }
 
 /** Default for {@link CodemodeDescriptionOptions.inlineBudget}, in estimated tokens. */
-export const DEFAULT_CODEMODE_INLINE_BUDGET = SETTINGS_DEFAULTS.codemode.inlineBudget;
+const DEFAULT_CODEMODE_INLINE_BUDGET = SETTINGS_DEFAULTS.codemode.inlineBudget;
 /** Characters per token when estimating the cost of a tool section. */
 const CHARS_PER_TOKEN = 4;
 
@@ -165,7 +165,7 @@ export function getCodemodeCallableTools(tools: readonly AgentTool<any>[]): Agen
 	return tools.filter((tool) => tool.name !== CODEMODE_TOOL_NAME);
 }
 
-export interface CodemodeDescriptionOptions {
+interface CodemodeDescriptionOptions {
 	/** Declare the `models` namespace; only for tools created with model access. */
 	models?: boolean;
 	/** Namespace of each tool, by tool name. Tools of one namespace are listed under one heading. */

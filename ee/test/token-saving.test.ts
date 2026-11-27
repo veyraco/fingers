@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Token saving, part 1 (F14): no duplicate reads, trimmed tool outputs, diff edits, each written to the savings
+ * Token saving, part 1: no duplicate reads, trimmed tool outputs, diff edits, each written to the savings
  * ledger. Unit tests of each technique, then whole sessions through the core's real gate, the built-in `edition`
  * extension, the real read tool and a fake model that records what it was sent.
  */

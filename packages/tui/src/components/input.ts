@@ -20,7 +20,7 @@ interface InputState {
 	cursor: number;
 }
 
-export interface InputOptions {
+interface InputOptions {
 	prompt?: string;
 	placeholder?: string;
 	placeholderStyle?: (text: string) => string;

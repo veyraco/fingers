@@ -10,7 +10,7 @@ export const FINGERS_RPC_PROTOCOL = "veyra.fingers.rpc.v1";
 
 /**
  * Capabilities this build always announces in `hello`. `browser` is added when a browser is found, and `subagents`
- * (F18b) when this build has the ee sub-agent engine (managed-rpc-server.ts).
+ * when this build has the ee sub-agent engine (managed-rpc-server.ts).
  */
 export const MANAGED_CAPABILITIES = [
 	"approvals",

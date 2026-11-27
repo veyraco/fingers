@@ -5,7 +5,7 @@
  */
 import type { SecretSet } from "./secrets.ts";
 
-export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
+type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 
 const SECRET_KEYS = new Set([
 	"authorization",
@@ -22,7 +22,7 @@ const SECRET_KEYS = new Set([
 	"headers",
 ]);
 
-export interface ManagedLoggerOptions {
+interface ManagedLoggerOptions {
 	write: (line: string) => void;
 	secrets: SecretSet;
 	version: string;

@@ -1,5 +1,5 @@
 /**
- * Sub-agent control (F19, open core): real child sessions on the faux provider, driven the way the `/agents` panel
+ * Sub-agent control (open core): real child sessions on the faux provider, driven the way the `/agents` panel
  * drives them through an engine. Pause holds a child before its next model call and resume lets it go on with its
  * transcript as it was; atRest runs at a point where every step has its result; rollBack takes a held child's
  * transcript back to such a point and it goes on with a note; while the approval desk holds questions, a child's

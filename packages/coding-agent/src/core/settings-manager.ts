@@ -145,7 +145,7 @@ function resolveDefaultTools(entries: string[]): string[] {
  * a command, prepend code to every command or swap the shell. (`selfUpdateCommand` and
  * `defaultProjectTrust` are also global only; their getters read the global settings.)
  */
-export const AGENT_DIR_ONLY_SETTINGS = [
+const AGENT_DIR_ONLY_SETTINGS = [
 	"approvals",
 	"shellCommandPrefix",
 	"shellPath",
@@ -186,7 +186,7 @@ export interface SettingsStorage {
 	withLock(scope: SettingsScope, fn: (current: string | undefined) => string | undefined): void;
 }
 
-export interface SettingsError {
+interface SettingsError {
 	scope: SettingsScope;
 	path?: string;
 	error: Error;
@@ -202,7 +202,7 @@ function toSettingsError(scope: SettingsScope, error: unknown, path?: string): S
 	};
 }
 
-export class FileSettingsStorage implements SettingsStorage {
+class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
 	private projectSettingsPath: string;
 
@@ -1455,7 +1455,7 @@ export class SettingsManager {
 		this.save();
 	}
 
-	/** The `hands` setting (F13b): whether sessions start in a Hands Sandbox, and its size. */
+	/** The `hands` setting: whether sessions start in a Hands Sandbox, and its size. */
 	getHandsSettings(): HandsSettings {
 		const hands = this.settings.hands;
 		return typeof hands === "object" && hands !== null ? { ...hands } : {};

@@ -1,18 +1,18 @@
 /**
- * Open core: the built-in extension through which a sub-agent engine (an ee feature, F18) acts on the terminal app's
+ * Open core: the built-in extension through which a sub-agent engine (an ee feature) acts on the terminal app's
  * sessions. It is MIT and holds no engine: it offers the model the `agents` tool while the process' engine is live
  * (core/subagents/registry.ts, filled by the ee gate), makes the child sessions the engine asks for (child-session.ts),
- * picks each child's model (a cheaper one when the ee routing rule finds one, F16), and turns the children's usage
+ * picks each child's model (a cheaper one when the ee routing rule finds one), and turns the children's usage
  * into the tool result's usage, so the session's cost, the status line, `/budget` and `/savings` count every child.
  * A child's spend counts toward the session's budget while it runs: the engine stops the children once the budget
  * is reached, and a call made when it is already reached starts none. Calls of one answer run one after the other. With no engine (core only, signed out, a tier without sub-agents, print and JSON modes, managed RPC without
  * `configure.subagents`) the tool is not offered and nothing changes.
  *
- * Managed RPC (F18b) loads it with its own engines, the run's limits in place of the budget and its own child hooks
+ * Managed RPC loads it with its own engines, the run's limits in place of the budget and its own child hooks
  * (the host's gate and tools, records forwarded with the child's id).
  */
 import type { Api, Model } from "@veyraco/fingers-ai";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import { costCapReached } from "../../core/budget.ts";
 import { type EditionToolHooks, editionToolHooks } from "../../core/edition/tool-hooks.ts";
 import type { ExtensionAPI, ExtensionFactory } from "../../core/extensions/types.ts";
@@ -68,9 +68,7 @@ const agentsSchema = Type.Object({
 	),
 });
 
-export type AgentsToolParams = Static<typeof agentsSchema>;
-
-export interface AgentsToolDetails {
+interface AgentsToolDetails {
 	agents: SubagentInfo[];
 }
 
@@ -98,7 +96,7 @@ function formatUsd(usd: number): string {
 }
 
 /** One line per sub-agent, for the tool's progress and the `/agents` list. */
-export function subagentLine(agent: SubagentInfo): string {
+function subagentLine(agent: SubagentInfo): string {
 	const model = agent.model ? ` · ${agent.model.id}` : "";
 	const cost = agent.usage.cost.total > 0 ? ` · ${formatUsd(agent.usage.cost.total)}` : "";
 	const waits =

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "../harness.ts";
 
 /**
- * Regression test for https://github.com/veyraco/fingers/issues/12119
+ * Regression test for upstream #12119
  *
  * /copy uses getLastAssistantText(), which took the last assistant message and skipped only aborted
  * messages with no content. After Esc during a tool call the last messages are a tool-call-only message

@@ -1,4 +1,4 @@
-export interface ModelSearchItem {
+interface ModelSearchItem {
 	id: string;
 	provider: string;
 	name?: string;

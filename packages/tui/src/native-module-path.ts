@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const moduleRequire = createRequire(import.meta.url);
 const TUI_PACKAGE_NAME = "@veyraco/fingers-tui";
 
-export interface NativeModuleCandidateOptions {
+interface NativeModuleCandidateOptions {
 	moduleUrl?: string;
 	execPath?: string;
 	resolvePackage?: (specifier: string) => string;

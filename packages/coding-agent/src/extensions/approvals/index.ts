@@ -20,7 +20,7 @@
  * of the terminal's approvals, with the session id and tool call id to correlate it. Writing to stderr
  * would draw over the TUI.
  *
- * The canvas box also shows "Hooks: pre-command ✓ passed"; that line waits for org hooks (F23).
+ * The canvas box also shows "Hooks: pre-command ✓ passed"; that line waits for org hooks.
  */
 
 import {
@@ -74,7 +74,7 @@ export const askInTerminal: AskForApproval = (ctx, request) =>
 		{ blocked: { kind: "permission", message: `Approve: ${request.command}` } },
 	);
 
-export function deniedReason(answer: Extract<ApprovalAnswer, { decision: "deny" }>): string {
+function deniedReason(answer: Extract<ApprovalAnswer, { decision: "deny" }>): string {
 	return answer.message
 		? `The user did not allow this command and said what to do instead: ${answer.message}`
 		: "The user did not allow this command.";
@@ -95,7 +95,7 @@ export interface ApprovalRecord {
 	message?: string;
 }
 
-export const APPROVAL_ENTRY_TYPE = "approval";
+const APPROVAL_ENTRY_TYPE = "approval";
 
 export function createApprovalsExtension(options: { ask?: AskForApproval } = {}): ExtensionFactory {
 	const ask = options.ask ?? askInTerminal;

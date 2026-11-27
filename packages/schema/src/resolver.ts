@@ -10,7 +10,7 @@ export interface Resolved {
 }
 
 /** The base URI of a root schema without `$id`; relative references resolve against it. */
-export const DEFAULT_BASE = "https://json-schema.invalid/root.json";
+const DEFAULT_BASE = "https://json-schema.invalid/root.json";
 
 /**
  * Resolves references in the root schema and the registered documents. The schema is indexed on the first

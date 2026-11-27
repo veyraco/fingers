@@ -1,14 +1,14 @@
 import { convertImageBytesToPng } from "./image-convert.ts";
 import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "./image-resize.ts";
 
-export interface ProcessImageOptions {
+interface ProcessImageOptions {
 	/** Whether to resize images to inline provider limits. Default: true */
 	autoResizeImages?: boolean;
 	/** Optional resize overrides. Uses resizeImage defaults when omitted. */
 	resizeOptions?: ImageResizeOptions;
 }
 
-export type ProcessImageResult =
+type ProcessImageResult =
 	| {
 			ok: true;
 			data: string;

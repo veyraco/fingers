@@ -3,7 +3,7 @@ import { existsSync, type FSWatcher, readFileSync, type Stats, statSync, unwatch
 import { dirname, join, resolve } from "path";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../utils/fs-watch.ts";
 
-export type GitPaths = {
+type GitPaths = {
 	repoDir: string;
 	commonGitDir: string;
 	headPath: string;

@@ -19,7 +19,7 @@ import { getEditorTheme, theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint } from "./keybinding-hints.ts";
 
-export interface ExtensionEditorOptions extends EditorOptions {
+interface ExtensionEditorOptions extends EditorOptions {
 	description?: string;
 }
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Sub-agents (F18): the engine on real git repositories with stand-in children (parallel children on disjoint files
+ * Sub-agents: the engine on real git repositories with stand-in children (parallel children on disjoint files
  * merge into the parent's working tree; a queued child waits for its dependencies and sees their changes; a failed
  * child does not fail the call; per-agent cost sums to the call's usage; the budget, the parent's abort, steer and
  * stop reach the right children; conflicts keep the worktree; bad requests are refused), and the feature through the
@@ -791,7 +791,7 @@ describe("sub-agent engine", () => {
 	});
 });
 
-describe("sub-agent control (F19)", () => {
+describe("sub-agent control", () => {
 	it("pauses and resumes a running child; paused wins over waiting for an approval", async () => {
 		const root = repo();
 		const engine = new SubagentEngineImpl();

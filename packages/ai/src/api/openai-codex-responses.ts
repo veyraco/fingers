@@ -59,7 +59,7 @@ const CODEX_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]
 const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE = "websocket_connection_limit_reached";
 const PREVIOUS_RESPONSE_NOT_FOUND_CODE = "previous_response_not_found";
-// The Responses API rejects max_output_tokens below 16: https://github.com/veyraco/fingers/issues/6265
+// The Responses API rejects max_output_tokens below 16: upstream #6265
 const MIN_OUTPUT_TOKENS = 16;
 // Fixed reasoning.effort while configuration_update items carry the thinking level.
 const CONFIGURATION_UPDATE_REQUEST_EFFORT = "medium";

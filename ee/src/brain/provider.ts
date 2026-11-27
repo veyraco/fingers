@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * The Brain memory provider (F20): the core's memory interface on Brain's public API
+ * The Brain memory provider: the core's memory interface on Brain's public API
  * (`api.veyra.so/brain/v1`, veyraco/platform contracts/openapi/brain.yaml) as the signed-in person.
  *
  * One memory per repository: the `project` subject whose id is the repository (`github.com/acme/web`), addressed as
@@ -42,7 +42,7 @@ export class BrainUnavailableError extends Error {
 
 type Fetch = typeof fetch;
 
-export interface BrainProviderOptions {
+interface BrainProviderOptions {
 	api: EeVeyraApi;
 	/** The organization (`org_…`) whose memory this is: the one signed in now. */
 	org: string;

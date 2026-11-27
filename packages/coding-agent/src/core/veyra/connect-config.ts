@@ -13,7 +13,7 @@ export const LOCAL_CONNECT_URL = "https://connect.veyra.localhost";
 export const FINGERS_CLIENT_ID = "fingers-cli";
 
 /** The Veyra apps, as Connect names them in `aud` and in RFC 8707 `resource`. */
-export const VEYRA_APPS = ["connect", "intelligence", "hands", "brain", "eyes", "fingers"] as const;
+const VEYRA_APPS = ["connect", "intelligence", "hands", "brain", "eyes", "fingers"] as const;
 export type VeyraApp = (typeof VEYRA_APPS)[number];
 
 /** The app the device flow's own access token is for. Other audiences come from the refresh grant with `resource`. */
@@ -33,7 +33,7 @@ export class ConnectConfigError extends Error {
  * A Connect address as an issuer string: https (http only on a loopback address, for a Connect on this computer),
  * no credentials, query or fragment, no trailing slash.
  */
-export function normalizeConnectUrl(value: string): string {
+function normalizeConnectUrl(value: string): string {
 	const trimmed = value.trim();
 	if (!URL.canParse(trimmed)) throw new ConnectConfigError(`"${trimmed}" is not a Connect address (https://…)`);
 	const url = new URL(trimmed);

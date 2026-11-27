@@ -38,7 +38,7 @@ import {
 	resolveHeadersOrThrow,
 } from "./resolve-config-value.ts";
 
-export interface ExtensionOAuthConfig {
+interface ExtensionOAuthConfig {
 	name: string;
 	/** Whether access through this auth method is backed by a provider subscription. */
 	isSubscription?: boolean;

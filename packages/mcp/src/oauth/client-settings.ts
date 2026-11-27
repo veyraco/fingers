@@ -192,7 +192,7 @@ const CALLBACK_PATH = "/callback";
 export const DEFAULT_REDIRECT_URL = `http://${CALLBACK_HOST}${CALLBACK_PATH}`;
 
 /** Where the loopback callback server listens and the redirect URI it serves, from `callbackUrl` and `callbackPort`. */
-export interface LoopbackSettings {
+interface LoopbackSettings {
 	/** The redirect URI, without the port unless one is configured. */
 	url: string;
 	/** Address to listen on. */

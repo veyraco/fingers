@@ -21,9 +21,9 @@ export interface SavingsPriceSource {
 /** Whether ee token saving could add to the report, as the gate says. */
 export type TokenSavingState = "on" | "signed_out" | "off";
 
-export type SavingsRowId = "prompt_caching" | SavingsTechnique;
+type SavingsRowId = "prompt_caching" | SavingsTechnique;
 
-export interface SavingsReportRow {
+interface SavingsReportRow {
 	id: SavingsRowId;
 	label: string;
 	tokens: number;
@@ -177,7 +177,7 @@ export function computeSavingsReport(input: SavingsReportInput): SavingsReport {
 					if (typeof path === "string" && path.length > 0) files.add(path);
 				}
 			} else if (message.role === "toolResult" && message.usage) {
-				// Sub-agents (F18): each child's calls under its provider, marked as sub-tasks; anything else is "other".
+				// Sub-agents: each child's calls under its provider, marked as sub-tasks; anything else is "other".
 				let rest = finite(message.usage.cost.total);
 				for (const child of subagentCosts(message.toolName, message.details)) {
 					addProvider(`${child.provider} (sub-tasks)`, child.costUsd);
@@ -249,23 +249,23 @@ export function computeSavingsReport(input: SavingsReportInput): SavingsReport {
 /** The tones the terminal maps to theme colors. */
 export type ReportTone = "text" | "dim" | "muted" | "success" | "accent";
 
-export interface ReportSegment {
+interface ReportSegment {
 	text: string;
 	tone: ReportTone;
 	bold?: boolean;
 }
 
-export type ReportLine = ReportSegment[];
+type ReportLine = ReportSegment[];
 
 /** Token counts as the status line shows them: 940, 61.2k, 1.21M. */
-export function formatReportTokens(count: number): string {
+function formatReportTokens(count: number): string {
 	if (count < 1000) return Math.round(count).toString();
 	if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`;
 	return `${(count / 1_000_000).toFixed(2)}M`;
 }
 
 /** Dollars as the status line shows them: two decimals, three below one cent; a negative saving keeps its sign. */
-export function formatReportUsd(usd: number): string {
+function formatReportUsd(usd: number): string {
 	const sign = usd < 0 ? "-" : "";
 	const value = Math.abs(usd);
 	return `${sign}$${value > 0 && value < 0.01 ? value.toFixed(3) : value.toFixed(2)}`;

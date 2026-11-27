@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Brain memory in the terminal app (F20): registers the Brain provider with the core while the `brain` feature is on
+ * Brain memory in the terminal app: registers the Brain provider with the core while the `brain` feature is on
  * (signed in, Fingers on for the organization, a tier that includes Brain) and handles `/memory`.
  *
  * The core's memory extension does the rest: the task's memory at its start, the `memory_recall` and

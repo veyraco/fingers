@@ -1,5 +1,5 @@
 /**
- * F13: the organization's model connections in Fingers, against a fake Connect that also plays Hands' model proxy
+ * The organization's model connections in Fingers, against a fake Connect that also plays Hands' model proxy
  * door for the Fingers CLI (hands.yaml "Model calls from the Fingers CLI").
  *
  * - Only connections open to both fingers and hands, with a provider Hands relays, for the person's group, are

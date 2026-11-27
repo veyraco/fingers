@@ -18,7 +18,7 @@ import { inside, physicalPath } from "./path-policy.ts";
 export const CHECKPOINT_FORMAT = "fingers.session.v1";
 
 /** A checkpoint bigger than this is refused on import (a session file of this size is not a real session). */
-export const MAX_CHECKPOINT_BYTES = 512 * 1024 * 1024;
+const MAX_CHECKPOINT_BYTES = 512 * 1024 * 1024;
 
 export class CheckpointError extends Error {
 	readonly code: "path_not_allowed" | "not_found" | "checksum_mismatch" | "invalid_command";
@@ -105,7 +105,7 @@ export async function writeCheckpointFile(
 	return { sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length };
 }
 
-export interface LoadedCheckpoint {
+interface LoadedCheckpoint {
 	header: SessionHeader;
 	entries: FileEntry[];
 }

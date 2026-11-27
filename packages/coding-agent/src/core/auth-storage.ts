@@ -58,7 +58,7 @@ export interface AuthStorageBackend {
 	): Promise<T>;
 }
 
-export interface FileAuthStorageBackendOptions {
+interface FileAuthStorageBackendOptions {
 	/** How long withLockAsync waits for another holder before it gives up (default 30 s, the lock's stale time). */
 	lockWaitMs?: number;
 }

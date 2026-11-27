@@ -22,7 +22,7 @@ export interface CacheMiss {
 	modelChanged: boolean;
 }
 
-export interface CacheWasteTotals {
+interface CacheWasteTotals {
 	missedTokens: number;
 	missedCost: number;
 	/** Number of counted misses (turns above the noise floor). */

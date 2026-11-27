@@ -513,7 +513,7 @@ export class Compiler {
 }
 
 /** Keywords that never affect a check. */
-export const NEUTRAL_KEYWORDS = new Set([
+const NEUTRAL_KEYWORDS = new Set([
 	"$schema",
 	"$comment",
 	"title",

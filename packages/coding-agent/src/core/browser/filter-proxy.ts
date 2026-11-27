@@ -28,7 +28,7 @@ export interface BlockedRequest {
 
 export type BrowserLog = (level: "debug" | "info" | "warn", msg: string, fields?: Record<string, unknown>) => void;
 
-export interface FilterProxyOptions {
+interface FilterProxyOptions {
 	policy: HostPolicy;
 	log?: BrowserLog;
 	/** Name resolution (tests replace it). Returns every address of the name. */

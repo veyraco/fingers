@@ -581,7 +581,7 @@ export class InteractiveMode {
 	private modelConnectionsProblem: string | undefined;
 	/** Who is signed in to Veyra, for the status line; read from the keychain at startup. */
 	private veyraAccount: VeyraAccount | undefined;
-	/** The task budget (/budget): a hard stop at the cap for the current session's model calls (F16). */
+	/** The task budget (/budget): a hard stop at the cap for the current session's model calls. */
 	private readonly budgetGuard = new SessionBudgetGuard(new TaskBudget(), {
 		onReached: (text) => this.showWarning(text),
 		onUnpriced: (text) => this.showWarning(text),
@@ -6440,7 +6440,7 @@ export class InteractiveMode {
 		if (this.veyraAccount) {
 			this.ui.requestRender();
 			void this.startEdition();
-			// The organization's model connections for /model (F13); a start that needed them already has them.
+			// The organization's model connections for /model; a start that needed them already has them.
 			if (!veyraModelConnections.list) void this.loadModelConnections();
 		}
 	}

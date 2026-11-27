@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
 
 /**
- * Regression test for https://github.com/veyraco/fingers/issues/3302
+ * Regression test for upstream #3302
  *
  * The `find` tool advertises glob patterns like `src/**\/*.spec.ts`, but the
  * default fd-backed implementation used `fd --glob <pattern>` without
@@ -82,7 +82,7 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 		expect(files).toEqual(["src/direct.spec.ts"]);
 	});
 
-	// https://github.com/veyraco/fingers/issues/9262: on Windows, `\` is a path separator.
+	// upstream #9262: on Windows, `\` is a path separator.
 	// On POSIX it is a glob escape character, so these cases are Windows-only.
 	it.runIf(process.platform === "win32")("Windows backslash patterns match like forward-slash patterns", async () => {
 		expect((await runFind(String.raw`src\**\*.spec.ts`)).sort()).toEqual([

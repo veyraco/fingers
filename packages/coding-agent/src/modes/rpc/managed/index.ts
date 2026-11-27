@@ -20,7 +20,7 @@ function logLevel(): "debug" | "info" | "warn" | "error" {
 
 export async function runManagedRpcMode(options: ManagedRuntimeOptions = {}): Promise<never> {
 	takeOverStdout();
-	// Sub-agents (F18b) are the ee module's; a build without it announces none.
+	// Sub-agents are the ee module's; a build without it announces none.
 	const eeModule = await loadEeModule().catch(() => undefined);
 	const server = new ManagedRpcServer({
 		io: {

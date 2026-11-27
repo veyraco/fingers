@@ -70,7 +70,7 @@ describe("schemaToType", () => {
 		).toBe("{\n  // Outer\n  outer?: {\n    // Inner\n    inner?: string;\n  };\n}");
 	});
 
-	// https://github.com/veyraco/fingers/issues/10707
+	// upstream #10707
 	it("puts constraints the type cannot express on property comment lines", () => {
 		expect(
 			schemaToType({

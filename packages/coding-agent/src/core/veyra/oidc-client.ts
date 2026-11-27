@@ -16,7 +16,7 @@ export function newVeyraTrace(): TraceContext {
 	return continueTrace(undefined).context;
 }
 
-export interface ConnectMetadata {
+interface ConnectMetadata {
 	issuer: string;
 	tokenEndpoint: string;
 	deviceAuthorizationEndpoint: string;
@@ -82,7 +82,7 @@ export class VeyraApiError extends Error {
 	}
 }
 
-export interface ConnectClientOptions {
+interface ConnectClientOptions {
 	fetch?: typeof fetch;
 	/** `fingers/<version> (<platform>)`: Connect shows the computer's OS on the confirm page from it. */
 	userAgent?: string;

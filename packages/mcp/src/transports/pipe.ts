@@ -4,7 +4,7 @@ import { type McpTransport, TransportEvents } from "./transport.ts";
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
 
-/** A running program's stdio, as `@veyraco/fingers-env`'s `RemoteProcess` provides it. */
+/** A running program's stdio, as the code that started it provides it. */
 export interface McpPipe {
 	write(data: Uint8Array | string): void;
 	closeStdin(): void;
@@ -31,7 +31,7 @@ export interface PipeTransportOptions {
 }
 
 /**
- * MCP's stdio transport over a program that something else runs, for example on another machine through fingers-env.
+ * MCP's stdio transport over a program that something else runs, for example on another machine.
  * The transport closes when the program ends; a rejected `exited` that `close()` did not cause is reported as an
  * error first.
  */

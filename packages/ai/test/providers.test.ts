@@ -136,7 +136,7 @@ describe("builtin providers", () => {
 	});
 
 	it("uses models.dev effort levels for Google thinking models", () => {
-		// Regression test for https://github.com/veyraco/fingers/issues/9455
+		// Regression test for upstream #9455
 		for (const provider of ["google", "google-vertex"] as const) {
 			expect(getSupportedThinkingLevels(getBuiltinModel(provider, "gemini-3.6-flash"))).toContain("minimal");
 			expect(getSupportedThinkingLevels(getBuiltinModel(provider, "gemini-3.8-flash"))).toEqual([

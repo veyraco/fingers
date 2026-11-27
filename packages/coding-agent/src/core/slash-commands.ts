@@ -10,7 +10,7 @@ export interface SlashCommandInfo {
 	sourceInfo: SourceInfo;
 }
 
-export interface BuiltinSlashCommand {
+interface BuiltinSlashCommand {
 	name: string;
 	description: string;
 	argumentHint?: string;

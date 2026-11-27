@@ -29,7 +29,7 @@ export interface SseEvent {
 	id?: string;
 }
 
-export interface ConsumeSseOptions {
+interface ConsumeSseOptions {
 	maxEventBytes?: number;
 	onEvent(event: SseEvent): void;
 	/** Called for every `id` field, including events without data (for example resumption priming events). */
@@ -135,7 +135,7 @@ export async function consumeSseStream(stream: ReadableStream<Uint8Array>, optio
 	}
 }
 
-export interface StreamableHttpReconnectOptions {
+interface StreamableHttpReconnectOptions {
 	/** Delay before the first reconnection attempt, unless the server sent a `retry` field. Default: 1000. */
 	initialDelayMs?: number;
 	/** Upper bound for the exponential backoff. Default: 30000. */

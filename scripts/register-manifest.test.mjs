@@ -167,7 +167,7 @@ describe("manifest/fingers.json", () => {
 		const loaded = checkManifest(manifest, "fingers");
 		assert.equal(loaded.app, "fingers");
 		assert.ok(loaded.version >= 1);
-		// fingers login (F11) and the ee gate (F12) check this permission.
+		// fingers login and the ee gate check this permission.
 		assert.equal(loaded.permissions.get("cli:use")?.access, "write");
 		// Viewers get read access only; Owner and Admin everything.
 		for (const id of loaded.defaultGrants.viewer) assert.equal(loaded.permissions.get(id).access, "read", id);
@@ -259,7 +259,7 @@ describe("instance identity", () => {
 		assert.equal(instance.key.d, key.d);
 	});
 
-	it("reads the file Connect's dev seed writes (.local/instances/fingers.json)", (t) => {
+	it("reads the instance file Connect's dev seed writes", (t) => {
 		const dir = mkdtempSync(join(tmpdir(), "fingers-instance-"));
 		t.after(() => rmSync(dir, { recursive: true, force: true }));
 		const { id, key } = newInstance();

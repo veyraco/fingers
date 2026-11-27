@@ -28,7 +28,7 @@ export interface DeviceCodePrompt {
 	expiresInSeconds: number;
 }
 
-export type DeviceFlowFailure = "denied" | "expired" | "cancelled" | "failed";
+type DeviceFlowFailure = "denied" | "expired" | "cancelled" | "failed";
 
 export class DeviceFlowError extends Error {
 	readonly reason: DeviceFlowFailure;
@@ -45,7 +45,7 @@ export class DeviceFlowError extends Error {
 
 export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>;
 
-export const realSleep: Sleep = (ms, signal) =>
+const realSleep: Sleep = (ms, signal) =>
 	new Promise((resolve, reject) => {
 		if (signal?.aborted) {
 			reject(signal.reason);
@@ -62,7 +62,7 @@ export const realSleep: Sleep = (ms, signal) =>
 		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 
-export interface DeviceFlowOptions {
+interface DeviceFlowOptions {
 	client: ConnectOidcClient;
 	clientId: string;
 	scope?: string;

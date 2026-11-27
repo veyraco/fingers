@@ -38,21 +38,16 @@ export const RE_ASCII_LDH = /^[a-zA-Z0-9-]*$/;
 // -------------------------------------------------------------------
 // ASCII & Encoding
 // -------------------------------------------------------------------
-export const RE_ASCII = /^\p{ASCII}*$/u;
 export const RE_NON_ASCII = /[^\p{ASCII}]/u;
 
 // -------------------------------------------------------------------
 // Structural & Unicode Controls
 // -------------------------------------------------------------------
-export const RE_HIGH_SURROGATE = /[\u{d800}-\u{dbff}]/u;
-export const RE_REGIONAL_INDICATOR = /[\u{1f1e6}-\u{1f1ff}]/u;
-export const RE_VARIATION_SELECTOR = /[\u{fe00}-\u{fe0f}]/u;
-export const RE_ZERO_WIDTH_JOINER = /\u{200d}/u;
 
 // -------------------------------------------------------------------
 // Numbers & Digits
 // -------------------------------------------------------------------
-export const RE_ASCII_DIGIT = /[0-9]/;
+const RE_ASCII_DIGIT = /[0-9]/;
 export const RE_ARABIC_INDIC_DIGIT = /[\u{0660}-\u{0669}]/u;
 export const RE_EXT_ARABIC_INDIC_DIGIT = /[\u{06f0}-\u{06f9}]/u;
 
@@ -66,11 +61,10 @@ export const RE_EUROPEAN_SEPARATOR = /[\u{002d}\u{002b}]/u;
 // General Categories
 // -------------------------------------------------------------------
 export const RE_MARK_NONSPACING = /\p{Mn}/u;
-export const RE_MARK_SPACING_COMBINING = /\p{Mc}/u;
-export const RE_MARK_ENCLOSING = /\p{Me}/u;
+const RE_MARK_SPACING_COMBINING = /\p{Mc}/u;
 export const RE_COMBINING_MARK = /[\p{Mn}\p{Mc}\p{Me}]/u;
 export const RE_LETTER = /\p{L}/u;
-export const RE_NUMBER_DECIMAL = /\p{Nd}/u;
+const RE_NUMBER_DECIMAL = /\p{Nd}/u;
 
 // -------------------------------------------------------------------
 // Scripts
@@ -88,8 +82,8 @@ export const RE_VIRAMA =
 export const RE_RFC5892_DISALLOWED =
 	/[\u{0640}\u{07fa}\u{302e}\u{302f}\u{3031}\u{3032}\u{3033}\u{3034}\u{3035}\u{303b}]/u;
 // biome-ignore lint/suspicious/noMisleadingCharacterClass: a set of single code points (u flag), including ZWJ and ZWNJ, by design.
-export const RE_CONTEXTO_EXCEPTIONS = /[\u{00b7}\u{0375}\u{05f3}\u{05f4}\u{200c}\u{200d}\u{30fb}]/u;
-export const RE_PVALID_EXCEPTIONS = /[\u{00df}\u{03c2}\u{06fd}\u{06fe}\u{0f0b}\u{3007}]/u;
+const RE_CONTEXTO_EXCEPTIONS = /[\u{00b7}\u{0375}\u{05f3}\u{05f4}\u{200c}\u{200d}\u{30fb}]/u;
+const RE_PVALID_EXCEPTIONS = /[\u{00df}\u{03c2}\u{06fd}\u{06fe}\u{0f0b}\u{3007}]/u;
 
 // -------------------------------------------------------------------
 // Composite Patterns

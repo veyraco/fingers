@@ -1,5 +1,5 @@
 /**
- * Sub-agents (F18, open core): the built-in `subagents` extension with a stand-in engine. The `agents` tool is offered
+ * Sub-agents (open core): the built-in `subagents` extension with a stand-in engine. The `agents` tool is offered
  * only while an engine is live; the child sessions it makes are real sessions on the parent's model runtime (same
  * credentials) in their own directory, with the parent's approvals asked in the parent's terminal one at a time and
  * no `agents` tool of their own; each child's model calls become the tool result's usage, so the session's cost and

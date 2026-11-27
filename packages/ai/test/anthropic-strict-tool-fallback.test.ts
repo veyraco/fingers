@@ -65,7 +65,7 @@ function harness(respond: (payload: MessageCreateParamsStreaming, attempt: numbe
 	return { payloads, options: { apiKey: "test-key", fetch, maxRetries: 0 } satisfies AnthropicOptions };
 }
 
-// Regression tests for https://github.com/veyraco/fingers/issues/10409.
+// Regression tests for upstream #10409.
 describe("Anthropic preferred strict tool fallback", () => {
 	afterEach(() => cleanupSessionResources());
 
@@ -261,7 +261,7 @@ describe("Anthropic preferred strict tool fallback", () => {
 		expect(payloads.map((payload) => (payload.tools as BetaTool[])[0].strict)).toEqual([true, undefined, true]);
 	});
 
-	// Regression tests for https://github.com/veyraco/fingers/issues/11626.
+	// Regression tests for upstream #11626.
 	it("sends preferred tools non-strict right away on later requests of a rejected session", async () => {
 		const { payloads, options } = harness((_payload, attempt) =>
 			attempt === 1 ? errorResponse() : successResponse(),

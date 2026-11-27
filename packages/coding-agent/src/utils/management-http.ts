@@ -2,7 +2,7 @@ type FetchInput = Parameters<typeof fetch>[0];
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
-export interface FetchRetryOptions {
+interface FetchRetryOptions {
 	/** Number of additional attempts after the initial request. Defaults to two. */
 	maxRetries?: number;
 	/** Retry transient HTTP responses as well as transport failures. Defaults to true. */

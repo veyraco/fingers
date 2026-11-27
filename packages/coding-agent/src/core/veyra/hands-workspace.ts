@@ -1,5 +1,5 @@
 /**
- * The person's workspace for a Hands-backed session (F13b): what goes up into the sandbox, and how the run's changes
+ * The person's workspace for a Hands-backed session: what goes up into the sandbox, and how the run's changes
  * come back into the working tree.
  *
  * Up (hands.yaml `Workspace`, `POST /files`):
@@ -25,11 +25,11 @@ import { repositoryIdFromRemote } from "../memory/project.ts";
 import type { HandsChangedFile, HandsClient, HandsWorkspace } from "./hands-client.ts";
 
 /** Hands' limits (hands.yaml Workspace.file_ids maxItems, uploadFile "Up to 500 MB"). */
-export const MAX_WORKSPACE_FILES = 100;
-export const MAX_FILE_BYTES = 500 * 1024 * 1024;
+const MAX_WORKSPACE_FILES = 100;
+const MAX_FILE_BYTES = 500 * 1024 * 1024;
 
 /** Where conflicting files from a run are kept, under the root. */
-export const HANDS_CONFLICT_DIR = join(".fingers", "hands");
+const HANDS_CONFLICT_DIR = join(".fingers", "hands");
 
 export class HandsWorkspaceError extends Error {
 	constructor(message: string) {
@@ -38,7 +38,7 @@ export class HandsWorkspaceError extends Error {
 	}
 }
 
-export interface WorkspaceFileStat {
+interface WorkspaceFileStat {
 	size: number;
 	mtimeMs: number;
 }
@@ -81,7 +81,7 @@ function splitZ(text: string): string[] {
 }
 
 /** `owner/name` for a github.com remote, the https URL for another https remote, undefined otherwise. */
-export function cloneSource(remote: string): string | undefined {
+function cloneSource(remote: string): string | undefined {
 	const id = repositoryIdFromRemote(remote);
 	if (!id) return undefined;
 	const [host, ...rest] = id.split("/");
@@ -252,7 +252,7 @@ export async function uploadWorkspace(
 }
 
 /** A path from Hands, checked: relative, `/`-separated, no `.`/`..`/empty segments, never under `.git`. */
-export function safeWorkspacePath(raw: unknown): string | undefined {
+function safeWorkspacePath(raw: unknown): string | undefined {
 	if (typeof raw !== "string" || raw.length === 0 || raw.length > 4096) return undefined;
 	const path = raw.replace(/^\.\//, "");
 	if (path.startsWith("/") || path.includes("\\") || path.includes("\0") || /^[A-Za-z]:/.test(path)) return undefined;

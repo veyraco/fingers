@@ -14,7 +14,7 @@ export interface NetworkConfig {
 	hosts?: readonly string[];
 }
 
-export type HostDecision = { allowed: true } | { allowed: false; reason: string };
+type HostDecision = { allowed: true } | { allowed: false; reason: string };
 
 interface HostRule {
 	/** Lowercase host without brackets; for a wildcard, the domain after `*.`. */

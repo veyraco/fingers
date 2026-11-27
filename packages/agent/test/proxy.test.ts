@@ -74,7 +74,7 @@ describe("streamProxy", () => {
 		});
 	});
 
-	// Regression tests for https://github.com/veyraco/fingers/issues/8996
+	// Regression tests for upstream #8996
 	it("processes terminal metadata when the event is not newline-terminated", async () => {
 		const start = `data: ${JSON.stringify({ type: "start" })}\n\n`;
 		const done = `data: ${JSON.stringify({ type: "done", reason: "stop", usage, providerThinkingLevel: "high" })}`;

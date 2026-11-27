@@ -6,10 +6,10 @@
  * the default built-in tools and no extension of its own beyond those approvals: no `agents` tool (no grandchildren),
  * no MCP servers, no memory and no telemetry. Its transcript stays in memory.
  *
- * Managed RPC (F18b) gives a child its own gate instead of the terminal approvals (ChildSessionHooks): the host's path
+ * Managed RPC gives a child its own gate instead of the terminal approvals (ChildSessionHooks): the host's path
  * policy and approvals, the run's tools and no skills, and it watches the child's session to forward its records.
  *
- * The `/agents` panel (F19) controls a child through it: while the panel is open, a child's approval question waits
+ * The `/agents` panel controls a child through it: while the panel is open, a child's approval question waits
  * on the registry's approval desk until the person opens it there; pause holds the child before its next model call
  * (a step that runs finishes first; nothing of its transcript or files changes); atRest runs a task at such a point,
  * where every step has its result (a checkpoint is taken there); rollBack takes a held child's transcript back to such
@@ -39,7 +39,7 @@ import { combineUsage } from "../../core/usage-totals.ts";
 import { type AskForApproval, askInTerminal, createApprovalsExtension } from "../approvals/index.ts";
 
 /** The usage of every model call recorded in a session's entries, as one Usage (costs at list price). */
-export function sessionUsage(entries: readonly SessionEntry[]): Usage {
+function sessionUsage(entries: readonly SessionEntry[]): Usage {
 	let usage = emptyUsage();
 	for (const entry of entries) {
 		if (entry.type === "usage") usage = combineUsage(usage, entry.usage);
@@ -99,7 +99,7 @@ export interface ChildSessionHooks {
 	attach?(child: ChildIdentity, session: AgentSession): (() => void) | undefined;
 }
 
-export interface ChildSessionDeps {
+interface ChildSessionDeps {
 	/** The parent's model runtime: the child's model calls use the same credentials. */
 	modelRuntime: ModelRuntime;
 	/** The parent's effective settings. */
@@ -190,7 +190,7 @@ function messageText(content: unknown): string {
 }
 
 /** The current branch of a session as transcript lines (tool results and long texts cut). */
-export function transcriptLines(session: AgentSession, task: string): SubagentTranscriptLine[] {
+function transcriptLines(session: AgentSession, task: string): SubagentTranscriptLine[] {
 	const lines: SubagentTranscriptLine[] = [];
 	for (const message of session.messages) {
 		if (message.role === "user") {

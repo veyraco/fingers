@@ -1212,7 +1212,7 @@ Content`,
 			expect(runCommandSpy).not.toHaveBeenCalledWith("git", ["clean", "-fdx"], { cwd: targetDir });
 		});
 
-		// https://github.com/veyraco/fingers/issues/11597
+		// upstream #11597
 		it("should install git package dependencies when cleaning fails", async () => {
 			const source = "git:github.com/user/repo";
 			const targetDir = join(agentDir, "git", "github.com", "user", "repo");
@@ -3006,7 +3006,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			expect(refreshTemporaryGitSourceSpy).not.toHaveBeenCalled();
 		});
 
-		// https://github.com/veyraco/fingers/issues/9982
+		// upstream #9982
 		it("should load a new checkout when a pinned temporary git source changes ref", async () => {
 			const managerWithInternals = packageManager as unknown as PackageManagerInternals;
 			const oldSource = "git:github.com/example/repo@aaaaaaa";
@@ -3035,7 +3035,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "extensions/old.ts"))).toBe(false);
 		});
 
-		// https://github.com/veyraco/fingers/issues/11375
+		// upstream #11375
 		it("should refresh temporary git sources with a branch ref", async () => {
 			const managerWithInternals = packageManager as unknown as PackageManagerInternals;
 			const source = "git:github.com/example/repo@main";

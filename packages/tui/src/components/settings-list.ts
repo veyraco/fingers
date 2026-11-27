@@ -31,7 +31,7 @@ export interface SettingsListTheme {
 	hint: (text: string) => string;
 }
 
-export interface SettingsListOptions {
+interface SettingsListOptions {
 	enableSearch?: boolean;
 }
 

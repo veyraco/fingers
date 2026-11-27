@@ -1,5 +1,5 @@
 /**
- * Managed RPC state across processes (F7): checkpoint export and import (resume and fork), the model
+ * Managed RPC state across processes: checkpoint export and import (resume and fork), the model
  * credential surviving a session replacement, and the budget hard stop holding for later prompts.
  *
  * "A fresh process" is a second ManagedRpcServer with its own agent and session directories that shares only

@@ -18,7 +18,7 @@ export type ApprovalAnswer =
 	| { decision: "allow_always" }
 	| { decision: "deny"; message?: string };
 
-export interface ApprovalBoxOptions {
+interface ApprovalBoxOptions {
 	/** Title after "Approval needed · ", e.g. "run a command". */
 	action: string;
 	/** What runs, e.g. the command line. Shown after "$ " for commands. */
@@ -34,7 +34,7 @@ export interface ApprovalBoxOptions {
 
 const MAX_BOX_WIDTH = 100;
 /** Command rows shown before the middle is folded: the box then fits a 36-row terminal with room to spare. */
-export const MAX_COMMAND_ROWS = 20;
+const MAX_COMMAND_ROWS = 20;
 /** Of the folded rows, how many come from the end of the command (where a last step could hide). */
 const FOLDED_TAIL_ROWS = 7;
 /** The box's border and padding: `│ ` and ` │`. */
@@ -49,7 +49,7 @@ const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
  * Makes `text` safe to show as one line: control characters become their Unicode control pictures
  * (ESC → ␛, CR → ␍, tab → ␉) and invisible or bidi characters become `<U+202E>`.
  */
-export function visibleCommandText(text: string): string {
+function visibleCommandText(text: string): string {
 	return text
 		.replace(/[\u0000-\u001F\u007F]/g, (char) =>
 			char === "\u007F" ? "␡" : String.fromCharCode(0x2400 + char.charCodeAt(0)),
@@ -58,7 +58,7 @@ export function visibleCommandText(text: string): string {
 }
 
 /** Splits plain `text` into pieces at most `width` cells wide, keeping every character. */
-export function hardWrap(text: string, width: number): string[] {
+function hardWrap(text: string, width: number): string[] {
 	const pieces: string[] = [];
 	let current = "";
 	let currentWidth = 0;

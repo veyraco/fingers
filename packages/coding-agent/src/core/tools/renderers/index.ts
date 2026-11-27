@@ -29,7 +29,7 @@ export {
 };
 
 /** Renderers for every built-in tool, keyed by tool name. */
-export function createAllToolRenderers(): Record<ToolName, ToolRenderers> {
+function createAllToolRenderers(): Record<ToolName, ToolRenderers> {
 	return {
 		read: readRenderers,
 		bash: createShellRenderers("$"),

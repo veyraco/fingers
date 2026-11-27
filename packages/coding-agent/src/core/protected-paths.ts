@@ -89,7 +89,7 @@ function expandEnvPath(value: string, home: string): string | undefined {
 	return resolve(expanded);
 }
 
-export interface WriteApprovalOptions {
+interface WriteApprovalOptions {
 	/** Fingers' agent directory (default: getAgentDir()). */
 	agentDir?: string;
 	/** The environment whose `HOME`, `ZDOTDIR`, `BASH_ENV`, `ENV` and `RIPGREP_CONFIG_PATH` count (default: process.env). */

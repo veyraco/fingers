@@ -1,14 +1,14 @@
 import type { ImageContent } from "@veyraco/fingers-ai";
 import type { Args } from "./args.ts";
 
-export interface InitialMessageInput {
+interface InitialMessageInput {
 	parsed: Args;
 	fileText?: string;
 	fileImages?: ImageContent[];
 	stdinContent?: string;
 }
 
-export interface InitialMessageResult {
+interface InitialMessageResult {
 	initialMessage?: string;
 	initialImages?: ImageContent[];
 }

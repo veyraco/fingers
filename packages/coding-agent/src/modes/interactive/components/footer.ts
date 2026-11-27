@@ -68,7 +68,7 @@ export interface FingersAccountStatus {
 }
 
 /** Status the shell shows besides the session's own numbers. Every getter is optional. */
-export interface FingersShellStatus {
+interface FingersShellStatus {
 	/** Undefined or `signedIn: false`: "core only · not signed in". */
 	getAccount?(): FingersAccountStatus | undefined;
 	/** The task budget, when one is set. */

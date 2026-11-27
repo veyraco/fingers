@@ -149,7 +149,7 @@ export function createMcpResultSchema(structuredContentSchema: Record<string, un
 	} as unknown as TSchema;
 }
 
-export interface ConvertMcpResultOptions {
+interface ConvertMcpResultOptions {
 	/** Saves truncated text and binary resources. Default: a temp file. */
 	saveOutput?: McpOutputSaver;
 	/** Whether the server's resources can be read with `read_mcp_resource`, which resource links then name. */

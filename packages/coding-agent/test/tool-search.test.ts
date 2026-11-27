@@ -103,7 +103,7 @@ describe("Bm25Ranker", () => {
 		expect(ranker.rank("tickets", documents, 8)).toEqual([]);
 	});
 
-	// https://github.com/veyraco/fingers/issues/11331
+	// upstream #11331
 	it("ranks a tool first when the query is its name", () => {
 		const named = [
 			tool("mcp__app__queue_read", "Read a queued message of this thread."),
@@ -126,7 +126,7 @@ describe("Bm25Ranker", () => {
 		expect(ranker.rank("read", named, 1).map((match) => match.name)).toEqual(["mcp__app__queue_read"]);
 	});
 
-	// https://github.com/veyraco/fingers/issues/11331
+	// upstream #11331
 	it("ranks a name match above mentions in descriptions", () => {
 		const documents = [
 			tool("mcp__ci__status", "Deploy status: last deploy, deploy log, deploy errors."),
@@ -140,7 +140,7 @@ describe("Bm25Ranker", () => {
 		]);
 	});
 
-	// https://github.com/veyraco/fingers/issues/11331
+	// upstream #11331
 	it("ranks a tool first when the query contains its whole name", () => {
 		const peekaboo = { name: "mcp__peekaboo", instructions: "Peekaboo controls macOS apps by app name." };
 		const documents = [
@@ -167,7 +167,7 @@ describe("Bm25Ranker", () => {
 		expect(first("describe window")).toEqual(["mcp__peekaboo__see"]);
 	});
 
-	// https://github.com/veyraco/fingers/issues/11331
+	// upstream #11331
 	it("ranks a tool matching more query terms first, whatever the scores", () => {
 		const documents = [
 			tool("mcp__peekaboo__app", "Launch, quit, focus, or switch applications by name or bundle identifier."),

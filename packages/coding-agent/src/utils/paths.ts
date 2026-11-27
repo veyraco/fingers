@@ -6,7 +6,7 @@ import { spawnProcessSync } from "./child-process.ts";
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
-export interface PathInputOptions {
+interface PathInputOptions {
 	/** Trim leading/trailing whitespace before normalization. */
 	trim?: boolean;
 	/** Expand leading `~` to a home directory. Defaults to true. */

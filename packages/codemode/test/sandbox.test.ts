@@ -188,7 +188,7 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 			]);
 		});
 
-		// https://github.com/veyraco/fingers/issues/10215
+		// upstream #10215
 		it("accepts wrapped and large base64 image data", async () => {
 			const sandbox = createSandbox();
 			const large = `iVBORw0KGgoA${"QUJD".repeat(256 * 1024)}`;

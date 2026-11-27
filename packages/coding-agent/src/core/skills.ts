@@ -396,7 +396,7 @@ function escapeXml(str: string): string {
 		.replace(/'/g, "&apos;");
 }
 
-export interface LoadSkillsOptions {
+interface LoadSkillsOptions {
 	/** Working directory for project-local skills. */
 	cwd: string;
 	/** Agent config directory for global skills. */

@@ -9,7 +9,7 @@ import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { resolveToCwd } from "../../../core/tools/path-utils.ts";
 
-export interface PathPolicyInput {
+interface PathPolicyInput {
 	workspaceRoot: string;
 	protectedPaths: readonly string[];
 }
@@ -20,7 +20,7 @@ export interface PathPolicy {
 	protectedRoots: Array<{ logical: string; physical: string }>;
 }
 
-export const READ_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
+const READ_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
 export const WRITE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
 
 /** True when `target` is `root` or lies under it (both already resolved the same way). */
@@ -61,7 +61,7 @@ export async function preparePathPolicy(input: PathPolicyInput): Promise<PathPol
 }
 
 /** Every path the tool could select for `value`: the read tool also tries macOS filename variants. */
-export function managedToolPathCandidates(value: string, cwd: string, read: boolean): string[] {
+function managedToolPathCandidates(value: string, cwd: string, read: boolean): string[] {
 	const path = resolveToCwd(value, cwd);
 	if (!read) return [path];
 	const nfd = path.normalize("NFD");

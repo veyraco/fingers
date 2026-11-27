@@ -51,7 +51,7 @@ export function truncateToVisualLines(
 	return { visualLines: truncatedLines, skippedCount };
 }
 
-export interface VisualLinePreviewOptions {
+interface VisualLinePreviewOptions {
 	/** Styled text; may contain newlines. */
 	text: string;
 	maxVisualLines: number;

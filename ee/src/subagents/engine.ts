@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * The sub-agent engine (F18): runs the children of one `agents` call.
+ * The sub-agent engine: runs the children of one `agents` call.
  *
  * - Plan: each child gets an id (`sub_<n>`, unique in the process), its model (the core picks a cheaper one when
  *   routing finds one) and its dependencies (labels of the same call; an unknown label or a cycle refuses the call).
@@ -16,7 +16,7 @@
  *   their spend counts toward the session's budget: once it is reached, every child is stopped. The budget is asked
  *   before each child starts too, so a call made when the budget is already reached starts no child.
  *
- * - Control (F19, the `/agents` panel): a running child can be paused (held before its next model call) and resumed;
+ * - Control (the `/agents` panel): a running child can be paused (held before its next model call) and resumed;
  *   a checkpoint is a commit of its worktree plus the point of its transcript where it waits before a model call;
  *   resuming from a checkpoint puts both back and the child goes on from there. Checkpoints live in this process
  *   (the commits are objects no ref points to). An ended child's kept worktree can be removed.
@@ -44,8 +44,8 @@ import { nodeGit, type SubagentGit, WORKTREES_DIR } from "./git.ts";
 
 type Usage = SubagentInfo["usage"];
 
-export const DEFAULT_MAX_PARALLEL = 4;
-export const MAX_AGENTS_PER_CALL = 8;
+const DEFAULT_MAX_PARALLEL = 4;
+const MAX_AGENTS_PER_CALL = 8;
 const MAX_LABEL_CHARS = 80;
 const MAX_TASK_CHARS = 4_000;
 const MAX_SUMMARY_CHARS = 4_000;

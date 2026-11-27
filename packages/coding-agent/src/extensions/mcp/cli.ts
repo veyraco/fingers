@@ -79,7 +79,7 @@ const HELP_HINT = chalk.dim(`Use "${APP_NAME} mcp --help" for usage.`);
 
 const DEFAULT_LOGIN_TIMEOUT_SECONDS = 300;
 
-export interface McpCommandOptions {
+interface McpCommandOptions {
 	cwd: string;
 	agentDir: string;
 	/** Defaults to `mcp-auth.json` in the agent directory. */

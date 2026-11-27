@@ -106,7 +106,7 @@ function strictFlags(): (boolean | undefined)[][] {
 	);
 }
 
-// Regression tests for https://github.com/veyraco/fingers/issues/11416.
+// Regression tests for upstream #11416.
 describe("Bedrock preferred strict tool fallback", () => {
 	beforeEach(() => {
 		bedrockMock.inputs = [];
@@ -190,7 +190,7 @@ describe("Bedrock preferred strict tool fallback", () => {
 		expect(strictFlags()).toEqual([[true], [undefined], [true]]);
 	});
 
-	// Regression tests for https://github.com/veyraco/fingers/issues/11626.
+	// Regression tests for upstream #11626.
 	it("sends preferred tools non-strict right away on later requests of a rejected session", async () => {
 		bedrockMock.respond = (attempt) =>
 			attempt === 1 ? Promise.reject(sdkError("ValidationException", unionLimitMessage)) : successResponse();

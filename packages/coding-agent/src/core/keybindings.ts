@@ -173,7 +173,7 @@ const APP_KEYBINDINGS = {
 } as const satisfies KeybindingDefinitions;
 
 export type AppKeybinding = keyof typeof APP_KEYBINDINGS;
-export type AppKeybindings = { [K in AppKeybinding]: true };
+type AppKeybindings = { [K in AppKeybinding]: true };
 
 declare module "@veyraco/fingers-tui" {
 	interface Keybindings extends AppKeybindings {}

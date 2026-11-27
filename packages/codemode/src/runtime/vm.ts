@@ -40,13 +40,13 @@ import type { CodemodeWasmModule } from "../wasm.ts";
 import { PRELUDE_SOURCE } from "./prelude-source.ts";
 import type { HostToWorkerMessage, VmStartData, WorkerToHostMessage } from "./protocol.ts";
 
-export interface VmSession {
+interface VmSession {
 	deliver(message: HostToWorkerMessage): void;
 	/** Releases the VM's wasm instance. The session must not be used afterwards. */
 	dispose(): void;
 }
 
-export interface StartVmOptions {
+interface StartVmOptions {
 	data: VmStartData;
 	wasm: CodemodeWasmModule;
 	/**

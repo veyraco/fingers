@@ -12,12 +12,12 @@ export interface HuggingFaceModel {
 	downloads: number;
 }
 
-export interface HuggingFaceQuantization {
+interface HuggingFaceQuantization {
 	name: string;
 	size?: number;
 }
 
-export interface HuggingFaceModelDetails {
+interface HuggingFaceModelDetails {
 	id: string;
 	gated: false | "auto" | "manual";
 	quantizations: HuggingFaceQuantization[];

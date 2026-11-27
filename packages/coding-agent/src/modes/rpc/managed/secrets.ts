@@ -8,14 +8,14 @@
 const REDACTED = "[redacted]";
 
 /** A header value shorter than this is not a secret: replacing a short value everywhere rewrites unrelated text. */
-export const MIN_SECRET_HEADER_LENGTH = 8;
+const MIN_SECRET_HEADER_LENGTH = 8;
 /** Header names (lowercase) that carry a credential. */
 const CREDENTIAL_HEADERS = new Set(["authorization", "proxy-authorization", "cookie", "x-api-key", "api-key"]);
 /** Parts of a header name that mark it as carrying a credential. */
 const CREDENTIAL_HEADER_PARTS = ["auth", "token", "secret", "key", "password", "session", "signature", "credential"];
 
 /** Whether a header with this name carries a credential. */
-export function isCredentialHeader(name: string): boolean {
+function isCredentialHeader(name: string): boolean {
 	const lower = name.toLowerCase();
 	return CREDENTIAL_HEADERS.has(lower) || CREDENTIAL_HEADER_PARTS.some((part) => lower.includes(part));
 }

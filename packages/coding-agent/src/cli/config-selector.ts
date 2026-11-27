@@ -9,7 +9,7 @@ import { ConfigSelectorComponent, type ScopedResolvedPaths } from "../modes/inte
 import { initTheme, stopThemeWatcher } from "../modes/interactive/theme/theme.ts";
 import { flushStdout } from "../utils/flush-stdout.ts";
 
-export interface ConfigSelectorOptions {
+interface ConfigSelectorOptions {
 	resolvedPaths: ScopedResolvedPaths;
 	settingsManager: SettingsManager;
 	cwd: string;

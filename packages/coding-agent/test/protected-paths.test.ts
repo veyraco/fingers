@@ -191,7 +191,7 @@ describe("approvals for the write and edit tools", () => {
 		expect(asked).toHaveLength(2);
 	});
 
-	it("asks before writing outside the working directory, but not in the temporary directory (F10b)", async () => {
+	it("asks before writing outside the working directory, but not in the temporary directory", async () => {
 		// The test root is in the temporary directory; a home directory inside it would void the exemption.
 		process.env.HOME = "/fingers-approvals-test-home";
 		const { asked, call } = setup([{ decision: "deny" }, { decision: "deny" }, { decision: "deny" }]);
@@ -213,7 +213,7 @@ describe("approvals for the write and edit tools", () => {
 	});
 });
 
-describe("shell startup files never run for shell commands (F10b)", () => {
+describe("shell startup files never run for shell commands", () => {
 	it.skipIf(process.platform === "win32")(
 		"bash does not run the file BASH_ENV names, and ENV is not passed on",
 		() => {
@@ -279,7 +279,7 @@ describe("shell startup files never run for shell commands (F10b)", () => {
 	});
 });
 
-describe("protectedWriteReason: shell startup and config files (F10b)", () => {
+describe("protectedWriteReason: shell startup and config files", () => {
 	const startupFiles = [
 		".zshenv",
 		".zshrc",
@@ -328,7 +328,7 @@ describe("protectedWriteReason: shell startup and config files (F10b)", () => {
 	});
 });
 
-describe("writeApprovalReason: write and edit ask outside the working directory (F10b)", () => {
+describe("writeApprovalReason: write and edit ask outside the working directory", () => {
 	let tempDir: string;
 	beforeEach(() => {
 		tempDir = join(root, "tmp");
@@ -376,7 +376,7 @@ describe("writeApprovalReason: write and edit ask outside the working directory 
 	});
 });
 
-describe("shell PATH entries the write tool could fill without asking (F10b)", () => {
+describe("shell PATH entries the write tool could fill without asking", () => {
 	it("finds relative, empty and in-project or temporary entries", () => {
 		const tempDir = join(root, "tmp");
 		const check = (path: string) => pathEntryWritableWithoutAsking(projectDir, { PATH: path }, { tempDir });
@@ -397,7 +397,7 @@ describe("shell PATH entries the write tool could fill without asking (F10b)", (
 	});
 });
 
-describe("managed mode refuses write and edit outside the workspace (F10b)", () => {
+describe("managed mode refuses write and edit outside the workspace", () => {
 	it("refuses shell startup files and the temporary directory", async () => {
 		const policy = await preparePathPolicy({ workspaceRoot: projectDir, protectedPaths: [] });
 		expect(await checkManagedToolPaths("write", { path: join(home, ".zshenv") }, policy)).toMatch(/outside/);

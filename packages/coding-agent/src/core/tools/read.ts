@@ -35,7 +35,7 @@ const readOutputSchema = Type.Union([
 	Type.Object({ type: Type.Literal("image"), data: Type.String(), mimeType: Type.String(), note: Type.String() }),
 ]);
 
-export type ReadToolOutput = Static<typeof readOutputSchema>;
+type ReadToolOutput = Static<typeof readOutputSchema>;
 
 export interface ReadToolDetails {
 	truncation?: TruncationResult;

@@ -382,7 +382,7 @@ export interface SystemThemeInput {
 	appearanceHint?: ThemeAppearance;
 }
 
-export interface SystemThemeColors {
+interface SystemThemeColors {
 	/** Hex colors, ANSI palette indices, or "" for the terminal default. */
 	colors: Record<ThemeToken, string | number>;
 	/** Foreground tokens rendered faint (SGR 2), for terminals that did not report colors. */
@@ -396,7 +396,7 @@ function oklabLightness(color: RgbColor): number {
 }
 
 /** WCAG 2 relative luminance. */
-export function relativeLuminance({ r, g, b }: RgbColor): number {
+function relativeLuminance({ r, g, b }: RgbColor): number {
 	const linear = (channel: number) => {
 		const value = channel / 255;
 		return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;

@@ -53,7 +53,7 @@ export type NormalizedBuildSystemPromptOptions = BuildSystemPromptOptions & {
  * section is wrapped in a tag of the same name so the model can match later updates to it.
  * These become `SystemMessage.sections` in the transcript.
  */
-export type SystemPromptSections = Record<string, string>;
+type SystemPromptSections = Record<string, string>;
 
 const SYSTEM_PROMPT_SECTION_NAME = /^[a-z][a-z0-9_-]*$/;
 /** Normalize prompt input into the mutable, collection-complete shape exposed to extensions. */

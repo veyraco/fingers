@@ -9,7 +9,7 @@
  */
 
 import { resolveSchemaRef } from "@veyraco/fingers-codemode/declarations";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import type {
 	ExtensionAPI,
 	ToolDefinition,
@@ -22,7 +22,7 @@ export const TOOL_SEARCH_TOOL_NAME = "tool_search";
 export const DEFAULT_TOOL_SEARCH_LIMIT = 8;
 
 /** A tool as the ranker sees it: its name and the texts built by {@link createToolSearchDocument}. */
-export interface ToolSearchDocument {
+interface ToolSearchDocument {
 	name: string;
 	/** Description, schema descriptions, and property names. */
 	text: string;
@@ -30,13 +30,13 @@ export interface ToolSearchDocument {
 	namespaceText?: string;
 }
 
-export interface ToolSearchMatch {
+interface ToolSearchMatch {
 	name: string;
 	score: number;
 }
 
 /** Ranks tools for a query. BM25 today; a hybrid ranker with embeddings can replace it. */
-export interface ToolRanker {
+interface ToolRanker {
 	rank(query: string, documents: readonly ToolSearchDocument[], limit: number): ToolSearchMatch[];
 }
 
@@ -261,26 +261,24 @@ export class Bm25Ranker implements ToolRanker {
 	}
 }
 
-export const toolSearchSchema = Type.Object({
+const toolSearchSchema = Type.Object({
 	query: Type.String({ description: "Search query for deferred tools." }),
 	limit: Type.Optional(
 		Type.Number({ description: `Maximum number of tools to return. Defaults to ${DEFAULT_TOOL_SEARCH_LIMIT}.` }),
 	),
 });
 
-export type ToolSearchInput = Static<typeof toolSearchSchema>;
-
-export interface ToolSearchResultTool {
+interface ToolSearchResultTool {
 	name: string;
 	description: string;
 }
 
-export interface ToolSearchToolDetails {
+interface ToolSearchToolDetails {
 	/** Tools loaded by this call. */
 	loaded: string[];
 }
 
-export interface ToolSearchToolOptions {
+interface ToolSearchToolOptions {
 	/**
 	 * The session's tools. `tool_search` searches the tools that are not declared to the model and
 	 * activates the matches. Without it, the tool finds nothing. An `ExtensionAPI` fits.

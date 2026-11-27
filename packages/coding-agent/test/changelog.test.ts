@@ -32,8 +32,8 @@ describe("normalizeChangelogLinks", () => {
 
 	test("canonicalizes old repository URLs without changing external links", () => {
 		const markdown = [
-			"[#5167](https://github.com/veyraco/fingers/pull/5167)",
-			"[#4163](https://github.com/veyraco/fingers/issues/4163)",
+			"upstream #5167",
+			"upstream #4163",
 			"[Agent README](https://github.com/veyraco/fingers/blob/main/packages/agent/README.md)",
 			"[External](https://example.com/docs)",
 			"[Local anchor](#settings)",
@@ -41,8 +41,8 @@ describe("normalizeChangelogLinks", () => {
 
 		expect(normalizeChangelogLinks(markdown, "0.79.0")).toBe(
 			[
-				"[#5167](https://github.com/veyraco/fingers/pull/5167)",
-				"[#4163](https://github.com/veyraco/fingers/issues/4163)",
+				"upstream #5167",
+				"upstream #4163",
 				"[Agent README](https://github.com/veyraco/fingers/blob/v0.79.0/packages/agent/README.md)",
 				"[External](https://example.com/docs)",
 				"[Local anchor](#settings)",

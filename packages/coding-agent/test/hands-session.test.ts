@@ -1,5 +1,5 @@
 /**
- * F13b: a Fingers session in a Hands Sandbox (`fingers --hands`), against a fake Hands runs API (hands.yaml) and a
+ * A Fingers session in a Hands Sandbox (`fingers --hands`), against a fake Hands runs API (hands.yaml) and a
  * fake Brain space lookup.
  *
  * - End to end: the workspace goes up, the run is created with the organization's model connection, Eyes on and the

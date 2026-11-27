@@ -1,5 +1,5 @@
 /**
- * Telemetry spans (open core, F21): the OTLP-shaped span Fingers produces for its model calls, tool calls and
+ * Telemetry spans (open core): the OTLP-shaped span Fingers produces for its model calls, tool calls and
  * compactions, following the OpenTelemetry GenAI semantic conventions (`gen_ai.*`) and Veyra's attribute registry
  * (`veyra.*`, platform contracts/v1/eyes-feed.md). The same shape travels as a Fingers RPC v1 `telemetry_span` record
  * (managed mode) and goes into OTLP/HTTP JSON for an exporter (otlp.ts).
@@ -9,7 +9,7 @@
  * credential and credential headers the host sent).
  */
 
-export type SpanAttributeScalar = string | number | boolean;
+type SpanAttributeScalar = string | number | boolean;
 export type SpanAttributeValue = SpanAttributeScalar | SpanAttributeScalar[];
 export type SpanAttributes = Record<string, SpanAttributeValue>;
 
@@ -101,7 +101,7 @@ export function modelErrorType(message: string | undefined): string {
 }
 
 /** The payload attributes (platform eyes-feed.md, Payload attributes) a span may carry with content capture on. */
-export const PAYLOAD_ATTRIBUTES = [
+const PAYLOAD_ATTRIBUTES = [
 	"gen_ai.input.messages",
 	"gen_ai.output.messages",
 	"gen_ai.system_instructions",

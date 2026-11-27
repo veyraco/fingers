@@ -42,12 +42,12 @@ type FingersRunDiagnostics = {
 
 export type FingersCodingAgentInput = string | Array<{ type: "prompt"; content: string } | { type: "reload" }>;
 
-export type FingersCodingAgentModelSelection = {
+type FingersCodingAgentModelSelection = {
 	provider: string;
 	id: string;
 };
 
-export type FingersCodingAgentHarnessOptions = {
+type FingersCodingAgentHarnessOptions = {
 	name?: string;
 	model?: FingersCodingAgentModelSelection;
 	noTools?: CreateAgentSessionOptions["noTools"];
@@ -58,7 +58,7 @@ export type FingersCodingAgentHarnessOptions = {
 	expectedFingersDocumentation?: boolean;
 };
 
-export type FingersCodingAgentHarnessWithOutput<TOutput extends JsonValue> = FingersCodingAgentHarnessOptions & {
+type FingersCodingAgentHarnessWithOutput<TOutput extends JsonValue> = FingersCodingAgentHarnessOptions & {
 	output: (args: {
 		response: string;
 		session: AgentSession;

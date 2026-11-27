@@ -25,7 +25,7 @@ interface ReadEntry {
 	served: boolean;
 }
 
-export interface ReadCacheHit {
+interface ReadCacheHit {
 	change: EeToolResultChange;
 	/** Tokens the body would have cost, minus the note's. */
 	savedTokens: number;

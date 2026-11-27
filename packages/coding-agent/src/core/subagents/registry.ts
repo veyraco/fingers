@@ -2,11 +2,11 @@
  * The sub-agent engine that is live in this process. The terminal app's ee gate fills it with the engine of the
  * sub-agents feature while that feature is on (signed in, Fingers on for the organization, a tier that includes
  * sub-agents) and asks again before every use, so sub-agents stop being offered the moment the feature goes off.
- * Print and JSON modes never fill it; managed RPC (F18b) keeps an instance of its own per run, filled when the host
+ * Print and JSON modes never fill it; managed RPC keeps an instance of its own per run, filled when the host
  * turns sub-agents on with `configure.subagents`.
  *
  * It also carries what the terminal app adds to every `agents` call (the cost budget) and passes the engines'
- * lifecycle events to listeners (the `/agents` panel, F19; managed RPC events, F18b), and the approval desk that
+ * lifecycle events to listeners (the `/agents` panel, managed RPC events), and the approval desk that
  * holds children's questions while the panel is open.
  */
 import type { SubagentEngine, SubagentEvent } from "./types.ts";
@@ -101,7 +101,7 @@ export class SubagentApprovalDesk {
 }
 
 /** The session's cost budget, as the terminal app's budget guard reports it. */
-export type SubagentBudgetSource = () => { spentUsd: number; capUsd: number } | undefined;
+type SubagentBudgetSource = () => { spentUsd: number; capUsd: number } | undefined;
 
 export class SubagentEngines {
 	private current: SubagentEngine | undefined;

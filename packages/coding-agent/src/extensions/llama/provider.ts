@@ -22,7 +22,7 @@ import {
 } from "./client.ts";
 
 export const LLAMA_PROVIDER_ID = "llama.cpp";
-export const DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:9931";
+const DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:9931";
 function credentialServerUrl(credential: ApiKeyCredential | undefined): string | undefined {
 	const value = credential?.env?.LLAMA_BASE_URL;
 	return typeof value === "string" && value.trim() ? normalizeLlamaServerUrl(value) : undefined;
@@ -160,7 +160,7 @@ function toFingersModel(
 	};
 }
 
-export interface LlamaProviderController {
+interface LlamaProviderController {
 	provider: Provider<"openai-completions">;
 	setCatalog(models: readonly LlamaModelInfo[], serverUrl: string, options?: { routerAutoload?: boolean }): void;
 }

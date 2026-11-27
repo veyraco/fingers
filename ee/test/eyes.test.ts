@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Eyes telemetry (F21): the feature through the real gate and core (on only with a tier that includes Eyes and a
+ * Eyes telemetry: the feature through the real gate and core (on only with a tier that includes Eyes and a
  * sign-in; otherwise nothing is sent), a whole session whose trace reaches a mock of Eyes' OTLP/HTTP door
  * (`/eyes/otlp/v1/traces`, platform contracts/v1/eyes-feed.md: an ordinary OTLP source with the person's token,
  * `service.name = fingers`, no `veyra.app`, only registry `veyra.*` names, no payloads), organization isolation, the

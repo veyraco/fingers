@@ -8,9 +8,9 @@ import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
-export type TrustSelection = Pick<ProjectTrustOption, "trusted" | "updates">;
+type TrustSelection = Pick<ProjectTrustOption, "trusted" | "updates">;
 
-export interface TrustSelectorOptions {
+interface TrustSelectorOptions {
 	cwd: string;
 	savedDecision: ProjectTrustStoreEntry | null;
 	projectTrusted: boolean;

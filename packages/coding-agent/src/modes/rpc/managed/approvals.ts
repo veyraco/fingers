@@ -6,17 +6,17 @@ import { randomBytes } from "node:crypto";
 import { commandAllowPattern, commandMatchesPattern, commandShellOf } from "../../../core/command-allow-list.ts";
 
 export type ApprovalMode = "never" | "write_tools" | "always";
-export type ApprovalKind = "command" | "file_write" | "mcp_tool" | "network" | "other";
-export type ApprovalDecision = "allow_once" | "allow_always" | "deny" | "expired" | "cancelled";
+type ApprovalKind = "command" | "file_write" | "mcp_tool" | "network" | "other";
+type ApprovalDecision = "allow_once" | "allow_always" | "deny" | "expired" | "cancelled";
 
-export interface ManagedToolDescriptor {
+interface ManagedToolDescriptor {
 	/** `builtin` or the MCP server name from `configure.mcp_servers`. */
 	server: string;
 	name: string;
 	kind: ApprovalKind;
 }
 
-export interface ApprovalOutcome {
+interface ApprovalOutcome {
 	decision: ApprovalDecision;
 	reason?: string;
 	editedArguments?: Record<string, unknown>;
@@ -159,13 +159,13 @@ function patternMatches(
 interface PendingApproval {
 	resolve: (outcome: ApprovalOutcome) => void;
 	timer: ReturnType<typeof setTimeout>;
-	/** The sub-agent that asks (F18b); undefined for the main agent. */
+	/** The sub-agent that asks; undefined for the main agent. */
 	agentId?: string;
 	/** Detach from the asker's abort signal. */
 	release?: () => void;
 }
 
-export interface ApprovalBrokerOptions {
+interface ApprovalBrokerOptions {
 	emit: (record: Record<string, unknown>) => void;
 	timeoutMs: number;
 	newId?: () => string;
