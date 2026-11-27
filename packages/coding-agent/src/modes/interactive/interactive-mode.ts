@@ -6533,6 +6533,18 @@ export class InteractiveMode {
 						accessToken: (options) => auth.getAccessToken(app, options),
 					};
 				},
+				// Organization hooks (ee) read the person's Fingers policy with the Connect token, which ee never sees.
+				fingersPolicy: () => {
+					const auth = this.veyraAccount ? this.getVeyraAuth() : undefined;
+					if (!auth) return undefined;
+					const account = () => this.veyraAccount;
+					return {
+						get org() {
+							return account()?.org || undefined;
+						},
+						read: (options) => auth.fingersPolicy(options),
+					};
+				},
 			});
 			// The status line names the memory once the session's repository is known.
 			memoryProviders.onChange(() => {

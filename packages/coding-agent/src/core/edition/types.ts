@@ -30,8 +30,10 @@ import type { SpanExporter } from "../tracing/spans.ts";
  * 8: sub-agent control (SubagentEngine pause/resume/checkpoint/transcript/removeWorktree, SubagentChild
  *    pause/resume/atRest/rollBack/transcript/onActivity) and `EeCommandContext.openAgentsPanel`, for the `/agents`
  *    panel and checkpoints.
+ * 9: tool-call hooks (`EeToolHooks.beforeToolCall`), system prompt text (`EeToolHooks.systemPrompt`) and the signed-in
+ *    person's Fingers policy from Connect (`EeHost.fingersPolicy`), for organization hooks.
  */
-export const EE_API_VERSION = 8;
+export const EE_API_VERSION = 9;
 
 /** Connect's tiers (one per organization, for every app), lowest first. */
 export const VEYRA_TIERS = ["free", "low", "medium", "high"] as const;
@@ -261,6 +263,34 @@ export interface EeRouteOutcome {
 	tokens: number;
 }
 
+/**
+ * A tool call before it runs, as an ee tool-call hook gets it: every call of the terminal app's own session, nested
+ * calls (a codemode script's) included. The hook must not change `input`.
+ */
+export interface EeToolCall {
+	toolName: string;
+	toolCallId: string;
+	/** Another tool (such as a codemode script) made this call. */
+	nested: boolean;
+	input: Readonly<Record<string, unknown>>;
+	/** The session's working directory. */
+	cwd: string;
+	/**
+	 * For tools that take a path (read, edit, write, grep, find, ls): the absolute path the call names, resolved
+	 * against `cwd` (the working directory itself when the call names none).
+	 */
+	path?: string;
+}
+
+/** A tool-call hook's answer: refuse the call, or ask the person first. Undefined lets the call run. */
+export interface EeToolCallDecision {
+	decision: "block" | "ask";
+	/** Shown to the person (and, for a refusal, to the model): why. Plain text. */
+	message: string;
+	/** What decided, for the audit entry and the box, e.g. `organization hook “no-force-push”`. */
+	source: string;
+}
+
 /** What an ee feature adds to the session while it is on. */
 export interface EeToolHooks {
 	/** Change a tool result before the model sees it; undefined leaves it as it is. Hooks run in registration order. */
@@ -290,6 +320,13 @@ export interface EeToolHooks {
 	routeModel?(request: EeRouteRequest): EeRouteChoice | undefined;
 	/** A routed sub-task finished: a line to show (e.g. what routing saved), or undefined. */
 	afterRoute?(outcome: EeRouteOutcome): string | undefined;
+	/**
+	 * A tool call is about to run: refuse it, ask the person first, or undefined to let it run. The first hook that
+	 * decides wins. Only the terminal app asks; where no one can be asked, an `ask` refuses the call.
+	 */
+	beforeToolCall?(call: EeToolCall): EeToolCallDecision | undefined | Promise<EeToolCallDecision | undefined>;
+	/** Text added to the end of the system prompt of every run while the feature is on (e.g. organization rules). */
+	systemPrompt?(): string | undefined;
 }
 
 /** The Veyra apps whose API an ee feature may call as the signed-in person. */
@@ -312,6 +349,57 @@ export interface EeVeyraApi {
 	readonly orgCode?: string;
 	/** A current access token; rejects when signed out or when Connect gives Fingers no token for the app. */
 	accessToken(options?: { signal?: AbortSignal }): Promise<string>;
+}
+
+/** One organization hook from Connect's Fingers policy (platform connect.yaml `FingersHook`): data, never a command. */
+export interface EeOrgHook {
+	/** `^[a-z0-9][a-z0-9-]{0,62}$`, unique in the policy. */
+	id: string;
+	event: "before_tool_call";
+	/** Fingers tool names, or `*` for every tool. */
+	tools: readonly string[];
+	/** A glob over the call's whole subject (`*` any run of characters, `?` one, case-sensitive); null: every call. */
+	pattern: string | null;
+	decision: "block" | "ask";
+	/** Shown to the person; no control characters except tab and line breaks. */
+	message: string;
+}
+
+/** The Fingers policy that applies to the signed-in person (platform connect.yaml `FingersEffectivePolicy`). */
+export interface EeFingersPolicy {
+	/** The organization (`org_…`). */
+	org: string;
+	/** The person's group (`grp_…`). */
+	groupId: string;
+	/** Changes whenever anything in the policy changes (Connect's ETag). */
+	revision: string;
+	/** Markdown rules every session of the organization adds to its instructions; empty when none. */
+	instructions: string;
+	/** In order; the first matching hook decides. */
+	hooks: readonly EeOrgHook[];
+	/** Providers the group may use; null: every provider. */
+	allowedProviders: readonly string[] | null;
+	/** Model ids the group may use; null: every model of an allowed provider. */
+	allowedModels: readonly string[] | null;
+	/** The task budget (US dollars) a new session starts with; null: none. */
+	defaultTaskBudgetUsd: number | null;
+}
+
+/** A read of the person's Fingers policy: the policy, or "unchanged" when it still has the revision asked about. */
+export type EeFingersPolicyRead = { changed: true; policy: EeFingersPolicy } | { changed: false };
+
+/**
+ * The signed-in person's Fingers policy, read from Connect (`GET <api>/connect/v1/organizations/{org}/fingers-policy/
+ * mine`) with the person's Connect token, which ee never sees.
+ */
+export interface EeFingersPolicySource {
+	/** The signed-in organization (`org_…`), read live (it changes with `/org switch`); undefined: none. */
+	readonly org: string | undefined;
+	/**
+	 * Read the policy. With `revision` (the last one read), Connect answers "unchanged" when nothing changed. Rejects
+	 * when signed out, when Connect refuses or can't be reached, or when its answer is not a valid policy.
+	 */
+	read(options?: { revision?: string; signal?: AbortSignal }): Promise<EeFingersPolicyRead>;
 }
 
 /** Makes the memory provider for a directory, or undefined when there is none there (e.g. not a repository). */
@@ -353,6 +441,8 @@ export interface EeHost {
 	createOtlpExporter(options: OtlpExporterOptions): SpanExporter & { flush(): Promise<void> };
 	/** A Veyra app's API as the signed-in person; undefined when this Fingers has no sign-in to offer. */
 	veyraApi(app: EeVeyraApp): EeVeyraApi | undefined;
+	/** The signed-in person's Fingers policy from Connect; undefined when this Fingers has no sign-in to offer. */
+	fingersPolicy(): EeFingersPolicySource | undefined;
 }
 
 /** What `ee/` exports (its default export or the module namespace). */

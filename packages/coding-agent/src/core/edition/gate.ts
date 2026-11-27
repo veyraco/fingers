@@ -24,6 +24,7 @@ import {
 	type EeEntitlement,
 	type EeFeatureId,
 	type EeFeatureState,
+	type EeFingersPolicySource,
 	type EeHost,
 	type EeMemoryProviderFactory,
 	type EeModule,
@@ -91,6 +92,8 @@ export interface EditionGateOptions {
 	subagents?: SubagentEngines;
 	/** The signed-in person's access to a Veyra app's API (the terminal app's Veyra sign-in). */
 	veyraApi?: (app: EeVeyraApp) => EeVeyraApi | undefined;
+	/** The signed-in person's Fingers policy from Connect (the terminal app's Veyra sign-in). */
+	fingersPolicy?: () => EeFingersPolicySource | undefined;
 }
 
 export class EditionGate {
@@ -229,6 +232,10 @@ export class EditionGate {
 				if (app !== "brain" && app !== "eyes") return undefined;
 				if (!this.current.signedIn) return undefined;
 				return this.options.veyraApi?.(app);
+			},
+			fingersPolicy: () => {
+				if (!this.current.signedIn) return undefined;
+				return this.options.fingersPolicy?.();
 			},
 		};
 		try {

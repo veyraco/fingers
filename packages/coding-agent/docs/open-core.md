@@ -42,7 +42,7 @@ Nothing in the core calls Veyra unless you sign in.
 | Checkpoints | Local git checkpoints of sub-agents | Medium | Not built yet |
 | Brain memory | Veyra Brain as the memory provider, one memory per repository, and `/memory` | Medium | [Brain memory](slash-commands.md#brain-memory) |
 | Eyes telemetry | Each run's trace sent to Veyra Eyes, and `/eyes` | Medium | [Eyes telemetry](slash-commands.md#eyes-telemetry) |
-| Organization hooks | Hooks and policies the organization sets for every Fingers session | High | Not built yet |
+| Organization hooks | The organization's hooks (block or ask before a tool call) and rules from the Fingers policy in Veyra Connect, and `/hooks` | High | [Organization hooks](slash-commands.md#organization-hooks) |
 
 The tiers come from `ee/src/tier-matrix.ts` (version `2026-11-22.1`) and are placeholders until launch. Free includes
 no ee feature.

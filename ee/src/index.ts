@@ -7,12 +7,13 @@
 import type { EeHost, EeModule } from "@veyraco/fingers";
 import { BrainMemory } from "./brain/index.ts";
 import { EyesTelemetry } from "./eyes/index.ts";
+import { OrgHooks } from "./org-hooks/index.ts";
 import { Subagents } from "./subagents/index.ts";
 import { minimumTier, TIER_MATRIX_VERSION } from "./tier-matrix.ts";
 import { TokenSaving } from "./token-saving/index.ts";
 
 /** The core contract this module was built for (the core's EE_API_VERSION). */
-export const apiVersion = 8;
+export const apiVersion = 9;
 
 export const matrixVersion = TIER_MATRIX_VERSION;
 
@@ -29,6 +30,9 @@ export const eyesTelemetry = new EyesTelemetry();
 
 /** One per process: sub-agent ids and the list /agents shows live across entitlement checks. */
 export const subagents = new Subagents();
+
+/** One per process: the organization's policy read last lives across entitlement checks. */
+export const orgHooks = new OrgHooks();
 
 export function activate(host: EeHost): void {
 	if (host.isOn("token_saving")) {
@@ -50,6 +54,12 @@ export function activate(host: EeHost): void {
 	if (host.isOn("subagents")) {
 		// The `agents` tool and /agents (the panel, or list, steer, stop in the text forms).
 		subagents.attach(host);
+	}
+	if (host.isOn("org_hooks")) {
+		// Organization hooks before every tool call, the organization's rules in the prompt, and /hooks.
+		orgHooks.attach(host);
+	} else {
+		orgHooks.reset();
 	}
 }
 

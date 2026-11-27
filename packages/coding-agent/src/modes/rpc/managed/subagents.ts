@@ -49,6 +49,7 @@ export function managedSubagentEngine(
 			throw new Error("Managed mode sends no telemetry of its own");
 		},
 		veyraApi: () => undefined,
+		fingersPolicy: () => undefined,
 	};
 	try {
 		module.activate(host);

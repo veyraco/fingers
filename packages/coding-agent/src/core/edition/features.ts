@@ -29,6 +29,7 @@ export const EE_COMMANDS: Readonly<Record<string, EeFeatureId>> = {
 	agents: "subagents",
 	memory: "brain",
 	eyes: "eyes",
+	hooks: "org_hooks",
 };
 
 /** `/agents` or `/agents <args>` as an ee command: its name and arguments; undefined for any other text. */
