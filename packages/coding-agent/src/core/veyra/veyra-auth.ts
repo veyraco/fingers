@@ -13,7 +13,7 @@
  * - Sign out revokes the refresh token at Connect (RFC 7009) and deletes the sign-in from the keychain, even when
  *   Connect can't be reached, and even when another fingers process holds the lock past the wait.
  *
- * Callers: F12 (ee gate: `organization()` for tier and apps), F13 (model connections: `listModelConnections()`, and
+ * Callers: the ee gate (`organization()` for tier and apps), model connections (`listModelConnections()`, and
  * `getAccessToken("hands")` on every model call through Hands' proxy), Brain and Eyes features
  * (`getAccessToken("brain" | "eyes")`, `apiBaseUrl(app)`).
  */
@@ -70,7 +70,7 @@ export interface VeyraOrganization {
 	groupName?: string;
 }
 
-export type VeyraRevocation = "revoked" | "unsupported" | "failed" | "none";
+type VeyraRevocation = "revoked" | "unsupported" | "failed" | "none";
 
 export interface VeyraLogoutResult {
 	/** There was a sign-in to end. */
@@ -85,7 +85,7 @@ export interface VeyraLogoutResult {
 	lockProblem?: string;
 }
 
-export interface VeyraAuthOptions {
+interface VeyraAuthOptions {
 	issuer: string;
 	vault: VeyraSessionVault;
 	appVersion: string;

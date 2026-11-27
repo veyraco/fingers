@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
 
 /**
- * Regression test for https://github.com/veyraco/fingers/issues/12066
+ * Regression test for upstream #12066
  *
  * fd matches --full-path globs against the absolute path, and `find` prefixed path patterns with
  * `**\/`. A pattern could therefore match through folders above the search path: with the project

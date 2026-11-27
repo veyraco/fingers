@@ -1,5 +1,5 @@
 /**
- * Cost budgets: the hard stop the terminal app's `/budget` and managed RPC's `limits.max_cost_usd` share (F16, F7).
+ * Cost budgets: the hard stop the terminal app's `/budget` and managed RPC's `limits.max_cost_usd` share.
  *
  * Both count the list-price cost of the model calls of a task, stop the run after the turn whose call reached the cap
  * (its tool calls still finish, no further model call is made), and refuse a new prompt while the cap is reached. A
@@ -69,7 +69,7 @@ export function sessionUsageTotals(entries: readonly SessionEntry[]): UsageTotal
 }
 
 /** What `/budget <argument>` asks for. */
-export type BudgetCommand =
+type BudgetCommand =
 	| { kind: "show" }
 	| { kind: "off" }
 	| { kind: "set"; capUsd: number }
@@ -144,7 +144,7 @@ export class TaskBudget {
 	}
 }
 
-export interface SessionBudgetGuardOptions {
+interface SessionBudgetGuardOptions {
 	/** A run stopped at the cap (once per run). */
 	onReached?(text: string): void;
 	/** A model without a list price answered while a cap is set (once per model). */

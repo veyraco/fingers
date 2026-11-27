@@ -40,7 +40,7 @@ import {
 import { copyToClipboard } from "../utils/clipboard.ts";
 import { browserIsLocal, launchBrowser, openBrowser } from "../utils/open-browser.ts";
 
-export type VeyraLoginKey = "copy" | "open" | "cancel";
+type VeyraLoginKey = "copy" | "open" | "cancel";
 
 /** Terminal I/O for the account commands; tests replace it. */
 export interface VeyraCliTerminal {
@@ -59,7 +59,7 @@ export interface VeyraCliTerminal {
 	onKey?(handler: (key: VeyraLoginKey) => void): () => void;
 }
 
-export interface VeyraAccountCommandOptions {
+interface VeyraAccountCommandOptions {
 	terminal: VeyraCliTerminal;
 	signal: AbortSignal;
 	/** The sign-in for the Connect the command names (`--connect`), else FINGERS_CONNECT_URL or connect.veyra.so. */
@@ -96,7 +96,7 @@ async function eeSummary(
 		: { on: false, features, reason: coreOnlyText(gate.state("token_saving"), entitlement) };
 }
 
-export const VEYRA_ACCOUNT_COMMANDS = ["login", "logout", "whoami"] as const;
+const VEYRA_ACCOUNT_COMMANDS = ["login", "logout", "whoami"] as const;
 type VeyraAccountCommand = (typeof VEYRA_ACCOUNT_COMMANDS)[number];
 
 const USAGE: Record<VeyraAccountCommand, string> = {
@@ -109,7 +109,7 @@ export function isVeyraAccountCommand(args: string[]): boolean {
 	return (VEYRA_ACCOUNT_COMMANDS as readonly string[]).includes(args[0] ?? "");
 }
 
-export function printVeyraAccountHelp(write: (line: string) => void): void {
+function printVeyraAccountHelp(write: (line: string) => void): void {
 	write(`Usage:
   ${USAGE.login}
   ${USAGE.whoami}
@@ -290,7 +290,7 @@ async function login(auth: VeyraAuth, parsed: ParsedArgs, options: VeyraAccountC
 	return 0;
 }
 
-/** The canvas line "✓ 3 model connections from Connect: …", or why there is none (F13). */
+/** The canvas line "✓ 3 model connections from Connect: …", or why there is none. */
 async function connectionsSummary(auth: VeyraAuth, signal: AbortSignal): Promise<{ ok: boolean; text: string }> {
 	try {
 		const list = await fetchModelConnections(auth, {

@@ -91,7 +91,7 @@ export interface ModelReferenceRequest {
 	fuzzy: boolean;
 }
 
-export type ModelReferenceResult =
+type ModelReferenceResult =
 	| { status: "resolved"; model: Model<Api>; thinkingLevel?: ThinkingLevel; warning?: string }
 	| {
 			status: "ambiguous";
@@ -106,7 +106,7 @@ export type ModelReferenceResult =
 			target?: ModelReferenceTarget;
 	  };
 
-export interface ModelReferenceTarget {
+interface ModelReferenceTarget {
 	provider: string;
 	providerModels: [Model<Api>, ...Model<Api>[]];
 	/** Text after the provider prefix as typed, including any `:<suffix>`. */
@@ -522,7 +522,7 @@ export function resolveCliModel(options: {
 	};
 }
 
-export interface InitialModelResult {
+interface InitialModelResult {
 	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
 	fallbackMessage: string | undefined;

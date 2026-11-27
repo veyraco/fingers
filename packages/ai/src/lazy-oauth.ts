@@ -2,7 +2,7 @@ import { registerBundledOAuthFlowLoaders } from "./auth/oauth/load.ts";
 
 /**
  * Registers OAuth flow loaders with literal dynamic imports, for Node bundles
- * that split at dynamic imports (esbuild `splitting`, Chord's worker base):
+ * that split at dynamic imports (esbuild `splitting`, a worker bundle):
  * each flow lands in a chunk loaded on its first use, inside the bundle.
  * Without it, fingers-ai imports the flows through a variable specifier that
  * bundlers cannot follow, so a bundle loads them from fingers-ai's own files.

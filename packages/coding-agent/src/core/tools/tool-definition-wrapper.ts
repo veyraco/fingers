@@ -21,7 +21,7 @@ export type TypeBoxAgentTool<TParams extends TSchema = TSchema, TDetails = any> 
 };
 
 /** Creates the context for one tool call. */
-export type ToolContextFactory = (toolCallId: string, signal: AbortSignal | undefined) => ExtensionToolContext;
+type ToolContextFactory = (toolCallId: string, signal: AbortSignal | undefined) => ExtensionToolContext;
 
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */
 export function wrapToolDefinition<TDetails = unknown>(
@@ -46,14 +46,6 @@ export function wrapToolDefinition<TDetails = unknown>(
 				ctx ?? (ctxFactory?.(toolCallId, signal) as ExtensionToolContext),
 			),
 	};
-}
-
-/** Wrap multiple ToolDefinitions into AgentTools for the core runtime. */
-export function wrapToolDefinitions(
-	definitions: ToolDefinition<any, any>[],
-	ctxFactory?: ToolContextFactory,
-): AgentTool<any>[] {
-	return definitions.map((definition) => wrapToolDefinition(definition, ctxFactory));
 }
 
 /**

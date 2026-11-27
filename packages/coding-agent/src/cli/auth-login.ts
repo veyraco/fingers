@@ -8,7 +8,7 @@ import { displayUrl, webUrl } from "../utils/web-url.ts";
 import type { LoginTerminal } from "./auth-terminal.ts";
 
 /** Dependencies of `runAuthLogin`, injected so tests can script the terminal. */
-export interface AuthLoginOptions {
+interface AuthLoginOptions {
 	modelRuntime: ModelRuntime;
 	terminal: LoginTerminal;
 	agentDir: string;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripBom } from "../../utils/text.ts";
 
-export interface ExternalEditorOptions {
+interface ExternalEditorOptions {
 	command: string;
 	content: string;
 }

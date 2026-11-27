@@ -23,7 +23,7 @@ import {
 import { theme } from "../theme/theme.ts";
 import { shortKeyText } from "./keybinding-hints.ts";
 
-export interface VeyraLoginDialogOptions {
+interface VeyraLoginDialogOptions {
 	requestRender(): void;
 	/** Esc: the sign-in is aborted through `signal`, then this runs. */
 	onCancel(): void;

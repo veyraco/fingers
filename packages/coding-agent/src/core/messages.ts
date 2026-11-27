@@ -8,20 +8,20 @@
 import type { AgentMessage } from "@veyraco/fingers-agent";
 import type { ImageContent, Message, TextContent } from "@veyraco/fingers-ai";
 
-export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
 <summary>
 `;
 
-export const COMPACTION_SUMMARY_SUFFIX = `
+const COMPACTION_SUMMARY_SUFFIX = `
 </summary>`;
 
-export const BRANCH_SUMMARY_PREFIX = `The following is a summary of a branch that this conversation came back from:
+const BRANCH_SUMMARY_PREFIX = `The following is a summary of a branch that this conversation came back from:
 
 <summary>
 `;
 
-export const BRANCH_SUMMARY_SUFFIX = `</summary>`;
+const BRANCH_SUMMARY_SUFFIX = `</summary>`;
 
 /**
  * Message type for bash executions via the ! command.

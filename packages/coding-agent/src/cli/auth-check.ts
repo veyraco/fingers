@@ -5,8 +5,8 @@ import { InMemoryCodingAgentModelsStore } from "../core/models-store.ts";
 import type { Args } from "./args.ts";
 import { AuthCommandError, getAuthCredential, validateAuthCommandArgs } from "./auth-command.ts";
 
-export type AuthCheckStatus = "ready" | "not_ready" | "invalid";
-export type AuthCheckReason =
+type AuthCheckStatus = "ready" | "not_ready" | "invalid";
+type AuthCheckReason =
 	| "provider_not_found"
 	| "credentials_not_configured"
 	| "credential_not_available"

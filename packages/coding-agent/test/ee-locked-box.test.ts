@@ -181,7 +181,7 @@ describe("/agents in the terminal app", () => {
 			showWarning: vi.fn(),
 			showError: vi.fn(),
 			handleVeyraLogin: vi.fn(async () => true),
-			// ee commands get the session's directory and its repository (F20).
+			// ee commands get the session's directory and its repository.
 			runtimeHost: { session: { sessionManager: { getCwd: () => tmpdir() } } },
 		});
 		return {

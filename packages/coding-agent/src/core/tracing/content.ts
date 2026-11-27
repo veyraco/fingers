@@ -80,7 +80,7 @@ export function messagesPayload(messages: readonly AgentMessage[], max = MAX_PAY
 }
 
 /** Masks a payload's whole text (the tracer's credential and secret masking). */
-export type PayloadMask = (text: string) => string;
+type PayloadMask = (text: string) => string;
 
 /**
  * Text cut to `max` characters, with a marker saying so. `mask` runs on the whole text before the cut: a credential

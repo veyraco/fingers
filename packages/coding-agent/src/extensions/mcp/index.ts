@@ -177,7 +177,7 @@ function truncate(text: string, max: number): string {
 }
 
 /** What the `mcp_servers` section needs of a server. */
-export interface McpServerListing {
+interface McpServerListing {
 	entry: McpServerEntry;
 	connection?: { instructions?: string };
 }

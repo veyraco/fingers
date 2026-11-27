@@ -3,7 +3,7 @@ import { DEFAULT_MAX_MESSAGE_BYTES } from "./transport.ts";
 
 const DEFAULT_MAX_STDERR_BYTES = 64 * 1024;
 
-export interface JsonRpcLineReaderOptions {
+interface JsonRpcLineReaderOptions {
 	maxMessageBytes?: number;
 	maxStderrBytes?: number;
 	/** Every stderr chunk, decoded as UTF-8. */

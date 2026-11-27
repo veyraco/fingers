@@ -217,7 +217,7 @@ describe("PipeTransport lifecycle", () => {
 		const starting = transport.start();
 		await transport.close();
 		const exited = Promise.withResolvers<number>();
-		// Like fingers-env's RemoteProcess: killing rejects `exited`, which must not become an unhandled rejection.
+		// Like a remote process: killing rejects `exited`, which must not become an unhandled rejection.
 		const close = vi.fn(() => exited.reject(new Error("aborted")));
 		opened.resolve({ write: () => {}, closeStdin: () => {}, close, exited: exited.promise });
 		await expect(starting).rejects.toBeInstanceOf(McpConnectionClosedError);
@@ -226,7 +226,7 @@ describe("PipeTransport lifecycle", () => {
 	});
 });
 
-/** Runs a program with `node:child_process`, standing in for fingers-env's `openProcess`. */
+/** Runs a program with `node:child_process`, standing in for a program started elsewhere. */
 function spawnPipe(argv: readonly string[], handlers: McpPipeHandlers): Promise<McpPipe> {
 	const [command, ...args] = argv;
 	const child = spawn(command, args, { stdio: "pipe" });

@@ -1327,7 +1327,7 @@ export default function(fingers: ExtensionAPI) {
 			expect(files.map((f) => f.content)).toEqual(["worktree instructions"]);
 		});
 
-		// https://github.com/veyraco/fingers/issues/10681
+		// upstream #10681
 		it("should load the worktree's context once when it symlinks to the main repo's file", () => {
 			const { main, worktree, worktreeSrc } = setupNestedWorktree();
 			writeFileSync(join(main, "AGENTS.md"), "main repo instructions");

@@ -51,12 +51,12 @@ interface AccountContext {
 	editor: object;
 	editorContainer: { clear: Mock; addChild: Mock };
 	programStatus: { setBlocked: Mock };
-	/** The ee gate (F12): /org names the ee features that are on, /logout turns them off. */
+	/** The ee gate: /org names the ee features that are on, /logout turns them off. */
 	editionGate: FakeEditionGate;
 	getEditionGate(this: AccountContext): FakeEditionGate;
 	startEdition: Mock;
 	editionTimer?: ReturnType<typeof setInterval>;
-	/** F13: the organization's model connections. */
+	/** The organization's model connections. */
 	loadModelConnections: Mock;
 	updateAvailableProviderCount: Mock;
 	chatContainer: { addChild: Mock };
@@ -337,7 +337,7 @@ describe("/logout (Veyra)", () => {
 		const context = accountContext(auth);
 		const clear = vi.spyOn(veyraModelConnections, "clear");
 		await prototype.handleVeyraLogout.call(context);
-		// No model connection of the signed-out organization stays in /model (F13).
+		// No model connection of the signed-out organization stays in /model.
 		expect(clear).toHaveBeenCalledTimes(1);
 		expect(auth.logout).toHaveBeenCalledTimes(1);
 		// The revoke's 15 s start at the revoke, after any wait for the lock: no timer is started up front.
@@ -427,7 +427,7 @@ describe("Connect's strings on the terminal app's screen", () => {
 	});
 });
 
-describe("/login and the organization's model connections (F13, canvas FingersTuiLogin)", () => {
+describe("/login and the organization's model connections (canvas FingersTuiLogin)", () => {
 	afterEach(() => vi.restoreAllMocks());
 
 	const LIST: ModelConnectionsList = {

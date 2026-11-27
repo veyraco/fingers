@@ -5,8 +5,8 @@ import type { OAuthAuth } from "../types.ts";
  * follow the import into Node-only flow code (`node:http` callback servers,
  * `node:crypto` PKCE). The `.ts`/`.js` rewrite keeps the trick working from
  * both source and built output. The specifier is resolved against this
- * module's URL, not left relative: a bundler inlining this file (Chord's
- * worker base) keeps the variable import, which would otherwise resolve
+ * module's URL, not left relative: a bundler inlining this file (a worker
+ * bundle) keeps the variable import, which would otherwise resolve
  * against the bundle's location.
  */
 const importOAuthModule = (specifier: string): Promise<unknown> => {

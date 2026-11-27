@@ -24,7 +24,7 @@ export interface Args {
 	mode?: Mode;
 	/** `--managed`: Hands mode for `--mode rpc` (Fingers RPC v1 managed policy). */
 	managed?: boolean;
-	/** `--hands`: run the session in a Hands Sandbox (F13b). */
+	/** `--hands`: run the session in a Hands Sandbox. */
 	hands?: boolean;
 	/** `--local`: run here even when the `hands.default` setting says Hands. */
 	local?: boolean;

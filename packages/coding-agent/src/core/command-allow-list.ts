@@ -15,7 +15,7 @@
  * The shell a command runs in: `bash` (also sh, dash and zsh, which quote the same way), `powershell`,
  * or `other` for a configured shell whose quoting the parser does not know.
  */
-export type CommandShell = "bash" | "powershell" | "other";
+type CommandShell = "bash" | "powershell" | "other";
 
 /** Shells that quote like bash: the plain-words parser holds for them. */
 const POSIX_SHELLS = new Set(["bash", "sh", "dash", "zsh"]);
@@ -51,7 +51,7 @@ const DOUBLE_QUOTE_SPECIAL = new Set(["$", "`", "!"]);
 const DOUBLE_QUOTE_ESCAPED = new Set(['"', "\\", "$", "`"]);
 
 /** A word of a plain bash command, after quote removal. */
-export interface ShellWord {
+interface ShellWord {
 	/** What the program receives; for a glob word, the pattern that file names may replace. */
 	value: string;
 	/** Has an unquoted `*` or `?`: bash may replace the word with file names, so its value is not known. */
@@ -379,10 +379,7 @@ const BUILT_IN_COMMANDS: readonly BuiltInCommand[] = [
 	{ pattern: "git branch", literalArguments: true, argumentsAreSafe: exactArguments("git branch") },
 ];
 
-/** The built-in commands' patterns, for docs and messages. */
-export const DEFAULT_ALLOWED_COMMANDS: readonly string[] = BUILT_IN_COMMANDS.map((command) => command.pattern);
-
-export function commandTokens(command: string): string[] {
+function commandTokens(command: string): string[] {
 	return command.trim().split(/\s+/).filter(Boolean);
 }
 

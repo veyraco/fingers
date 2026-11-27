@@ -1,5 +1,5 @@
 /**
- * `fingers --hands` (F13b): the terminal side of a Hands-backed session. Reads the prompt, wires the terminal's lines
+ * `fingers --hands`: the terminal side of a Hands-backed session. Reads the prompt, wires the terminal's lines
  * and stop keys to the session, and runs it (hands-session.ts).
  */
 import { createInterface } from "node:readline";
@@ -28,7 +28,7 @@ export function handsByDefault(parsed: Args, handsDefault: boolean | undefined):
 	return handsArgsProblem({ ...parsed, local: false }) === undefined;
 }
 
-export interface HandsModeOptions {
+interface HandsModeOptions {
 	parsed: Args;
 	auth: HandsSessionAuth;
 	cwd: string;

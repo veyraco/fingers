@@ -54,7 +54,7 @@ export const runCommand: CommandRunner = (command, args, input) => {
 	};
 };
 
-export class KeychainError extends Error {
+class KeychainError extends Error {
 	constructor(store: string, operation: string, detail: string) {
 		super(`${store}: ${operation} failed${detail ? `: ${detail.trim()}` : ""}`);
 		this.name = "KeychainError";

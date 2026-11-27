@@ -17,7 +17,7 @@ const SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	maxPrimaryColumnWidth: 32,
 };
 
-export interface SelectSubmenuOptions {
+interface SelectSubmenuOptions {
 	/** Enable type-to-search fuzzy filtering. */
 	searchable?: boolean;
 	/** Override the select list layout (column widths). */

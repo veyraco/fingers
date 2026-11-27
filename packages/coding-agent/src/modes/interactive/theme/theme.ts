@@ -59,7 +59,7 @@ export interface ThemeStyle extends TextAttributes {
 	bg?: ThemeBg | Color;
 }
 
-export type ThemeJsonValidator = (label: string, json: unknown) => ThemeJson;
+type ThemeJsonValidator = (label: string, json: unknown) => ThemeJson;
 
 let themeJsonValidator: ThemeJsonValidator | undefined;
 
@@ -395,7 +395,7 @@ export function getAvailableThemes(): string[] {
 	return getAvailableThemesWithPaths().map(({ name }) => name);
 }
 
-export interface ThemeInfo {
+interface ThemeInfo {
 	name: string;
 	path: string | undefined;
 }
@@ -832,13 +832,6 @@ export function stopThemeWatcher(): void {
 export function getResolvedThemeColors(themeName?: string): Record<string, string> {
 	const colors = loadTheme(themeName ?? currentThemeName ?? SYSTEM_THEME_NAME).colors;
 	return Object.fromEntries(Object.entries(colors).map(([token, color]) => [token, colorToHex(color)]));
-}
-
-/**
- * Check if a theme is a "light" theme (for CSS that needs light/dark variants).
- */
-export function isLightTheme(themeName?: string): boolean {
-	return loadTheme(themeName ?? currentThemeName ?? SYSTEM_THEME_NAME).appearance === "light";
 }
 
 /**

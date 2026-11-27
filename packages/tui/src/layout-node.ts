@@ -24,7 +24,7 @@ export interface StackLayoutNode {
 	align: "stretch" | "start" | "center" | "end";
 }
 
-export interface ScrollLayoutState {
+interface ScrollLayoutState {
 	readonly scrollTop: number;
 	readonly primary: boolean;
 	readonly overscroll: "chain" | "contain";
@@ -41,7 +41,7 @@ export interface ScrollLayoutNode {
 
 export type LayoutNode = StackLayoutNode | ScrollLayoutNode;
 
-export interface LayoutComponent extends Component {
+interface LayoutComponent extends Component {
 	[LAYOUT_NODE](): LayoutNode;
 }
 

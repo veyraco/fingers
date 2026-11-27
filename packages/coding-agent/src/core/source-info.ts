@@ -2,7 +2,7 @@ import { canonicalizePath, getPathComparisonKey } from "../utils/paths.ts";
 import type { PathMetadata } from "./package-manager.ts";
 
 export type SourceScope = "user" | "project" | "temporary";
-export type SourceOrigin = "package" | "top-level";
+type SourceOrigin = "package" | "top-level";
 
 export interface SourceInfo {
 	path: string;
@@ -13,7 +13,7 @@ export interface SourceInfo {
 	changelogPath?: string;
 }
 
-export interface SourcePackageIdentity {
+interface SourcePackageIdentity {
 	source: string;
 	scope: SourceScope;
 }

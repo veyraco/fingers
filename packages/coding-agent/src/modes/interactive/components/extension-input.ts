@@ -8,7 +8,7 @@ import { CountdownTimer } from "./countdown-timer.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint } from "./keybinding-hints.ts";
 
-export interface ExtensionInputOptions {
+interface ExtensionInputOptions {
 	tui?: TUI;
 	timeout?: number;
 	initialValue?: string;

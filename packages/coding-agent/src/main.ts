@@ -724,7 +724,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(0);
 	}
 
-	// `fingers --hands` (or the hands.default setting): the session runs in a Hands Sandbox (F13b). Local sessions are
+	// `fingers --hands` (or the hands.default setting): the session runs in a Hands Sandbox. Local sessions are
 	// untouched: nothing below runs for it, and nothing here runs for them.
 	const handsSettings = bootstrapSettingsManager.getHandsSettings();
 	if (parsed.hands || (!offlineMode && handsByDefault(parsed, handsSettings.default))) {
@@ -939,7 +939,7 @@ export async function main(args: string[], options?: MainOptions) {
 			})),
 		];
 
-		// The organization's model connections from Veyra Connect (F13), as providers `veyra-<connection id>`. Never in
+		// The organization's model connections from Veyra Connect, as providers `veyra-<connection id>`. Never in
 		// managed RPC mode: the host gives the model there, and the sandbox has no sign-in.
 		if (parsed.mode !== "rpc") {
 			const warning = await prepareModelConnections(modelRuntime, {

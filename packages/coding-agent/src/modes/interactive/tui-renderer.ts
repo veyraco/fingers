@@ -5,7 +5,7 @@ import { openBrowser } from "../../utils/open-browser.ts";
 import { keyDisplayText } from "./components/keybinding-hints.ts";
 import { theme } from "./theme/theme.ts";
 
-export interface InteractiveTuiOptions {
+interface InteractiveTuiOptions {
 	readonly tuiMode: "regular" | "fullscreen";
 	readonly showHardwareCursor: boolean;
 	readonly logDirectory: string;

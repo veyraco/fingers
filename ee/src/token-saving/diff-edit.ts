@@ -9,7 +9,7 @@ import type { EeToolResult } from "@veyraco/fingers";
 import { estimateTokens } from "./text.ts";
 
 /** Files above this size are not read back to count a saving. */
-export const DIFF_EDIT_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const DIFF_EDIT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export const DIFF_EDIT_GUIDELINES: Readonly<Record<string, readonly string[]>> = {
 	edit: ["Token saving is on: change an existing file with edit, sending only the text that changes."],

@@ -1,5 +1,5 @@
 /**
- * Cheaper-model routing of sub-tasks (F16): the core offers the ee routing hooks the current provider's other priced
+ * Cheaper-model routing of sub-tasks: the core offers the ee routing hooks the current provider's other priced
  * models with room for the sub-task, runs the sub-task on the hook's pick and reports the outcome. These tests use
  * stand-in hooks, so they pass without ee/.
  */

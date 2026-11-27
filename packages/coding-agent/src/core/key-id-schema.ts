@@ -7,7 +7,7 @@ const baseKeyPattern = `(?:[a-z0-9]|${Object.values(Key)
 	.join("|")})`;
 const duplicateModifierPattern = modifiers.map((modifier) => `${modifier}\\+.*${modifier}\\+`).join("|");
 
-export const KeyIdSchema = Type.Unsafe<KeyId>(
+const KeyIdSchema = Type.Unsafe<KeyId>(
 	Type.String({
 		pattern: `^(?!.*(?:${duplicateModifierPattern}))(?:(?:${modifiers.join("|")})\\+){0,4}${baseKeyPattern}$`,
 		description: "Key identifier with optional ctrl, shift, alt, or super modifiers.",

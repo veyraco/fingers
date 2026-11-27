@@ -218,7 +218,7 @@ function loadTemplatesFromDir(dir: string, getSourceInfo: (filePath: string) => 
 	return { templates, diagnostics };
 }
 
-export interface LoadPromptTemplatesOptions {
+interface LoadPromptTemplatesOptions {
 	/** Working directory for project-local templates. */
 	cwd: string;
 	/** Agent config directory for global templates. */
@@ -229,7 +229,7 @@ export interface LoadPromptTemplatesOptions {
 	includeDefaults: boolean;
 }
 
-export interface LoadPromptTemplatesResult {
+interface LoadPromptTemplatesResult {
 	templates: PromptTemplate[];
 	diagnostics: ResourceDiagnostic[];
 }

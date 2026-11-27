@@ -222,8 +222,8 @@ export function collectBugReportDiagnostics(
 	};
 }
 
-export type BugReportMetadata = ReturnType<typeof collectBugReportMetadata>;
-export type BugReportDiagnostics = ReturnType<typeof collectBugReportDiagnostics>;
+type BugReportMetadata = ReturnType<typeof collectBugReportMetadata>;
+type BugReportDiagnostics = ReturnType<typeof collectBugReportDiagnostics>;
 
 export interface BugReportBundle {
 	metadata: BugReportMetadata;
@@ -249,7 +249,7 @@ interface BugReportFile {
 }
 
 /** Files shared by upload and zip export. */
-export function bugReportFiles(bundle: BugReportBundle): BugReportFile[] {
+function bugReportFiles(bundle: BugReportBundle): BugReportFile[] {
 	const files: BugReportFile[] = [
 		{ name: "report.json", contentType: "application/json", data: `${JSON.stringify(bundle.metadata, null, 2)}\n` },
 		{

@@ -18,7 +18,8 @@ license of this repository.
 
 Maintainers release from `main`:
 
-1. `npm run release:patch` (or `release:minor`, `release:major`, `release:<x.y.z>`)
+1. `npm run release:patch` (or `release:minor`, `release:major`, or
+   `node scripts/release.mjs <x.y.z>` for an exact version)
    bumps every public package in lockstep, dates the changelogs, runs the checks
    and tests, commits, tags `vX.Y.Z` and pushes both.
 2. The tag starts [`.github/workflows/release.yml`](.github/workflows/release.yml).

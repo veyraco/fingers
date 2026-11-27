@@ -83,7 +83,7 @@ describe("generateSystemThemeColors", () => {
 		expect(Math.abs(hue(resolved(DRACULA, "error")) - hue(DRACULA.palette![1]))).toBeLessThan(8);
 	});
 
-	// https://github.com/veyraco/fingers/issues/10255
+	// upstream #10255
 	it("keeps pastel palette colors pastel at other lightnesses", () => {
 		const frappe: SystemThemeInput = {
 			background: rgb("#303446"),

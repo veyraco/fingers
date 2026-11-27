@@ -22,7 +22,7 @@ export const isBunBinary =
 	import.meta.url.includes("$bunfs") || import.meta.url.includes("~BUN") || import.meta.url.includes("%7EBUN");
 
 /** Detect if Bun is the runtime (compiled binary or bun run) */
-export const isBunRuntime = !!process.versions.bun;
+const isBunRuntime = !!process.versions.bun;
 
 /** Detect the esbuild-bundled Node.js distribution. */
 declare const FINGERS_BUNDLED_NODE: boolean;
@@ -32,7 +32,7 @@ export const isBundledNode = typeof FINGERS_BUNDLED_NODE !== "undefined" && FING
 // Install Method Detection
 // =============================================================================
 
-export type InstallMethod = "bun-binary" | "npm" | "pnpm" | "yarn" | "bun" | "unknown";
+type InstallMethod = "bun-binary" | "npm" | "pnpm" | "yarn" | "bun" | "unknown";
 
 interface SelfUpdateCommandStep {
 	command: string;
@@ -461,7 +461,7 @@ export function getExportTemplateDir(): string {
 }
 
 /** Get path to package.json */
-export function getPackageJsonPath(): string {
+function getPackageJsonPath(): string {
 	return join(getPackageDir(), "package.json");
 }
 
@@ -483,26 +483,6 @@ export function getExamplesPath(): string {
 /** Get path to CHANGELOG.md */
 export function getChangelogPath(): string {
 	return resolve(join(getPackageDir(), "CHANGELOG.md"));
-}
-
-/**
- * Get path to built-in interactive assets directory.
- * - For Bun binary: assets/ next to executable
- * - For Node.js (dist/): dist/modes/interactive/assets/
- * - For source (src/): src/modes/interactive/assets/
- */
-export function getInteractiveAssetsDir(): string {
-	if (isBunBinary) {
-		return join(getPackageDir(), "assets");
-	}
-	const packageDir = getPackageDir();
-	const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
-	return join(packageDir, srcOrDist, "modes", "interactive", "assets");
-}
-
-/** Get path to a bundled interactive asset */
-export function getBundledInteractiveAssetPath(name: string): string {
-	return join(getInteractiveAssetsDir(), name);
 }
 
 let quickJSWasmPath: string | undefined;
@@ -551,7 +531,7 @@ export function getCodemodeWorkerSpecifier(): string | URL | undefined {
 	return codemodeWorkerDataUrl;
 }
 
-export type InstallChange = { kind: "updated"; version: string } | { kind: "removed" };
+type InstallChange = { kind: "updated"; version: string } | { kind: "removed" };
 
 /**
  * Detect that the package this process runs from changed on disk, for example after `fingers update`
@@ -615,7 +595,7 @@ export function expandTildePath(path: string): string {
 }
 
 /** Fingers' GitHub repository: source, releases and the changelog. */
-export const REPOSITORY_URL = "https://github.com/veyraco/fingers";
+const REPOSITORY_URL = "https://github.com/veyraco/fingers";
 export const CHANGELOG_URL = `${REPOSITORY_URL}/blob/main/packages/coding-agent/CHANGELOG.md`;
 
 /**
@@ -645,11 +625,6 @@ export function getCustomThemesDir(): string {
 	return join(getAgentDir(), "themes");
 }
 
-/** Get path to models.json */
-export function getModelsPath(): string {
-	return join(getAgentDir(), "models.json");
-}
-
 /** Get path to auth.json */
 export function getAuthPath(): string {
 	return join(getAgentDir(), "auth.json");
@@ -660,19 +635,9 @@ export function getSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
 }
 
-/** Get path to tools directory */
-export function getToolsDir(): string {
-	return join(getAgentDir(), "tools");
-}
-
 /** Get path to managed binaries directory (fd, rg) */
 export function getBinDir(): string {
 	return join(getAgentDir(), "bin");
-}
-
-/** Get path to prompt templates directory */
-export function getPromptsDir(): string {
-	return join(getAgentDir(), "prompts");
 }
 
 /** Get path to sessions directory */

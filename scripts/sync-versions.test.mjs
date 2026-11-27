@@ -115,12 +115,12 @@ test("syncs to the published packages only, not to private fixtures or nested co
 			name: "@veyraco/fingers",
 			version: "1.0.0",
 		});
-		await writeManifest(root, "packages/chord/test/examples/deps/greeting", {
+		await writeManifest(root, "packages/example/test/examples/deps/greeting", {
 			name: "example-greeting",
 			version: "1.0.0",
 			private: true,
 		});
-		await writeManifest(root, "packages/chord/test/examples/plugins/report", {
+		await writeManifest(root, "packages/example/test/examples/plugins/report", {
 			name: "report",
 			private: true,
 			dependencies: { "example-greeting": "file:../../deps/greeting" },
@@ -136,7 +136,7 @@ test("syncs to the published packages only, not to private fixtures or nested co
 		assert.equal(result.status, 0, result.stderr);
 		const evalsManifest = await readManifest(root, "packages/evals");
 		assert.equal(evalsManifest.dependencies["@veyraco/fingers"], "2.0.0");
-		const pluginManifest = await readManifest(root, "packages/chord/test/examples/plugins/report");
+		const pluginManifest = await readManifest(root, "packages/example/test/examples/plugins/report");
 		assert.equal(pluginManifest.dependencies["example-greeting"], "file:../../deps/greeting");
 	} finally {
 		await rm(root, { recursive: true, force: true });

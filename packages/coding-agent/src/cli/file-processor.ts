@@ -11,12 +11,12 @@ import { processImage } from "../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.ts";
 import { stripBom } from "../utils/text.ts";
 
-export interface ProcessedFiles {
+interface ProcessedFiles {
 	text: string;
 	images: ImageContent[];
 }
 
-export interface ProcessFileOptions {
+interface ProcessFileOptions {
 	/** Whether to auto-resize images. Default: true */
 	autoResizeImages?: boolean;
 }

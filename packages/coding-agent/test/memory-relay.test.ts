@@ -1,5 +1,5 @@
 /**
- * The relay memory provider of managed RPC (F20): each operation is a `memory_request` the host answers; Fingers
+ * The relay memory provider of managed RPC: each operation is a `memory_request` the host answers; Fingers
  * never names a space or an organization, never waits past the timeout, and fails closed on an answer that is not
  * the contract's.
  */

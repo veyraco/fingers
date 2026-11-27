@@ -6,7 +6,7 @@ import { findMatchingProviders } from "../core/provider-matching.ts";
 import type { AuthOutput } from "./auth-terminal.ts";
 
 /** Dependencies of `runAuthLogout`, injected so tests can capture the output. */
-export interface AuthLogoutOptions {
+interface AuthLogoutOptions {
 	modelRuntime: ModelRuntime;
 	terminal: AuthOutput;
 	signal: AbortSignal;

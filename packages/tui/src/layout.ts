@@ -13,14 +13,14 @@ import {
 
 const OSC133_ZONE_PREFIX = /^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+/;
 
-export interface LayoutRect {
+interface LayoutRect {
 	x: number;
 	y: number;
 	width: number;
 	height: number;
 }
 
-export interface LayoutBox {
+interface LayoutBox {
 	component: Component;
 	rect: LayoutRect;
 	clip: LayoutRect;
@@ -34,7 +34,7 @@ export interface LayoutBox {
 }
 
 /** Component output by width, as rendered for one layout frame. */
-export type LayoutRenderCache = Map<Component, Map<number, readonly string[]>>;
+type LayoutRenderCache = Map<Component, Map<number, readonly string[]>>;
 
 export interface LayoutFrame {
 	root: LayoutBox;

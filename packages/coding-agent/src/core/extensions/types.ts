@@ -2161,9 +2161,9 @@ export type SendUserMessageHandler = (
 
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 
-export type SetSessionNameHandler = (name: string) => void;
+type SetSessionNameHandler = (name: string) => void;
 
-export type GetSessionNameHandler = () => string | undefined;
+type GetSessionNameHandler = () => string | undefined;
 
 export type GetActiveToolsHandler = () => string[];
 
@@ -2180,13 +2180,13 @@ export type ToolInfo = Pick<
 
 export type GetAllToolsHandler = () => ToolInfo[];
 
-export type GetSettingsHandler = () => Settings;
+type GetSettingsHandler = () => Settings;
 
 export type GetCommandsHandler = () => SlashCommandInfo[];
 
 export type SetActiveToolsHandler = (toolNames: string[]) => void;
 
-export type RefreshToolsHandler = () => void;
+type RefreshToolsHandler = () => void;
 
 export type SetModelHandler = (model: Model<any>) => Promise<boolean>;
 
@@ -2200,7 +2200,7 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
  * Shared state created by loader, used during registration and runtime.
  * Contains flag values (defaults set during registration, CLI values set after).
  */
-export interface ExtensionRuntimeState {
+interface ExtensionRuntimeState {
 	flagValues: Map<string, boolean | string>;
 	/** Legacy provider-config registrations queued during extension loading, processed when runner binds. */
 	pendingProviderRegistrations: Array<{ name: string; config: ProviderConfig; extensionPath: string }>;

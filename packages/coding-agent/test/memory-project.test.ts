@@ -1,5 +1,5 @@
 /**
- * The repository id memory providers key on (F20): the same id for every clone and remote style, and nothing of a
+ * The repository id memory providers key on: the same id for every clone and remote style, and nothing of a
  * credential in a remote URL ever in it.
  */
 import { mkdtempSync, rmSync } from "node:fs";

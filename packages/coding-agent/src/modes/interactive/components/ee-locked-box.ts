@@ -9,9 +9,9 @@ import type { EeEntitlement, EeFeatureId, EeFeatureState } from "../../../core/e
 import { theme } from "../theme/theme.ts";
 import { renderShellBox } from "./shell-box.ts";
 
-export type EeLockedAnswer = "sign_in" | "continue";
+type EeLockedAnswer = "sign_in" | "continue";
 
-export interface EeLockedBoxOptions {
+interface EeLockedBoxOptions {
 	feature: EeFeatureId;
 	state: Exclude<EeFeatureState, { on: true }>;
 	entitlement: EeEntitlement;
@@ -32,7 +32,7 @@ export const LOCKED_FOOTNOTES = [
 ] as const;
 
 /** The box title and the row that says why the feature is off. */
-export function lockedReasonText(options: Pick<EeLockedBoxOptions, "feature" | "state" | "entitlement">): {
+function lockedReasonText(options: Pick<EeLockedBoxOptions, "feature" | "state" | "entitlement">): {
 	title: string;
 	why: string;
 	canSignIn: boolean;

@@ -8,9 +8,8 @@
 //   node scripts/register-manifest.mjs [--connect-url URL] [--instance-file FILE] [--max-attempts N]
 //   node scripts/register-manifest.mjs --check      # validate the manifest, send nothing
 //
-// Configuration: --connect-url or VEYRA_CONNECT_INTERNAL_URL (for example
-// http://connect-internal.connect.svc:8081); the instance from --instance-file (the JSON file
-// Connect's dev seed writes, .local/instances/fingers.json) or VEYRA_INSTANCE_ID and
+// Configuration: --connect-url or VEYRA_CONNECT_INTERNAL_URL (Connect's internal listener); the
+// instance from --instance-file (the instance JSON file Connect's dev seed writes) or VEYRA_INSTANCE_ID and
 // VEYRA_INSTANCE_KEY (an Ed25519 private JWK). VEYRA_ENV names the environment in log lines.
 //
 // The request (Connect's registerPermissionManifest): POST <url>/v1/permission-manifests,

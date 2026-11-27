@@ -232,7 +232,7 @@ export function isImageLine(line: string): boolean {
  * Cells covered by the image placement on an image line. Rows are relative to the line; columns are
  * absolute, with `endCol` exclusive and `Infinity` when the image width cannot be read.
  */
-export interface ImageLineExtent {
+interface ImageLineExtent {
 	firstRow: number;
 	lastRow: number;
 	startCol: number;
@@ -382,12 +382,12 @@ export function encodeITerm2(
 	return `\x1b]1337;File=${params.join(";")}:${base64Data}\x07`;
 }
 
-export interface ImageCellSize {
+interface ImageCellSize {
 	columns: number;
 	rows: number;
 }
 
-export interface KittyImageMetadata extends ImageCellSize {
+interface KittyImageMetadata extends ImageCellSize {
 	imageId: number;
 	widthPx: number;
 	heightPx: number;
@@ -397,7 +397,7 @@ interface RegisteredKittyImageMetadata extends KittyImageMetadata {
 	transmissionGeneration: number;
 }
 
-export interface KittyImagePlacement {
+interface KittyImagePlacement {
 	imageId: number;
 	transmissionGeneration: number;
 	transmissionBytes: number;
@@ -551,7 +551,7 @@ function chooseLessDistortedCellCount(upperCount: number, idealCount: number): n
 	return lowerDistortion < upperDistortion ? lowerCount : upperCount;
 }
 
-export function calculateImageCellSize(
+function calculateImageCellSize(
 	imageDimensions: ImageDimensions,
 	maxWidthCells: number,
 	maxHeightCells?: number,

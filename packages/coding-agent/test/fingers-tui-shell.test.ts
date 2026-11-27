@@ -204,7 +204,7 @@ describe("FingersTuiSession", () => {
 	}
 
 	const signedIn = {
-		getAccount: () => ({ signedIn: true, eeOn: true, email: "atakan@veyra.so", org: "Veyra App Factory" }),
+		getAccount: () => ({ signedIn: true, eeOn: true, email: "sam.lee@acme.io", org: "Acme Product Team" }),
 		getBudget: () => ({ spentUsd: 0.06, capUsd: 5 }),
 		getMemory: () => "Brain “acme-web”",
 	};
@@ -228,13 +228,13 @@ describe("FingersTuiSession", () => {
 		expectFitsTerminal(root);
 		const lines = await renderScreen(root);
 		expect(lines.find((line) => line.length > 0)?.trim()).toBe(
-			"~/acme/web  ·  main  ·  org Veyra App Factory  ·  memory: Brain “acme-web”",
+			"~/acme/web  ·  main  ·  org Acme Product Team  ·  memory: Brain “acme-web”",
 		);
 		expectInOrder(lines, [
 			"› Add rate limiting to POST /api/login: 5 tries per minute per IP, then 429.",
 			/^╭─ Approval needed · run a command ─+╮$/,
 			/^│ \$ pnpm vitest run src\/server\/routes\/auth\.test\.ts +│$/,
-			// "Hooks: pre-command ✓ passed" follows here on the artboard once org hooks land (F23).
+			// "Hooks: pre-command ✓ passed" follows here on the artboard once org hooks land.
 			/^│ Not in your allow list\. +│$/,
 			/^│ +│$/,
 			/^│ ❯ Yes {4}Yes, always allow “pnpm vitest” {4}No, tell Fingers what to do instead +│$/,
@@ -242,7 +242,7 @@ describe("FingersTuiSession", () => {
 			"enter send · shift+enter newline · / commands · @ files · esc interrupt",
 			"",
 			// The artboard's status line is 122 cells with its placeholder model; at 120 the provider name goes first.
-			"claude-opus-5-5 │ 18.4k in · 2.1k out │ $0.06 │ cache 82% │ budget $4.94 left of $5.00 │ ee on · atakan@veyra.so",
+			"claude-opus-5-5 │ 18.4k in · 2.1k out │ $0.06 │ cache 82% │ budget $4.94 left of $5.00 │ ee on · sam.lee@acme.io",
 		]);
 		// As on the artboard: no key list under the box, and the location line is not in the footer.
 		expect(lines.some((line) => line.includes("enter confirm"))).toBe(false);
@@ -314,7 +314,7 @@ describe("FingersTuiSession", () => {
 	it("shows the artboard's full status line when the terminal is wide enough", () => {
 		const lines = new FooterComponent(fakeSession(), footerData, signedIn).render(130).map(stripAnsi);
 		expect(lines[2]?.trim()).toBe(
-			"claude-opus-5-5  anthropic │ 18.4k in · 2.1k out │ $0.06 │ cache 82% │ budget $4.94 left of $5.00 │ ee on · atakan@veyra.so",
+			"claude-opus-5-5  anthropic │ 18.4k in · 2.1k out │ $0.06 │ cache 82% │ budget $4.94 left of $5.00 │ ee on · sam.lee@acme.io",
 		);
 		expect(lines[2]).toHaveLength(130);
 	});

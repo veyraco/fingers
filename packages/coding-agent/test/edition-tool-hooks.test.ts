@@ -189,7 +189,7 @@ describe("EditionToolHooks", () => {
 	});
 });
 
-describe("EditionToolHooks context hooks (F15)", () => {
+describe("EditionToolHooks context hooks", () => {
 	const entry = (id: string, role: EeContextEntry["role"] = "toolResult"): EeContextEntry => ({
 		id,
 		role,

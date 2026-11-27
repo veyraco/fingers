@@ -95,7 +95,7 @@ function renderHorizontalViewport(rows: HorizontalViewportRow[], width: number):
 }
 
 /** Filter mode for tree display */
-export type FilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "all";
+type FilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "all";
 
 /**
  * Tree list component with selection and ASCII art visualization

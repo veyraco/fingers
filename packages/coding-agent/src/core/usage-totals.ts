@@ -70,7 +70,7 @@ export function combineUsage(first: Usage, second: Usage): Usage {
 	};
 }
 
-export interface UsageCostBreakdownEntry {
+interface UsageCostBreakdownEntry {
 	key: string;
 	cost: number;
 	tokens: number;

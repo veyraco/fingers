@@ -60,7 +60,7 @@ const bashOutputSchema = Type.Object({
 	wall_time_seconds: Type.Number(),
 });
 
-export type BashToolOutput = Static<typeof bashOutputSchema>;
+type BashToolOutput = Static<typeof bashOutputSchema>;
 
 export interface BashToolDetails {
 	truncation?: TruncationResult;
@@ -252,7 +252,7 @@ export interface BashToolOptions {
 	spawnHook?: BashSpawnHook;
 }
 
-export type BashRenderState = {
+type BashRenderState = {
 	startedAt: number | undefined;
 	endedAt: number | undefined;
 	interval: NodeJS.Timeout | undefined;

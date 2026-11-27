@@ -2,7 +2,7 @@ import { setBedrockProviderLoader } from "./api/bedrock-converse-stream.lazy.ts"
 
 /**
  * Registers a bedrock loader with a literal dynamic import, for Node bundles
- * that split at dynamic imports (esbuild `splitting`, Chord's worker base):
+ * that split at dynamic imports (esbuild `splitting`, a worker bundle):
  * the implementation and the AWS SDK land in a chunk loaded on the first
  * bedrock request, inside the bundle. Without it, fingers-ai imports bedrock
  * through a variable specifier that bundlers cannot follow, so a bundle loads

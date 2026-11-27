@@ -4,7 +4,7 @@
  * checked out at a snapshot of the parent's working tree (tracked changes and new files that are not ignored, so a
  * child sees the parent's unfinished work), and a finished child's changes come back as a binary patch applied to
  * the parent's working tree. None of this touches the parent's index, branch, HEAD or stash: the snapshot is built
- * in a temporary index and is a commit no branch points to. A checkpoint of a child (F19) is such a commit of its
+ * in a temporary index and is a commit no branch points to. A checkpoint of a child is such a commit of its
  * worktree; rolling back resets the worktree to it.
  */
 import { spawn } from "node:child_process";
@@ -36,7 +36,7 @@ export class GitError extends Error {
 	}
 }
 
-export interface GitRunOptions {
+interface GitRunOptions {
 	cwd: string;
 	env?: Record<string, string>;
 	input?: string | Buffer;

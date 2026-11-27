@@ -1,5 +1,5 @@
 /**
- * Open core: the built-in extension that traces sessions (F21). It is MIT and sends nothing by itself: spans go only
+ * Open core: the built-in extension that traces sessions. It is MIT and sends nothing by itself: spans go only
  * to the process' exporters (core/tracing/registry.ts), which are the person's own OTLP destination when
  * FINGERS_OTLP_ENDPOINT (or FINGERS_OTLP_TRACES_ENDPOINT) is set, and Eyes while the ee feature is on in the terminal
  * app. With neither it makes no span and no request.
@@ -12,7 +12,7 @@ import { OtlpHttpExporter, otlpConfigFromEnv } from "../../core/tracing/otlp.ts"
 import { type TelemetryExporters, telemetryExporters } from "../../core/tracing/registry.ts";
 
 /** The slot of the person's own OTLP destination. */
-export const OTLP_SLOT = "otlp";
+const OTLP_SLOT = "otlp";
 
 const MIN_SECRET_CHARS = 8;
 

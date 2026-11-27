@@ -1,5 +1,5 @@
 /**
- * Telemetry (F21, open core): GenAI spans of real sessions (model calls with usage and cache tokens, retries, tool
+ * Telemetry (open core): GenAI spans of real sessions (model calls with usage and cache tokens, retries, tool
  * calls, one trace per run), masking (credentials never leave, payloads only for an exporter that takes content), the
  * generic OTLP/HTTP JSON exporter and its configuration from the environment, and the built-in extension: nothing at
  * all without an exporter.

@@ -18,18 +18,18 @@ import type { SpanExporter } from "../tracing/spans.ts";
 
 /**
  * Bumped when this contract changes; an ee module built for another version is not loaded.
- * 2: tool hooks (`EeHost.registerToolHooks`) and the savings ledger (`EeHost.recordSaving`), for token saving (F14).
- * 3: context hooks (`EeToolHooks.contextEdits`, `beforeCompact`, `afterCompact`), for saving context (F15).
+ * 2: tool hooks (`EeHost.registerToolHooks`) and the savings ledger (`EeHost.recordSaving`), for token saving.
+ * 3: context hooks (`EeToolHooks.contextEdits`, `beforeCompact`, `afterCompact`), for saving context.
  * 4: model routing (`EeToolHooks.routeModel`, `afterRoute`) and a cost in savings entries, for cheaper-model routing
- *    of sub-tasks (F16).
+ *    of sub-tasks.
  * 5: memory providers (`EeHost.registerMemoryProvider`), the signed-in person's access to a Veyra app's API
- *    (`EeHost.veyraApi`) and the session's directory in `EeCommandContext.cwd`, for Brain memory (F20).
+ *    (`EeHost.veyraApi`) and the session's directory in `EeCommandContext.cwd`, for Brain memory.
  * 6: span exporters (`EeHost.registerTelemetryExporter`, `EeHost.createOtlpExporter`) and the organization's code
- *    (`EeVeyraApi.orgCode`), for the Eyes feed (F21).
- * 7: sub-agent engines (`EeHost.registerSubagentEngine`, core/subagents/types.ts), for sub-agents (F18).
+ *    (`EeVeyraApi.orgCode`), for the Eyes feed.
+ * 7: sub-agent engines (`EeHost.registerSubagentEngine`, core/subagents/types.ts), for sub-agents.
  * 8: sub-agent control (SubagentEngine pause/resume/checkpoint/transcript/removeWorktree, SubagentChild
  *    pause/resume/atRest/rollBack/transcript/onActivity) and `EeCommandContext.openAgentsPanel`, for the `/agents`
- *    panel and checkpoints (F19).
+ *    panel and checkpoints.
  */
 export const EE_API_VERSION = 8;
 
@@ -137,7 +137,7 @@ export interface EeToolResultChange {
 }
 
 /**
- * One model-visible entry of the conversation since the latest compaction, as a context hook sees it (F15). Only
+ * One model-visible entry of the conversation since the latest compaction, as a context hook sees it. Only
  * tool results carry their content: the other entries are there for their position and size.
  */
 export interface EeContextEntry {
@@ -207,8 +207,8 @@ export interface EeCompactionOutcome {
 }
 
 /**
- * The kinds of sub-task the core may hand to a cheaper model (F16). `summarise`: compaction summaries (the core routes
- * these today); `search` and `review`: sub-agents that look things up or check work (F18 routes those).
+ * The kinds of sub-task the core may hand to a cheaper model. `summarise`: compaction summaries (the core routes
+ * these today); `search` and `review`: sub-agents that look things up or check work (the sub-agent extension routes those).
  */
 export const EE_SUBTASK_CLASSES = ["search", "summarise", "review"] as const;
 export type EeSubTaskClass = (typeof EE_SUBTASK_CLASSES)[number];

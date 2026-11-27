@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Token saving: no duplicate reads, trimmed tool outputs, diff edits (F14); old tool results pruned in stages before
- * compaction, and a saving estimate for each compaction (F15); sub-tasks such as compaction summaries on a cheaper
- * model of the same provider (F16). Each technique writes what it saved to the core's savings ledger
+ * Token saving: no duplicate reads, trimmed tool outputs, diff edits; old tool results pruned in stages before
+ * compaction, and a saving estimate for each compaction; sub-tasks such as compaction summaries on a cheaper
+ * model of the same provider. Each technique writes what it saved to the core's savings ledger
  * (EeHost.recordSaving), which the end-of-task report adds up.
  */
 import type {
@@ -22,13 +22,13 @@ import { ReadCache } from "./read-cache.ts";
 import { routeModel, routingLine, routingSaving } from "./routing.ts";
 import { type TrimOptions, trimToolOutput } from "./trim.ts";
 
-export const READ_CACHE_GUIDELINES: Readonly<Record<string, readonly string[]>> = {
+const READ_CACHE_GUIDELINES: Readonly<Record<string, readonly string[]>> = {
 	read: [
 		"Token saving is on: reading a file again that has not changed since your last read of it returns a short “from cache, read once” note instead of the text, which is in that earlier result; reading it once more returns the text.",
 	],
 };
 
-export interface TokenSavingOptions extends TrimOptions {
+interface TokenSavingOptions extends TrimOptions {
 	readCache?: ReadCache;
 }
 

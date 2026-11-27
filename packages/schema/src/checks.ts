@@ -126,7 +126,7 @@ export const GUARD_LOOSE = 2;
 export type Guard = typeof GUARD_NONE | typeof GUARD_STRICT | typeof GUARD_LOOSE;
 
 /** Flags of a declared property in an object check's entries: its leaf code and two bits. */
-export const CODE = 15;
+const CODE = 15;
 export const REQUIRED = 16;
 export const INHERITED = 32;
 

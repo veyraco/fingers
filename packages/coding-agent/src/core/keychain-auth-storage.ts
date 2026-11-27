@@ -125,7 +125,7 @@ interface MarkerContent {
  * AuthStorageBackend over a KeychainBlob. Locking reuses the file backend's lock on the marker file,
  * whose content is rewritten (new revision) after every keychain write.
  */
-export class KeychainAuthStorageBackend implements AuthStorageBackend {
+class KeychainAuthStorageBackend implements AuthStorageBackend {
 	private readonly blob: KeychainBlob;
 	private readonly lockBackend: FileAuthStorageBackend;
 	private readonly store: SecretStore;
@@ -175,7 +175,7 @@ export class KeychainAuthStorageBackend implements AuthStorageBackend {
 	}
 }
 
-export type CredentialStoreKind = "os-keychain" | "file";
+type CredentialStoreKind = "os-keychain" | "file";
 
 export interface CredentialStorageInfo {
 	kind: CredentialStoreKind;
@@ -187,7 +187,7 @@ export interface CredentialStorageInfo {
 	fallbackReason?: string;
 }
 
-export interface OpenCredentialStorageOptions {
+interface OpenCredentialStorageOptions {
 	authPath: string;
 	env?: NodeJS.ProcessEnv;
 	/** Defaults to the platform keychain. */
@@ -195,7 +195,7 @@ export interface OpenCredentialStorageOptions {
 	service?: string;
 }
 
-export interface OpenedCredentialStorage {
+interface OpenedCredentialStorage {
 	storage: AuthStorage;
 	info: CredentialStorageInfo;
 }

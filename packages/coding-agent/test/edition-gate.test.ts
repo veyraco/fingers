@@ -296,7 +296,7 @@ describe("EditionGate", () => {
 		expect(registered).toEqual(["off", "on", "off"]);
 	});
 
-	it("lets the ee module register a memory provider only for a feature that is on (F20)", async () => {
+	it("lets the ee module register a memory provider only for a feature that is on", async () => {
 		const providers = new MemoryProviders({ lookupRepository: async () => "github.com/acme/web" });
 		const provider = {
 			name: "Brain",
@@ -325,7 +325,7 @@ describe("EditionGate", () => {
 		expect(await providers.providerFor("/w")).toBeUndefined();
 	});
 
-	it("lets the ee module register a span exporter only for a feature that is on, asked before every span (F21)", async () => {
+	it("lets the ee module register a span exporter only for a feature that is on, asked before every span", async () => {
 		const exporters = new TelemetryExporters();
 		const spans: unknown[] = [];
 		const exporter = { export: (span: unknown) => spans.push(span) };
@@ -351,7 +351,7 @@ describe("EditionGate", () => {
 		expect(exporters.has("otlp")).toBe(true);
 	});
 
-	it("lets the ee module register a sub-agent engine only for a feature that is on, asked before every use (F18)", async () => {
+	it("lets the ee module register a sub-agent engine only for a feature that is on, asked before every use", async () => {
 		const engines = new SubagentEngines();
 		const engine: SubagentEngine = {
 			run: async () => {

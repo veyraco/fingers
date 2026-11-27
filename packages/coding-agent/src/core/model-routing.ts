@@ -1,9 +1,9 @@
 /**
- * Cheaper-model routing of sub-tasks (F16): before a sub-task runs, the core offers the ee routing hooks the current
+ * Cheaper-model routing of sub-tasks: before a sub-task runs, the core offers the ee routing hooks the current
  * provider's other priced chat models that have room for it, and runs the sub-task on the one a hook picks. The rule
  * that picks is ee (token saving); this file only builds the offer, checks the pick and reports the outcome.
  *
- * The core routes compaction summaries (`summarise`); sub-agents (F18) route `search` and `review` the same way.
+ * The core routes compaction summaries (`summarise`); sub-agents route `search` and `review` the same way.
  * Only the terminal app's gate fills the hooks, so managed RPC, print and JSON modes never route.
  */
 import { type Api, calculateCost, isModelType, type Model, type Usage } from "@veyraco/fingers-ai";
@@ -13,11 +13,11 @@ import type { EeModelFacts, EeRouteOutcome, EeSubTaskClass } from "./edition/typ
 import { isVirtualModel } from "./virtual-models.ts";
 
 /** What the core needs from the model runtime to build the offer. */
-export interface RoutingModelSource {
+interface RoutingModelSource {
 	getModels(providerId?: string): readonly Model<Api>[];
 }
 
-export interface SubTaskRouteOptions {
+interface SubTaskRouteOptions {
 	taskClass: EeSubTaskClass;
 	/** The physical model the sub-task runs on unless a hook picks another. */
 	model: Model<Api>;

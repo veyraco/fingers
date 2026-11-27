@@ -3,19 +3,19 @@ import { open } from "node:fs/promises";
 import { createOutputFileStream } from "../../utils/output-files.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, type TruncationResult, truncateTail } from "./truncate.ts";
 
-export interface OutputAccumulatorOptions {
+interface OutputAccumulatorOptions {
 	maxLines?: number;
 	maxBytes?: number;
 	tempFilePrefix?: string;
 }
 
-export interface OutputSnapshot {
+interface OutputSnapshot {
 	content: string;
 	truncation: TruncationResult;
 	fullOutputPath?: string;
 }
 
-export interface FullOutput {
+interface FullOutput {
 	content: string;
 	/** Whether `content` omits part of the output. */
 	truncated: boolean;

@@ -123,13 +123,13 @@ export class VeyraSessionClearedError extends Error {
  * A sign-out without the lock could not write its signed-out marker (`error`). The marker was then removed, so a lock
  * holder's check still sees the sign-out; `markerLeft` when removing it failed too and the old marker stays.
  */
-export interface VeyraClearProblem {
+interface VeyraClearProblem {
 	error: unknown;
 	markerLeft: boolean;
 }
 
 /** `next`: the session to store, `null` to delete it, undefined to leave it as it is. */
-export type VaultUpdate<T> = (
+type VaultUpdate<T> = (
 	current: StoredVeyraSession | undefined,
 ) => Promise<{ result: T; next?: StoredVeyraSession | null }>;
 
@@ -322,7 +322,7 @@ class MemorySessionVault implements VeyraSessionVault {
 	}
 }
 
-export interface OpenVeyraSessionVaultOptions {
+interface OpenVeyraSessionVaultOptions {
 	agentDir: string;
 	issuer: string;
 	env?: NodeJS.ProcessEnv;

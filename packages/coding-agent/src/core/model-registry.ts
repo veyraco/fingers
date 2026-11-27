@@ -30,7 +30,8 @@ import type { AuthStatus, ProviderConfigInput } from "./provider-composer.ts";
 import type { VirtualModelDefinition } from "./virtual-models.ts";
 
 export type { ProviderConfigInput } from "./provider-composer.ts";
-export type ResolvedRequestAuth =
+
+type ResolvedRequestAuth =
 	| {
 			ok: true;
 			apiKey?: string;
@@ -39,6 +40,7 @@ export type ResolvedRequestAuth =
 			env?: Record<string, string>;
 	  }
 	| { ok: false; error: string };
+
 export { clearApiKeyCache } from "./provider-composer.ts";
 
 /**

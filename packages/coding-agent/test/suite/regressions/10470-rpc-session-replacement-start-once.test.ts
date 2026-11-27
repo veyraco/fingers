@@ -16,7 +16,7 @@ import { SessionManager } from "../../../src/core/session-manager.ts";
 import type { ExtensionAPI } from "../../../src/index.ts";
 import { runRpcMode } from "../../../src/modes/rpc/rpc-mode.ts";
 
-// Regression for https://github.com/veyraco/fingers/issues/10470
+// Regression for upstream #10470
 
 const rpcIo = vi.hoisted(() => ({
 	outputLines: [] as string[],

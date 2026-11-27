@@ -57,7 +57,7 @@ export interface DetectedCredential {
 	source: string;
 }
 
-export interface DetectOptions {
+interface DetectOptions {
 	env?: NodeJS.ProcessEnv;
 	home?: string;
 }
@@ -148,7 +148,7 @@ export function detectLocalCredentials(options: DetectOptions = {}): DetectedCre
 	return found;
 }
 
-export interface OpenAICompatibleEndpoint {
+interface OpenAICompatibleEndpoint {
 	/** Provider id in models.json, e.g. "my-endpoint". */
 	id: string;
 	/** Base URL including the version path, e.g. https://llm.example.com/v1. */

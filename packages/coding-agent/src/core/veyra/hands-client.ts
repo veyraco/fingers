@@ -1,6 +1,6 @@
 /**
  * Hands' public runs API (`<api>/hands/v1`, platform contracts/openapi/hands.yaml) as the signed-in person, for
- * Fingers sessions that run in a Hands Sandbox (`fingers --hands`, F13b).
+ * Fingers sessions that run in a Hands Sandbox (`fingers --hands`).
  *
  * - Every request carries the person's Connect access token for Hands (`aud` = hands), fetched per request so a
  *   refresh happens when it is due; nothing here stores it. A run never gets a provider key: Hands leases the model
@@ -15,7 +15,7 @@ import { childSpan, formatTraceparent, type TraceContext } from "../trace-contex
 import { connectText } from "./login-text.ts";
 
 /** hands.yaml RunStatus. */
-export type HandsRunStatus =
+type HandsRunStatus =
 	| "queued"
 	| "starting"
 	| "running"
@@ -90,7 +90,7 @@ export interface HandsChangedFile {
 }
 
 /** hands.yaml Approval, the fields Fingers shows. */
-export interface HandsApproval {
+interface HandsApproval {
 	id: string;
 	run_id: string;
 	status: "pending" | "approved" | "denied" | "expired";
@@ -99,7 +99,7 @@ export interface HandsApproval {
 }
 
 /** hands.yaml Checkpoint. */
-export interface HandsCheckpoint {
+interface HandsCheckpoint {
 	id: string;
 	run_id: string;
 	attempt?: number;
@@ -109,7 +109,7 @@ export interface HandsCheckpoint {
 }
 
 /** hands.yaml UploadedFile. */
-export interface HandsUploadedFile {
+interface HandsUploadedFile {
 	id: string;
 	name: string;
 	path?: string;
@@ -152,12 +152,12 @@ export class HandsApiError extends Error {
 }
 
 /** The part of VeyraAuth the client needs (tests pass a stub). */
-export interface HandsAuth {
+interface HandsAuth {
 	apiBaseUrl(app: "hands"): string;
 	getAccessToken(app: "hands", options?: { signal?: AbortSignal }): Promise<string>;
 }
 
-export interface HandsClientOptions {
+interface HandsClientOptions {
 	auth: HandsAuth;
 	/** The session's trace: every request is a child span of it. */
 	trace: TraceContext;
@@ -176,7 +176,7 @@ function safe(value: unknown, max = 2_000): string | undefined {
 }
 
 /** A problem+json body as HandsApiError fields, every text made safe to print. */
-export function readProblem(body: unknown): ConstructorParameters<typeof HandsApiError>[1] {
+function readProblem(body: unknown): ConstructorParameters<typeof HandsApiError>[1] {
 	const value = record(body) ?? {};
 	const errors = Array.isArray(value.errors)
 		? value.errors.flatMap((entry) => {
@@ -410,7 +410,7 @@ function basename(path: string): string {
 }
 
 /** One SSE `data:` payload as a RunEvent; undefined when it is not one. */
-export function parseRunEvent(text: string): HandsRunEvent | undefined {
+function parseRunEvent(text: string): HandsRunEvent | undefined {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);

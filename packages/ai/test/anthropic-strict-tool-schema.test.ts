@@ -99,7 +99,7 @@ describe("Anthropic strict tool schemas", () => {
 		});
 	});
 
-	// https://github.com/veyraco/fingers/issues/9557
+	// upstream #9557
 	it("keeps root definitions in non-strict schemas so property refs resolve", async () => {
 		const settings = { type: "object", properties: { verbose: { type: "boolean" } } };
 		const cases = [
@@ -124,7 +124,7 @@ describe("Anthropic strict tool schemas", () => {
 		}
 	});
 
-	// https://github.com/veyraco/fingers/issues/9953
+	// upstream #9953
 	it("sends prefer tools non-strict when they use keywords Anthropic strict mode rejects", async () => {
 		const unsupportedParameters: Tool["parameters"][] = [
 			Type.Object({ timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 300000 })) }),

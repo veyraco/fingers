@@ -14,7 +14,7 @@
  *
  * The artboard says "checkpoints saved to Hands": in the terminal app a checkpoint is a git commit of the child's
  * worktree plus a point of its transcript, kept in this process. Hands checkpoints of sub-agents belong to managed
- * RPC (F18b).
+ * RPC.
  */
 import {
 	type Component,
@@ -30,8 +30,7 @@ import { theme } from "../theme/theme.ts";
 import { formatCost, formatTokenCount } from "./footer.ts";
 import { renderShellBox } from "./shell-box.ts";
 
-export const AGENTS_PANEL_KEYS =
-	"enter open · a approve · s steer · p pause · k stop · c checkpoint · r resume · esc back";
+const AGENTS_PANEL_KEYS = "enter open · a approve · s steer · p pause · k stop · c checkpoint · r resume · esc back";
 const OPEN_KEYS = "↑↓ scroll · esc back";
 const PICK_KEYS = "↑↓ choose · enter resume · esc back";
 const TABLE_WIDTH = 100;
@@ -39,7 +38,7 @@ const BOX_WIDTH = 104;
 /** Transcript rows the open view shows at once. */
 const TRANSCRIPT_ROWS = 22;
 
-export interface AgentsPanelOptions {
+interface AgentsPanelOptions {
 	engines: SubagentEngines;
 	/** The parent's model id, for "parent: …". */
 	parentModel?: string;
@@ -90,7 +89,7 @@ function clock(at: number): string {
 }
 
 /** "3" for "sub_3": the row number the artboard shows. */
-export function agentNumber(id: string): string {
+function agentNumber(id: string): string {
 	return id.startsWith("sub_") ? id.slice(4) : id;
 }
 

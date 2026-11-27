@@ -1,5 +1,5 @@
 /**
- * Task budgets (F16): `/budget` in the terminal app and managed RPC's `limits.max_cost_usd` share one enforcement
+ * Task budgets: `/budget` in the terminal app and managed RPC's `limits.max_cost_usd` share one enforcement
  * (core/budget.ts): the run ends after the turn whose model call reached the cap, and a new prompt is refused.
  */
 import type { Agent, AgentTool } from "@veyraco/fingers-agent";

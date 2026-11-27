@@ -854,7 +854,7 @@ describe("ModelRegistry", () => {
 			expect(registry.find("anthropic", "claude-sonnet-4-6")?.promptCache).toEqual({ short: 300, long: 1800 });
 		});
 
-		// Regression test for https://github.com/veyraco/fingers/issues/9631
+		// Regression test for upstream #9631
 		test("model override deep-merges image resize limits", async () => {
 			writeRawModelsJson({
 				test: {

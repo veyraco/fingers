@@ -20,7 +20,7 @@ test("rejects internal and external registry dependency ranges in every direct d
 	const result = await check(t, {
 		dependencies: {
 			"@veyraco/fingers-codemode": "^1.2.0",
-			"@veyraco/chord": "~1.2.0",
+			"@veyraco/example-dep": "~1.2.0",
 			external: "^1.0.0",
 		},
 		devDependencies: { "@veyraco/fingers-ai": "1.x" },
@@ -29,7 +29,7 @@ test("rejects internal and external registry dependency ranges in every direct d
 	assert.equal(result.status, 1);
 	for (const dependency of [
 		"dependencies.@veyraco/fingers-codemode",
-		"dependencies.@veyraco/chord",
+		"dependencies.@veyraco/example-dep",
 		"dependencies.external",
 		"devDependencies.@veyraco/fingers-ai",
 		"optionalDependencies.@veyraco/fingers-tui",
@@ -42,7 +42,7 @@ test("accepts exact internal and external versions, exact registry aliases, and 
 	const result = await check(t, {
 		dependencies: {
 			"@veyraco/fingers-codemode": "1.2.0",
-			"@veyraco/chord": "1.2.0",
+			"@veyraco/example-dep": "1.2.0",
 			external: "1.0.0",
 			alias: "npm:@veyraco/fingers-ai@1.1.0",
 			local: "file:../local",

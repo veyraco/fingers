@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Saving context (F15): staged pruning of old tool results before the core's compaction, and the saving estimate of
+ * Saving context: staged pruning of old tool results before the core's compaction, and the saving estimate of
  * a compaction. Unit tests of the plan and the estimate, then long sessions through the core's real gate, the
  * built-in `edition` extension, the real read tool and a fake model whose usage counts what it was sent.
  */

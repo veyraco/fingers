@@ -9,7 +9,7 @@ import type { DocumentationVariant, EvalTask } from "./plan.ts";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(packageRoot, "../..");
 
-export type BuiltImages = Record<DocumentationVariant, { name: string; id: string }>;
+type BuiltImages = Record<DocumentationVariant, { name: string; id: string }>;
 
 type DockerContext = {
 	images: BuiltImages;

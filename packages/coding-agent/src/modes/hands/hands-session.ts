@@ -1,10 +1,10 @@
 /**
- * A Fingers session that runs in a Hands Sandbox (`fingers --hands`, F13b): the runner and Fingers start inside a
+ * A Fingers session that runs in a Hands Sandbox (`fingers --hands`): the runner and Fingers start inside a
  * fresh sandbox, the model calls go through Hands' model proxy with the organization's model connection, Brain gives
  * the run the repository's memory and Eyes gets its telemetry; the person's files go up and the changes come back.
  *
  * The session is a line-mode client of Hands' runs API (hands.yaml):
- * 1. checks the sign-in, that Hands is on in the organization and which model connection to use (F13's list);
+ * 1. checks the sign-in, that Hands is on in the organization and which model connection to use (the organization's model connections);
  * 2. syncs the workspace up (hands-workspace.ts) and creates the run (`observability.send_to_eyes`, and
  *    `memory.brain_space_id` when Brain has the repository's space);
  * 3. follows the run's events (SSE, replayed from the last `seq` after a drop) and prints them; in a terminal, a line
@@ -59,7 +59,7 @@ export interface HandsSessionAuth extends ModelConnectionsSource {
 }
 
 /** Lines the person types (readline in the terminal). `next` gives the next one, or undefined once input ends. */
-export interface LineSource {
+interface LineSource {
 	next(signal?: AbortSignal): Promise<string | undefined>;
 }
 
@@ -100,7 +100,7 @@ export class LineQueue implements LineSource {
 	}
 }
 
-export interface HandsSessionOptions {
+interface HandsSessionOptions {
 	auth: HandsSessionAuth;
 	cwd: string;
 	prompt: string;
@@ -130,7 +130,7 @@ export interface HandsSessionOptions {
 }
 
 /** The end of a session: the exit code and the last run. */
-export interface HandsSessionResult {
+interface HandsSessionResult {
 	exitCode: number;
 	run?: HandsRun;
 }
@@ -434,7 +434,7 @@ function memoryRefusal(error: HandsApiError): string | undefined {
 }
 
 /** Hands' refusal for the person, with what to do. */
-export function handsErrorText(error: HandsApiError): string {
+function handsErrorText(error: HandsApiError): string {
 	if (error.status === 401) return "Hands did not take the sign-in. Run fingers login again.";
 	if (error.status === 403 && error.permission) {
 		return `Your group may not do this in Hands (${error.permission}). Ask an admin of the organization.`;

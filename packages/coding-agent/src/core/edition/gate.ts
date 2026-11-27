@@ -36,7 +36,7 @@ import {
 } from "./types.ts";
 
 /** The slot of the process' span exporters that ee's exporter (Eyes) goes into. */
-export const EE_TELEMETRY_SLOT = "ee";
+const EE_TELEMETRY_SLOT = "ee";
 
 /** Whether `feature` is on for `entitlement`, and if not, why. */
 export function eeFeatureState(

@@ -3,7 +3,7 @@ import { processImage } from "./image-process.ts";
 
 export type ToolResultContent = TextContent | ImageContent;
 
-export interface NormalizeToolResultImagesOptions {
+interface NormalizeToolResultImagesOptions {
 	/** Whether oversized images are resized to inline provider limits. Default: true */
 	autoResizeImages?: boolean;
 	/** Model-specific resize profile. Uses the conservative built-in defaults when omitted. */

@@ -296,7 +296,7 @@ describe("managed RPC secrets", () => {
 	});
 });
 
-describe("managed RPC MCP server headers (F6b)", () => {
+describe("managed RPC MCP server headers", () => {
 	const MCP_SECRET = "Bearer hrt_mcp_run_token_7Qx2Lp9z";
 
 	it("sends configure.mcp_servers[].headers to the MCP server and keeps their values out of stdout, logs and session files", async () => {
@@ -752,7 +752,7 @@ describe("managed RPC memory relay", () => {
 	});
 });
 
-describe("managed RPC telemetry relay (F21)", () => {
+describe("managed RPC telemetry relay", () => {
 	const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 	const spansOf = (outs: Rec[]) => outs.filter((out) => out.type === "telemetry_span").map((out) => out.span as Rec);
 

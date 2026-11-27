@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { execCommand } from "../src/core/exec.ts";
 
 describe("execCommand", () => {
-	// Regression test for https://github.com/veyraco/fingers/issues/11085
+	// Regression test for upstream #11085
 	it("reports spawn errors in stderr", async () => {
 		const result = await execCommand("fingers-command-that-does-not-exist-11085", [], process.cwd());
 
@@ -22,7 +22,7 @@ describe("execCommand", () => {
 		expect(result).toEqual({ stdout: "", stderr: "", code: 1, killed: false, truncated: false });
 	});
 
-	// Regression tests for https://github.com/veyraco/fingers/issues/11360
+	// Regression tests for upstream #11360
 	it.each([
 		-1,
 		0.5,
@@ -112,7 +112,7 @@ describe("execCommand", () => {
 		10_000,
 	);
 
-	// Regression tests for https://github.com/veyraco/fingers/issues/12088
+	// Regression tests for upstream #12088
 	describe.skipIf(process.platform === "win32")("signal-terminated commands", () => {
 		const idle = ["-e", "setInterval(() => {}, 1000)"];
 

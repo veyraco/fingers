@@ -197,7 +197,7 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.session.thinkingLevel).toBe("high");
 	});
 
-	// Regression test for https://github.com/veyraco/fingers/issues/11806
+	// Regression test for upstream #11806
 	it("cycles to the only scoped model and to the first scoped model from outside the scope", async () => {
 		const harness = await createHarness({
 			models: [

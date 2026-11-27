@@ -6,7 +6,7 @@ import { fetchWithRetry } from "./management-http.ts";
 const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 
 /** The npm registry's `latest` release of a package. Fingers checks for updates here; it has no update service of its own. */
-export function getLatestVersionUrl(packageName: string = PACKAGE_NAME): string {
+function getLatestVersionUrl(packageName: string = PACKAGE_NAME): string {
 	return `${NPM_REGISTRY_URL}/${packageName}/latest`;
 }
 

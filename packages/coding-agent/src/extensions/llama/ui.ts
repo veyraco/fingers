@@ -24,7 +24,7 @@ import type { HuggingFaceModel } from "./huggingface.ts";
 const DOWNLOAD_VALUE = "\0download";
 const SEARCH_MAX_VISIBLE = 10;
 
-export type LlamaManagerAction = { type: "model"; model: LlamaModelInfo } | { type: "download" } | { type: "close" };
+type LlamaManagerAction = { type: "model"; model: LlamaModelInfo } | { type: "download" } | { type: "close" };
 
 type InputHandler = Pick<Component, "handleInput" | "capturesViewportInput">;
 

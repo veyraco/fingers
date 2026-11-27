@@ -8,7 +8,7 @@ import type { DocumentationVariant, EvalTask } from "./plan.ts";
 
 export const FINGERS_SESSION_SNAPSHOT_ARTIFACT = "fingersSessionJsonl";
 
-export type EvalRunIdentity = {
+type EvalRunIdentity = {
 	evalSet: string;
 	caseId: string;
 	variant: DocumentationVariant;
@@ -33,14 +33,14 @@ export type EvalObservation = EvalRunIdentity &
 	EvalMetrics &
 	({ outcome: "scored"; score: number } | { outcome: "unscored" | "skipped" | "pending" | "errored" });
 
-export type PairedMetricSummary = {
+type PairedMetricSummary = {
 	eligiblePairs: number;
 	controlMean: number | null;
 	treatmentMean: number | null;
 	meanDelta: number | null;
 };
 
-export type EvalSetComparison = {
+type EvalSetComparison = {
 	evalSet: string;
 	totalPairs: number;
 	eligiblePairs: number;
@@ -55,11 +55,11 @@ export type EvalSetComparison = {
 	estimatedCostUsd: PairedMetricSummary;
 };
 
-export type BlockedPair = Omit<EvalRunIdentity, "variant"> & { reasons: string[] };
+type BlockedPair = Omit<EvalRunIdentity, "variant"> & { reasons: string[] };
 
-export type OperationalMetricTotal = { availableRuns: number; total: number | null };
+type OperationalMetricTotal = { availableRuns: number; total: number | null };
 
-export type VariantTotals = {
+type VariantTotals = {
 	variant: DocumentationVariant;
 	runs: number;
 	inputTokens: OperationalMetricTotal;
@@ -72,7 +72,7 @@ export type VariantTotals = {
 	estimatedCostUsd: OperationalMetricTotal;
 };
 
-export type EvalComparisonReport = {
+type EvalComparisonReport = {
 	schemaVersion: 3;
 	protocolDigest: string;
 	control: "without_docs";

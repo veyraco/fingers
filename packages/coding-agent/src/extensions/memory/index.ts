@@ -1,5 +1,5 @@
 /**
- * Open core: the built-in extension through which a memory provider acts on the terminal app's sessions (F20). It is
+ * Open core: the built-in extension through which a memory provider acts on the terminal app's sessions. It is
  * MIT and holds no provider: it uses the process' memory providers (core/memory/registry.ts), which the ee gate fills
  * with the Brain provider while Brain is on. With no provider (core only, signed out, a tier without Brain, outside a
  * repository with a remote, print and JSON modes) it changes nothing and offers no memory tools.

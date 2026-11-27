@@ -128,7 +128,7 @@ export interface BrowserSessionOptions {
 	maxTextChars?: number;
 }
 
-export interface PageText {
+interface PageText {
 	title: string;
 	url: string;
 	text: string;
@@ -166,7 +166,7 @@ function requestTarget(url: string): string | undefined {
 }
 
 /** Origin of a URL for logs (never path, query or fragment). */
-export function originOf(url: string): string {
+function originOf(url: string): string {
 	try {
 		const parsed = new URL(url);
 		return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : parsed.protocol;

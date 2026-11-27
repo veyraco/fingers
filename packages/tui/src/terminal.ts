@@ -21,13 +21,9 @@ const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u`;
 const DEVICE_ATTRIBUTES_QUERY = "\x1b[c";
 
-export type KeyboardProtocolNegotiationSequence =
-	| { type: "kitty-flags"; flags: number }
-	| { type: "device-attributes" };
+type KeyboardProtocolNegotiationSequence = { type: "kitty-flags"; flags: number } | { type: "device-attributes" };
 
-export function parseKeyboardProtocolNegotiationSequence(
-	sequence: string,
-): KeyboardProtocolNegotiationSequence | undefined {
+function parseKeyboardProtocolNegotiationSequence(sequence: string): KeyboardProtocolNegotiationSequence | undefined {
 	const kittyFlags = sequence.match(/^\x1b\[\?(\d+)u$/);
 	if (kittyFlags) {
 		return { type: "kitty-flags", flags: Number.parseInt(kittyFlags[1]!, 10) };

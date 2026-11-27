@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Brain memory (F20): the Brain provider against a mock of Brain's public API built from its contract
+ * Brain memory: the Brain provider against a mock of Brain's public API built from its contract
  * (veyraco/platform contracts/openapi/brain.yaml 1.0.0-rc.1: assembleContext, recall, remember,
  * reportLearningEvents on `subject:project:<repository>`), the feature through the real gate and core (on only with a
  * tier that includes Brain, a sign-in and a repository; otherwise a quiet no-op), a whole session against the mock,

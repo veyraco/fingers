@@ -36,7 +36,7 @@ function assistant(model: string, content: AssistantMessage["content"]): Assista
 }
 
 describe("thinking from other models", () => {
-	// https://github.com/veyraco/fingers/issues/10995
+	// upstream #10995
 	it("does not send another model's readable thinking as text", () => {
 		const messages: Message[] = [
 			{ role: "user", content: "Why does curl work but node fails?", timestamp: Date.now() },

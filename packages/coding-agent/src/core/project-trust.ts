@@ -12,7 +12,7 @@ import {
 
 export type AppMode = "interactive" | "print" | "json" | "rpc";
 
-export interface ResolveProjectTrustedOptions {
+interface ResolveProjectTrustedOptions {
 	cwd: string;
 	trustStore: ProjectTrustStore;
 	trustOverride?: boolean;

@@ -254,7 +254,7 @@ export type SwitchSessionHandler = (
 	options?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 ) => Promise<{ cancelled: boolean }>;
 
-export type ReloadHandler = () => Promise<void>;
+type ReloadHandler = () => Promise<void>;
 
 export type ShutdownHandler = () => void;
 

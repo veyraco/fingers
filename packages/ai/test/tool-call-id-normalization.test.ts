@@ -7,7 +7,7 @@
  * OpenAI Responses API generates IDs in format: {call_id}|{id}
  * where {id} can be 400+ chars with special characters (+, /, =).
  *
- * Regression test for: https://github.com/veyraco/fingers/issues/1022
+ * Regression test for: upstream #1022
  */
 
 import { Type } from "typebox";

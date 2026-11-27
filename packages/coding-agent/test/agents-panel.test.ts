@@ -1,5 +1,5 @@
 /**
- * The sub-agents panel (F19, canvas FingersTuiAgents) with a stand-in engine, rendered into a 120x36 virtual
+ * The sub-agents panel (canvas FingersTuiAgents) with a stand-in engine, rendered into a 120x36 virtual
  * terminal: the table, the models line, the selected sub-agent's last activity box and the key hints as on the
  * artboard; the keys act on the selected sub-agent (steer reaches the right one; approve lets its held question
  * through; pause, stop, checkpoint, resume from where it paused or from a checkpoint; open shows its transcript);

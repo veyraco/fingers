@@ -1,5 +1,4 @@
 import { pathToFileURL } from "node:url";
-import type { ImageContent, TextContent } from "@veyraco/fingers-ai";
 import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@veyraco/fingers-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
@@ -77,11 +76,6 @@ export function getTextOutput(
 	return output;
 }
 
-export type ToolRenderResultLike<TDetails> = {
-	content: (TextContent | ImageContent)[];
-	details: TDetails;
-};
-
 const COLLAPSED_ARGS_CHARS = 100;
 
 /**
@@ -110,7 +104,7 @@ export function formatToolCallWithArgs(title: string, args: unknown, theme: Them
 }
 
 /** Duration as `4.2s` below a minute, then `1m 30s` and `2h 3m 4s`. */
-export function formatToolDuration(ms: number): string {
+function formatToolDuration(ms: number): string {
 	const seconds = ms / 1000;
 	if (seconds < 60) return `${seconds.toFixed(1)}s`;
 

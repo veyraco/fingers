@@ -1,5 +1,5 @@
 /**
- * Sub-agents in managed RPC mode (F18b; contracts/v1/fingers-rpc.md, Sub-agents, amendment 2026-11-27).
+ * Sub-agents in managed RPC mode (contracts/v1/fingers-rpc.md, Sub-agents, amendment 2026-11-27).
  *
  * The engine is an ee feature. In the terminal app the ee gate turns it on from the signed-in organization's tier;
  * a managed process has no sign-in: the host (Hands) decides from the organization's entitlement and says so with

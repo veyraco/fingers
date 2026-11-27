@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Veyra. Licensed under the Veyra Fingers Enterprise License (ee/LICENSE); not MIT.
 /**
- * Sub-agents in managed RPC mode (F18b) with the real ee engine: the managed server activates this module with only
+ * Sub-agents in managed RPC mode with the real ee engine: the managed server activates this module with only
  * `subagents` on, the host turns them on with `configure.subagents`, and children run as real sessions in real git
  * worktrees under the managed gate; their changes merge into the workspace; a sub-agent checkpoint over RPC keeps its
  * worktree and transcript and rolls both back; a repository whose root lies outside the workspace gets no worktree.

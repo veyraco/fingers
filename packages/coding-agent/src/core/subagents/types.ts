@@ -5,10 +5,10 @@
  * parent's working tree. The core offers the `agents` tool (extensions/subagents/index.ts), makes the child sessions
  * (child-session.ts: same credentials, the parent's settings and approvals) and keeps the engine that is live
  * (registry.ts). Without an engine (core only, signed out, a tier without sub-agents, print and JSON modes, managed
- * RPC without `configure.subagents`) the tool is not offered. In managed RPC (F18b) the host's gate, tools and
+ * RPC without `configure.subagents`) the tool is not offered. In managed RPC the host's gate, tools and
  * limits apply to every child (modes/rpc/managed).
  *
- * The `/agents` panel (F19, modes/interactive/components/agents-panel.ts) lists them and can open, approve, steer,
+ * The `/agents` panel (modes/interactive/components/agents-panel.ts) lists them and can open, approve, steer,
  * pause, stop, checkpoint and resume one; checkpoints (a commit of the child's worktree plus a point of its
  * transcript) are kept in this process.
  *
@@ -113,7 +113,7 @@ export interface SubagentInfo {
 	keptWorktree?: string;
 	startedAt?: number;
 	endedAt?: number;
-	/** Its checkpoints, oldest first (F19). */
+	/** Its checkpoints, oldest first. */
 	checkpoints?: SubagentCheckpoint[];
 	/** For `waiting_approval`: what it asks. */
 	pendingApproval?: SubagentApprovalRequest;
@@ -230,7 +230,7 @@ export interface SubagentEngine {
 	stop(id: string): boolean;
 	/** The sub-agents of this process, oldest first. */
 	list(): readonly SubagentInfo[];
-	/** Holds a running child before its next model call (F19). False when there is no running child with that id. */
+	/** Holds a running child before its next model call. False when there is no running child with that id. */
 	pause(id: string): boolean;
 	/**
 	 * Lets a paused child go on; with `checkpoint`, first rolls its files and transcript back to that checkpoint.

@@ -1,4 +1,4 @@
-export interface ThemeTokenDescriptor {
+interface ThemeTokenDescriptor {
 	slot: "foreground" | "background";
 	description: string;
 	fallback?: string;

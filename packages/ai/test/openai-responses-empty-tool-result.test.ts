@@ -24,7 +24,7 @@ function buildEmptyToolResult(toolCallId: string, timestamp: number, text = ""):
 }
 
 describe("OpenAI Responses convertResponsesMessages empty tool result", () => {
-	// Whitespace-only cases: https://github.com/veyraco/fingers/issues/8720
+	// Whitespace-only cases: upstream #8720
 	it.each(["", "\r\n", " \n\t"])(
 		"uses '(no tool output)' placeholder for tool result text %j without images",
 		(text) => {

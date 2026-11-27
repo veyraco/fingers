@@ -69,10 +69,10 @@ export function loadAllHighlightLanguages(): Promise<void> {
 	return allLanguagesPromise;
 }
 
-export type HighlightFormatter = (text: string) => string;
-export type HighlightTheme = Partial<Record<string, HighlightFormatter>>;
+type HighlightFormatter = (text: string) => string;
+type HighlightTheme = Partial<Record<string, HighlightFormatter>>;
 
-export interface HighlightOptions {
+interface HighlightOptions {
 	language?: string;
 	ignoreIllegals?: boolean;
 	languageSubset?: string[];

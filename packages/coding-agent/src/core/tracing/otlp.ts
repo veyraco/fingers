@@ -1,5 +1,5 @@
 /**
- * The generic OTLP exporter (open core, F21): sends Fingers' spans to any OpenTelemetry collector or backend as
+ * The generic OTLP exporter (open core): sends Fingers' spans to any OpenTelemetry collector or backend as
  * OTLP/HTTP JSON (`POST <endpoint>/v1/traces`). It batches, never blocks the session and drops what it cannot send.
  *
  * It is off unless the person configures it (FINGERS_OTLP_ENDPOINT); Fingers never sends telemetry on its own. ee's
@@ -181,7 +181,7 @@ export class OtlpHttpExporter implements SpanExporter {
 // Configuration from the environment
 // ---------------------------------------------------------------------------------------------------------------
 
-export interface OtlpEnvConfig {
+interface OtlpEnvConfig {
 	url: string;
 	headers: Record<string, string>;
 	content: boolean;

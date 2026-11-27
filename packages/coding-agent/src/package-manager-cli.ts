@@ -34,7 +34,7 @@ import {
 	quarantineWindowsNativeDependencies,
 } from "./utils/windows-self-update.ts";
 
-export type PackageCommand = "install" | "remove" | "update" | "list";
+type PackageCommand = "install" | "remove" | "update" | "list";
 
 type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string } | { type: "models" };
 
@@ -596,7 +596,7 @@ function prepareWindowsNpmSelfUpdate(): void {
 	quarantineWindowsNativeDependencies(packageDir);
 }
 
-export interface PackageCommandRuntimeOptions {
+interface PackageCommandRuntimeOptions {
 	extensionFactories?: InlineExtension[];
 }
 

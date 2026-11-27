@@ -1,5 +1,5 @@
 /**
- * F17: the savings ledger priced at the model in use and kept in the session file, and the token-saving report
+ * The savings ledger priced at the model in use and kept in the session file, and the token-saving report
  * (canvas FingersTuiSavings) built from a recorded task. The report's ee rows add up to the ledger's totals.
  */
 import type { AgentTool } from "@veyraco/fingers-agent";
@@ -353,7 +353,7 @@ describe("token-saving report of a recorded task", () => {
 		expect(unpriced.caching).toEqual({ tokens: 210_000, costUsd: 0 });
 	});
 
-	it("puts sub-agents' calls under their provider as sub-tasks (F18)", () => {
+	it("puts sub-agents' calls under their provider as sub-tasks", () => {
 		const cost = (total: number) => ({
 			input: 0,
 			output: 0,

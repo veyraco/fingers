@@ -47,7 +47,7 @@ type BrowserParams = {
 	expression?: string;
 };
 
-export interface BrowserToolDetails {
+interface BrowserToolDetails {
 	action: string;
 	url?: string;
 	blocked?: Array<{ host: string; port: number; reason: string }>;

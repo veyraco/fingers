@@ -8,7 +8,7 @@ import { diffLines } from "diff";
 import { resolveToCwd } from "../../../core/tools/path-utils.ts";
 import { WRITE_TOOLS } from "./path-policy.ts";
 
-export interface FileChange {
+interface FileChange {
 	path: string;
 	change: "added" | "modified" | "deleted";
 	additions: number;

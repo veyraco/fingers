@@ -18,7 +18,7 @@ import { estimateTokens, singleText } from "./text.ts";
 
 export const TRIM_MIN_LINES = 60;
 export const TAIL_LINES = 20;
-export const MAX_ERROR_LINES = 30;
+const MAX_ERROR_LINES = 30;
 
 const TRIMMED_TOOLS = new Set(["bash", "powershell"]);
 
@@ -30,7 +30,7 @@ export function isErrorLine(line: string): boolean {
 	return ERROR_LINE.test(line);
 }
 
-export interface TrimResult {
+interface TrimResult {
 	change: EeToolResultChange;
 	savedTokens: number;
 	keptLines: number;

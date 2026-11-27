@@ -499,7 +499,7 @@ describe("approvals extension", () => {
 		expect(isBuiltInAllowedCommand("ls", "other")).toBe(false);
 	});
 
-	it("asks for built-in commands while PATH has a folder the write tool can fill without asking (F10b)", async () => {
+	it("asks for built-in commands while PATH has a folder the write tool can fill without asking", async () => {
 		const saved = process.env.PATH;
 		try {
 			for (const path of [
@@ -530,7 +530,7 @@ describe("approvals extension", () => {
 		}
 	});
 
-	it("asks for rg while RIPGREP_CONFIG_PATH names a config file, unless --no-config comes first (F10b)", async () => {
+	it("asks for rg while RIPGREP_CONFIG_PATH names a config file, unless --no-config comes first", async () => {
 		const saved = process.env.RIPGREP_CONFIG_PATH;
 		try {
 			process.env.RIPGREP_CONFIG_PATH = "/tmp/ripgreprc";

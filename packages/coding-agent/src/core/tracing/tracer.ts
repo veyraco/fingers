@@ -1,5 +1,5 @@
 /**
- * The session tracer (open core, F21): turns what a session does into GenAI spans.
+ * The session tracer (open core): turns what a session does into GenAI spans.
  *
  * - A model call is a `chat` span (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.id`,
  *   `gen_ai.response.finish_reasons`, `gen_ai.usage.*` with the cache tokens, `gen_ai.conversation.id`). A failed
@@ -41,7 +41,7 @@ import {
 	withoutPayload,
 } from "./spans.ts";
 
-export interface SessionTracerOptions {
+interface SessionTracerOptions {
 	/** The exporters spans go to right now; none: no spans are made. Asked when a run starts and as each span ends. */
 	exporters(): readonly SpanExporter[];
 	/** The trace to continue (managed mode); undefined: each run starts its own trace with an `invoke_agent` span. */

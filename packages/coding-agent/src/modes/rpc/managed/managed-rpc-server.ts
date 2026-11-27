@@ -10,7 +10,7 @@
  * approvals, `usage`, `file_changed`, limits, checkpoints, the memory and telemetry relays and a `result` after
  * every `agent_settled`.
  *
- * With `configure.subagents.enabled` (F18b) the agent gets the `agents` tool of the ee sub-agent engine
+ * With `configure.subagents.enabled` the agent gets the `agents` tool of the ee sub-agent engine
  * (./subagents.ts): each child runs under the same gate (path policy on its worktree, approvals, the run's tools,
  * correlation headers, telemetry relay), its records are forwarded with its `agent_id`, its usage counts toward the
  * run's limits, and `steer`, `abort` and checkpoints can name it.
@@ -84,7 +84,7 @@ const CORRELATION_HEADER = /^(traceparent|x-request-id)$/i;
 /** `veyra.correlation_id` (contracts/v1/eyes-feed.md): the run's X-Request-Id when it has this shape. */
 const CORRELATION_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
-export interface ManagedConfigure {
+interface ManagedConfigure {
 	id: string;
 	type: "configure";
 	run_id?: string;
@@ -105,7 +105,7 @@ export interface ManagedConfigure {
 	/** `relay`: finished spans go to the host as `telemetry_span`; `off` (default): no spans. */
 	telemetry?: { mode?: string; capture_content?: boolean };
 	checkpoints?: { dir?: string };
-	/** `enabled`: the agent gets the `agents` tool (F18b); the host decided the organization may use sub-agents. */
+	/** `enabled`: the agent gets the `agents` tool; the host decided the organization may use sub-agents. */
 	subagents?: { enabled: boolean };
 }
 
@@ -117,7 +117,7 @@ export interface ManagedRuntimeFactoryInput {
 
 export type ManagedRuntimeFactory = (input: ManagedRuntimeFactoryInput) => Promise<AgentSessionRuntime>;
 
-export interface ManagedRpcIo {
+interface ManagedRpcIo {
 	/** One protocol line, LF-terminated. */
 	writeStdout(line: string): void;
 	/** One log line, LF-terminated. */
@@ -149,7 +149,7 @@ class ConfigureError extends Error {
 	}
 }
 
-/** The agent a tool call or a model request belongs to: the main agent or a sub-agent (F18b). */
+/** The agent a tool call or a model request belongs to: the main agent or a sub-agent. */
 interface GateAgent {
 	/** `main` or `sub_…`. */
 	id: string;
@@ -675,7 +675,7 @@ export class ManagedRpcServer {
 	}
 
 	// =====================================================================
-	// Sub-agents (F18b)
+	// Sub-agents
 	// =====================================================================
 
 	/** The run's built-in tools for a child: no browser, memory or agents of its own (and no MCP servers). */

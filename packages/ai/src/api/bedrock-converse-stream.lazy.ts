@@ -6,7 +6,7 @@ import { lazyApi } from "./lazy.ts";
  * (browser smoke, Bun compile) cannot follow the import into the Node-only
  * AWS SDK. The `.ts`/`.js` rewrite keeps the trick working from both source
  * and built output. The specifier is resolved against this module's URL, not
- * left relative: a bundler inlining this file (Chord's worker base) keeps the
+ * left relative: a bundler inlining this file (a worker bundle) keeps the
  * variable import, which would otherwise resolve against the bundle's location.
  */
 const importNodeOnlyApi = (specifier: string): Promise<unknown> => {

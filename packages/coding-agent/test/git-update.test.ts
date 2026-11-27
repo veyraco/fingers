@@ -190,7 +190,7 @@ describe("DefaultPackageManager git update", () => {
 	});
 
 	describe("git clean failures", () => {
-		// https://github.com/veyraco/fingers/issues/11597
+		// upstream #11597
 		it("should install dependencies and retry the clean later when git clean fails", async () => {
 			setupRemoteAndInstall();
 			const newCommit = createCommit(

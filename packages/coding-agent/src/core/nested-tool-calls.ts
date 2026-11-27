@@ -33,7 +33,7 @@ export const NESTED_CALL_LIMITS = {
 const encoder = new TextEncoder();
 
 /** What the nested calls of one model-issued tool call leave on its tool result message. */
-export interface NestedCallSummary {
+interface NestedCallSummary {
 	/** Becomes `nestedCalls`. Undefined when no nested call was made. */
 	calls: NestedToolCalls | undefined;
 	/** Summed `usage` of the nested results, added to the message's `usage`. */
@@ -100,7 +100,7 @@ export class NestedCallRecorder {
 	}
 }
 
-export interface NestedToolCallOptions {
+interface NestedToolCallOptions {
 	/** Defaults to the calling tool's signal. */
 	signal?: AbortSignal;
 	/** Receives partial results of the nested tool, in addition to `tool_execution_update` events. */

@@ -23,7 +23,7 @@ function formatData(data: unknown): string {
 }
 
 /** Format one `notifications/message` from `server` as a log line; continuation lines are indented. */
-export function formatMcpLogMessage(server: string, params: unknown, now: Date = new Date()): string {
+function formatMcpLogMessage(server: string, params: unknown, now: Date = new Date()): string {
 	const message = isRecord(params) ? params : { data: params };
 	const level = typeof message.level === "string" ? message.level : "info";
 	const logger = typeof message.logger === "string" && message.logger ? ` ${message.logger}:` : "";
