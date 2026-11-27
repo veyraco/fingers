@@ -9,8 +9,8 @@ import { commandSchema, commonSchema, eventSchema, responseSchema } from "./cont
 export const FINGERS_RPC_PROTOCOL = "veyra.fingers.rpc.v1";
 
 /**
- * Capabilities this build announces in `hello`. Sub-agents are part of the contract and run in the terminal app (F18),
- * but managed RPC keeps ee off and does not offer them yet (F18b); a host must not use them until they are announced.
+ * Capabilities this build always announces in `hello`. `browser` is added when a browser is found, and `subagents`
+ * (F18b) when this build has the ee sub-agent engine (managed-rpc-server.ts).
  */
 export const MANAGED_CAPABILITIES = [
 	"approvals",

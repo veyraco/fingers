@@ -2,11 +2,13 @@
  * `fingers --mode rpc --managed`: managed RPC mode on the process' stdin, stdout and stderr.
  */
 import { VERSION } from "../../../config.ts";
+import { loadEeModule } from "../../../core/edition/loader.ts";
 import { flushRawStdout, takeOverStdout, writeRawStdout } from "../../../core/output-guard.ts";
 import { killTrackedDetachedChildren } from "../../../utils/shell.ts";
 import { attachJsonlLineReader } from "../jsonl.ts";
 import { ManagedRpcServer } from "./managed-rpc-server.ts";
 import { createManagedRuntimeFactory, type ManagedRuntimeOptions } from "./managed-runtime.ts";
+import { managedSubagentEngine } from "./subagents.ts";
 
 export { ManagedRpcServer, type ManagedRpcServerOptions, type ManagedRuntimeFactory } from "./managed-rpc-server.ts";
 export { createManagedRuntimeFactory, type ManagedRuntimeOptions } from "./managed-runtime.ts";
@@ -18,6 +20,8 @@ function logLevel(): "debug" | "info" | "warn" | "error" {
 
 export async function runManagedRpcMode(options: ManagedRuntimeOptions = {}): Promise<never> {
 	takeOverStdout();
+	// Sub-agents (F18b) are the ee module's; a build without it announces none.
+	const eeModule = await loadEeModule().catch(() => undefined);
 	const server = new ManagedRpcServer({
 		io: {
 			writeStdout: (line) => writeRawStdout(line),
@@ -29,6 +33,7 @@ export async function runManagedRpcMode(options: ManagedRuntimeOptions = {}): Pr
 		version: VERSION,
 		env: process.env.FINGERS_ENV ?? process.env.VEYRA_ENV ?? "local",
 		logLevel: logLevel(),
+		subagentEngine: (checkpointsOn) => managedSubagentEngine(eeModule, checkpointsOn),
 	});
 
 	let exiting = false;

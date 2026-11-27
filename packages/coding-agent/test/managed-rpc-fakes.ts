@@ -18,6 +18,7 @@ const BUILTIN_TOOLS = new Set([
 	"browser",
 	"memory_recall",
 	"memory_remember",
+	"agents",
 ]);
 
 /** The golden transcripts name an MCP tool `<server>__<tool>`; Fingers declares it as `mcp__<server>__<tool>`. */
@@ -48,7 +49,15 @@ export async function listen(server: Server): Promise<string> {
 	return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-export function startFakeAnthropic(responses: ScriptedResponse[]) {
+/**
+ * `responses`: scripted answers in request order, or a function that answers each request (it may wait, e.g. until a
+ * test lets a sub-agent go on).
+ */
+export function startFakeAnthropic(
+	responses:
+		| ScriptedResponse[]
+		| ((body: Rec, index: number) => ScriptedResponse | undefined | Promise<ScriptedResponse | undefined>),
+) {
 	const requests: Array<{ headers: IncomingMessage["headers"]; body: Rec }> = [];
 	let index = 0;
 	const server = createServer(async (request, response) => {
@@ -58,8 +67,10 @@ export function startFakeAnthropic(responses: ScriptedResponse[]) {
 			response.writeHead(404).end();
 			return;
 		}
-		requests.push({ headers: request.headers, body: JSON.parse(body) });
-		const scripted = responses[index++];
+		const parsed = JSON.parse(body) as Rec;
+		requests.push({ headers: request.headers, body: parsed });
+		const current = index++;
+		const scripted = Array.isArray(responses) ? responses[current] : await responses(parsed, current);
 		if (!scripted) {
 			response
 				.writeHead(500, { "content-type": "application/json" })

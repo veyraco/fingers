@@ -60,7 +60,9 @@ Fingers turns an ee feature on only when all of these hold:
 Otherwise Fingers is "core only": the status line says so, `fingers whoami` and `/org` say why, and an ee command
 shows what it needs instead of running. Your work goes on with the core. Fingers checks with Connect when it starts,
 after `/login` and `/org`, and every hour; see [Open core](slash-commands.md#open-core) in the slash command
-reference for the details. Managed RPC, print and JSON modes keep ee off: there Fingers holds no Veyra token.
+reference for the details. Managed RPC, print and JSON modes keep ee off: there Fingers holds no Veyra token. The
+one exception is sub-agents in managed RPC: the host (Veyra Hands) decides from your organization's entitlement and
+turns them on for a run with `configure.subagents`; no other ee feature runs there.
 
 ## The boundary
 

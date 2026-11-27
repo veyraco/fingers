@@ -6,6 +6,9 @@
  * the default built-in tools and no extension of its own beyond those approvals: no `agents` tool (no grandchildren),
  * no MCP servers, no memory and no telemetry. Its transcript stays in memory.
  *
+ * Managed RPC (F18b) gives a child its own gate instead of the terminal approvals (ChildSessionHooks): the host's path
+ * policy and approvals, the run's tools and no skills, and it watches the child's session to forward its records.
+ *
  * The `/agents` panel (F19) controls a child through it: while the panel is open, a child's approval question waits
  * on the registry's approval desk until the person opens it there; pause holds the child before its next model call
  * (a step that runs finishes first; nothing of its transcript or files changes); atRest runs a task at such a point,
@@ -62,6 +65,40 @@ export function subagentRules(options: { id: string; label: string; cwd: string 
 	].join("\n");
 }
 
+/** The child a hook is called for. */
+export interface ChildIdentity {
+	id: string;
+	label: string;
+	/** Its working directory (inside its worktree). */
+	cwd: string;
+}
+
+/** What a child's own gate gets from it (ChildSessionHooks.extensions). */
+export interface ChildGateContext extends ChildIdentity {
+	/** Tell the engine the child waits for an approval (with the question) or no longer does. */
+	waiting(waiting: boolean, request?: SubagentApprovalRequest): void;
+	/** Aborted when the child stops or is rolled back: a question it still waits on is then dropped. */
+	signal(): AbortSignal;
+}
+
+/**
+ * How a host other than the terminal app (managed RPC) shapes a child. Without hooks a child gets the default built-in
+ * tools, skills, and the parent's approvals asked in the parent's terminal.
+ */
+export interface ChildSessionHooks {
+	/** The tools the child may use (default: the default built-in tools). */
+	tools?: readonly string[];
+	/** No skills (the managed policy). */
+	noSkills?: boolean;
+	/** Extensions in place of the terminal approvals: they gate the child's tool calls themselves. */
+	extensions?(child: ChildGateContext): InlineExtension[];
+	/**
+	 * Called once the child's session exists, before the child's own listeners, so the host sees each of its events
+	 * first. Returns what to call when the child is disposed.
+	 */
+	attach?(child: ChildIdentity, session: AgentSession): (() => void) | undefined;
+}
+
 export interface ChildSessionDeps {
 	/** The parent's model runtime: the child's model calls use the same credentials. */
 	modelRuntime: ModelRuntime;
@@ -81,6 +118,8 @@ export interface ChildSessionDeps {
 	approvalQueue?: ApprovalQueue;
 	/** Where a question waits while the `/agents` panel is open (default: asked at once). */
 	approvalDesk?: SubagentApprovalDesk;
+	/** A host's own gate, tools and watcher for the child (managed RPC). */
+	hooks?: ChildSessionHooks;
 }
 
 /** Runs approval questions one after another, so two children never draw two boxes at once. */
@@ -219,10 +258,17 @@ export async function createChildSession(
 			for (const listener of waiting) listener(false);
 		}
 	};
-	const approvals: InlineExtension = {
-		name: "approvals",
-		factory: createApprovalsExtension({ ask: childAsk }),
-	};
+	const identity: ChildIdentity = { id: options.id, label: options.label, cwd: options.cwd };
+	const hooks = deps.hooks;
+	const gate: InlineExtension[] = hooks?.extensions
+		? hooks.extensions({
+				...identity,
+				waiting: (on, request) => {
+					for (const listener of waiting) listener(on, request);
+				},
+				signal: () => questions.signal,
+			})
+		: [{ name: "approvals", factory: createApprovalsExtension({ ask: childAsk }) }];
 
 	// Pause, checkpoints and roll-back: every model call of the child passes this gate first (its `context` event),
 	// at a point where each step it started has its result.
@@ -269,7 +315,8 @@ export async function createChildSession(
 		agentDir,
 		settingsManager,
 		noExtensions: true,
-		extensionFactories: [approvals, control],
+		extensionFactories: [...gate, control],
+		noSkills: hooks?.noSkills === true,
 		noPromptTemplates: true,
 		noThemes: true,
 		appendSystemPromptOverride: (base) => [...base, rules],
@@ -284,8 +331,17 @@ export async function createChildSession(
 		settingsManager,
 		sessionManager: SessionManager.inMemory(options.cwd),
 		resourceLoader,
+		...(hooks?.tools ? { tools: [...hooks.tools] } : {}),
 	}));
 	await session.bindExtensions({ uiContext: deps.ui, mode: deps.mode, onError: () => {} });
+	// The host watches first: a model call's records and limits are handled before the engine hears of its usage.
+	let detach: (() => void) | undefined;
+	try {
+		detach = hooks?.attach?.(identity, session);
+	} catch (error) {
+		session.dispose();
+		throw error;
+	}
 
 	const usageListeners = new Set<(usage: Usage) => void>();
 	const activityListeners = new Set<(line: string) => void>();
@@ -467,6 +523,11 @@ export async function createChildSession(
 			if (disposed) return;
 			disposed = true;
 			unsubscribe();
+			try {
+				detach?.();
+			} catch {
+				// The host's cleanup must not stop the child's.
+			}
 			usageListeners.clear();
 			activityListeners.clear();
 			waiting.clear();
